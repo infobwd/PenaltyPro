@@ -190,7 +190,25 @@ function getData() {
   for(let i=1; i<matchesData.length; i++) {
       if(matchesData[i][0]) {
           const mid = String(matchesData[i][0]);
-          matches.push({ id: mid, teamA: matchesData[i][1], teamB: matchesData[i][2], scoreA: matchesData[i][3], scoreB: matchesData[i][4], winner: matchesData[i][5], date: matchesData[i][6], summary: matchesData[i][7], roundLabel: matchesData[i][8] || '', status: matchesData[i][9] || 'Finished', venue: matchesData[i][10] || '', scheduledTime: matchesData[i][11] || '', livestreamUrl: matchesData[i][12] || '', livestreamCover: toLh3Link(matchesData[i][13]), tournamentId: matchesData[i][14] || 'default', kicks: allKicks.filter(k => k.matchId === mid) });
+          // Use index 14 for TournamentID, defaulting to 'default' if undefined/empty
+          matches.push({ 
+              id: mid, 
+              teamA: matchesData[i][1], 
+              teamB: matchesData[i][2], 
+              scoreA: matchesData[i][3], 
+              scoreB: matchesData[i][4], 
+              winner: matchesData[i][5], 
+              date: matchesData[i][6], 
+              summary: matchesData[i][7], 
+              roundLabel: matchesData[i][8] || '', 
+              status: matchesData[i][9] || 'Finished', 
+              venue: matchesData[i][10] || '', 
+              scheduledTime: matchesData[i][11] || '', 
+              livestreamUrl: matchesData[i][12] || '', 
+              livestreamCover: toLh3Link(matchesData[i][13]), 
+              tournamentId: matchesData[i][14] || 'default', 
+              kicks: allKicks.filter(k => k.matchId === mid) 
+          });
       }
   }
 
@@ -296,8 +314,8 @@ function updateTeamStatus(teamId, status, group, reason) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(teamId)) {
-      sheet.getRange(i + 1, 6).setValue(status);
-      if (group) sheet.getRange(i + 1, 7).setValue(group); 
+      if(status !== undefined) sheet.getRange(i + 1, 6).setValue(status);
+      if (group !== undefined) sheet.getRange(i + 1, 7).setValue(group); 
       if (reason !== undefined) sheet.getRange(i + 1, 17).setValue(reason);
       return successResponse({ status: 'success' });
     }
@@ -316,15 +334,15 @@ function updateTeamData(team, players) {
   const tData = teamSheet.getDataRange().getValues();
   for (let i = 1; i < tData.length; i++) {
       if (String(tData[i][0]) === String(team.id)) {
-          if (team.name) teamSheet.getRange(i+1, 2).setValue(team.name);
-          if (team.color) teamSheet.getRange(i+1, 4).setValue(team.color);
-          if (team.district) teamSheet.getRange(i+1, 8).setValue(team.district);
-          if (team.province) teamSheet.getRange(i+1, 9).setValue(team.province);
-          if (team.directorName) teamSheet.getRange(i+1, 10).setValue(team.directorName);
-          if (team.managerName) teamSheet.getRange(i+1, 11).setValue(team.managerName);
-          if (team.managerPhone) teamSheet.getRange(i+1, 12).setValue("'" + team.managerPhone);
-          if (team.coachName) teamSheet.getRange(i+1, 13).setValue(team.coachName);
-          if (team.coachPhone) teamSheet.getRange(i+1, 14).setValue("'" + team.coachPhone);
+          if (team.name !== undefined) teamSheet.getRange(i+1, 2).setValue(team.name);
+          if (team.color !== undefined) teamSheet.getRange(i+1, 4).setValue(team.color);
+          if (team.district !== undefined) teamSheet.getRange(i+1, 8).setValue(team.district);
+          if (team.province !== undefined) teamSheet.getRange(i+1, 9).setValue(team.province);
+          if (team.directorName !== undefined) teamSheet.getRange(i+1, 10).setValue(team.directorName);
+          if (team.managerName !== undefined) teamSheet.getRange(i+1, 11).setValue(team.managerName);
+          if (team.managerPhone !== undefined) teamSheet.getRange(i+1, 12).setValue("'" + team.managerPhone);
+          if (team.coachName !== undefined) teamSheet.getRange(i+1, 13).setValue(team.coachName);
+          if (team.coachPhone !== undefined) teamSheet.getRange(i+1, 14).setValue("'" + team.coachPhone);
           // Allow clearing the group if empty string passed
           if (team.group !== undefined) teamSheet.getRange(i+1, 7).setValue(team.group);
 
@@ -359,11 +377,11 @@ function updateTeamData(team, players) {
           // Try to find existing player by ID
           for (let j = 1; j < pData.length; j++) {
               if (String(pData[j][0]) === String(p.id)) {
-                  playerSheet.getRange(j+1, 3).setValue(p.name);
-                  playerSheet.getRange(j+1, 4).setValue("'" + p.number);
-                  playerSheet.getRange(j+1, 5).setValue(p.position || 'Player');
+                  if(p.name !== undefined) playerSheet.getRange(j+1, 3).setValue(p.name);
+                  if(p.number !== undefined) playerSheet.getRange(j+1, 4).setValue("'" + p.number);
+                  if(p.position !== undefined) playerSheet.getRange(j+1, 5).setValue(p.position || 'Player');
                   if (photoLink !== undefined) playerSheet.getRange(j+1, 6).setValue(photoLink); 
-                  if (p.birthDate) playerSheet.getRange(j+1, 7).setValue(p.birthDate);
+                  if (p.birthDate !== undefined) playerSheet.getRange(j+1, 7).setValue(p.birthDate);
                   
                   if (p.photoUrl === '') playerSheet.getRange(j+1, 6).setValue('');
 
@@ -506,25 +524,68 @@ function saveSettings(settings) {
 function scheduleMatch(data) {
     const ss = getSpreadsheet();
     let sheet = ss.getSheetByName("Matches");
-    if (!sheet) { sheet = ss.insertSheet("Matches"); sheet.appendRow(["MatchID","TeamA","TeamB","ScoreA","ScoreB","Winner","Date","Summary","Round","Status","Venue","ScheduledTime","LiveURL","LiveCover","TournamentID"]); }
+    if (!sheet) { 
+        sheet = ss.insertSheet("Matches"); 
+        sheet.appendRow(["MatchID","TeamA","TeamB","ScoreA","ScoreB","Winner","Date","Summary","Round","Status","Venue","ScheduledTime","LiveURL","LiveCover","TournamentID"]); 
+    }
+    
     const rows = sheet.getDataRange().getValues();
     let rowIndex = -1;
-    for (let i = 1; i < rows.length; i++) { if (String(rows[i][0]) === String(data.matchId)) { rowIndex = i + 1; break; } }
-    let coverUrl = "";
-    if (data.livestreamCover && data.livestreamCover.startsWith("data:")) coverUrl = saveFileToDrive(data.livestreamCover, `cover_${data.matchId}`); else if (data.livestreamCover) coverUrl = data.livestreamCover;
-    if (rowIndex === -1) {
-        sheet.appendRow([ data.matchId, data.teamA, data.teamB, 0, 0, '', new Date().toISOString(), '', data.roundLabel, 'Scheduled', data.venue, data.scheduledTime, data.livestreamUrl, coverUrl, data.tournamentId || 'default' ]);
-    } else {
-        if(data.teamA) sheet.getRange(rowIndex, 2).setValue(data.teamA);
-        if(data.teamB) sheet.getRange(rowIndex, 3).setValue(data.teamB);
-        sheet.getRange(rowIndex, 9).setValue(data.roundLabel);
-        sheet.getRange(rowIndex, 11).setValue(data.venue);
-        sheet.getRange(rowIndex, 12).setValue(data.scheduledTime);
-        sheet.getRange(rowIndex, 13).setValue(data.livestreamUrl);
-        if (coverUrl) sheet.getRange(rowIndex, 14).setValue(coverUrl);
-        if (data.tournamentId) sheet.getRange(rowIndex, 15).setValue(data.tournamentId);
+    let matchId = data.matchId;
+
+    // 1. Try to find match by ID
+    for (let i = 1; i < rows.length; i++) { 
+        if (String(rows[i][0]) === String(matchId)) { 
+            rowIndex = i + 1; 
+            break; 
+        } 
     }
-    return successResponse({ status: 'success' });
+
+    // 2. If ID not found (or passed ID is temp/null), try to find by Round Label + TournamentID (To avoid duplicates in bracket)
+    if (rowIndex === -1 && data.roundLabel) {
+        const reqTId = data.tournamentId ? String(data.tournamentId) : 'default';
+        for (let i = 1; i < rows.length; i++) {
+            // Check Round (Index 8) and Tournament (Index 14)
+            const rowTId = rows[i][14] ? String(rows[i][14]) : 'default';
+            if (String(rows[i][8]) === String(data.roundLabel) && rowTId === reqTId) {
+                rowIndex = i + 1;
+                // Important: Adopt the existing ID so we don't create a new one
+                matchId = String(rows[i][0]);
+                break;
+            }
+        }
+    }
+    
+    let coverUrl = "";
+    if (data.livestreamCover && data.livestreamCover.startsWith("data:")) coverUrl = saveFileToDrive(data.livestreamCover, `cover_${matchId}`); 
+    else if (data.livestreamCover !== undefined) coverUrl = data.livestreamCover;
+
+    if (rowIndex === -1) {
+        // Create NEW Row
+        // Ensure ID is set
+        if (!matchId || matchId.includes('TEMP')) matchId = "M_" + Date.now();
+        
+        sheet.appendRow([ 
+            matchId, 
+            data.teamA !== undefined ? data.teamA : '', 
+            data.teamB !== undefined ? data.teamB : '', 
+            0, 0, '', new Date().toISOString(), '', 
+            data.roundLabel || '', 'Scheduled', 
+            data.venue || '', data.scheduledTime || '', 
+            data.livestreamUrl || '', coverUrl, data.tournamentId || 'default' 
+        ]);
+    } else {
+        // Update EXISTING Row (Partial Update)
+        if(data.teamA !== undefined) sheet.getRange(rowIndex, 2).setValue(data.teamA);
+        if(data.teamB !== undefined) sheet.getRange(rowIndex, 3).setValue(data.teamB);
+        if(data.roundLabel !== undefined) sheet.getRange(rowIndex, 9).setValue(data.roundLabel);
+        if(data.venue !== undefined) sheet.getRange(rowIndex, 11).setValue(data.venue);
+        if(data.scheduledTime !== undefined) sheet.getRange(rowIndex, 12).setValue(data.scheduledTime);
+        if(data.livestreamUrl !== undefined) sheet.getRange(rowIndex, 13).setValue(data.livestreamUrl);
+        if (coverUrl !== "") sheet.getRange(rowIndex, 14).setValue(coverUrl); 
+        if (data.tournamentId !== undefined) sheet.getRange(rowIndex, 15).setValue(data.tournamentId);
+    }
+    return successResponse({ status: 'success', matchId: matchId });
 }
 
 function deleteMatch(matchId) {
@@ -585,9 +646,9 @@ function manageNews(data) {
      const rows = sheet.getDataRange().getValues();
      for (let i = 1; i < rows.length; i++) {
          if (String(rows[i][0]) === String(item.id)) {
-             sheet.getRange(i+1, 2).setValue(item.title);
-             sheet.getRange(i+1, 3).setValue(item.content);
-             sheet.getRange(i+1, 7).setValue(item.tournamentId);
+             if(item.title !== undefined) sheet.getRange(i+1, 2).setValue(item.title);
+             if(item.content !== undefined) sheet.getRange(i+1, 3).setValue(item.content);
+             if(item.tournamentId !== undefined) sheet.getRange(i+1, 7).setValue(item.tournamentId);
              if (item.imageUrl && item.imageUrl.startsWith('data:')) {
                  const url = saveFileToDrive(item.imageUrl, `news_img_${Date.now()}`);
                  sheet.getRange(i+1, 4).setValue(url);
