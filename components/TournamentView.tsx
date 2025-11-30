@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
 import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List } from 'lucide-react';
 import { scheduleMatch, saveMatchToSheet, deleteMatch } from '../services/sheetService';
@@ -29,11 +28,23 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   // New: Slot Selection for "Click to Assign"
   const [slotSelection, setSlotSelection] = useState<{ matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string } | null>(null);
 
+  // Ref to track if we have already auto-sized the bracket based on data
+  // This prevents the view from resetting to 32 teams when data updates if the user manually set it to 16
+  const hasAutoAdjusted = useRef(false);
+
   useEffect(() => {
-      // Auto-expand if teams > 16 OR if there are matches in R32
-      const hasR32Matches = matches.some(m => m.roundLabel && m.roundLabel.startsWith('R32'));
-      if (teams.length > 16 || hasR32Matches) {
-          setIsLargeBracket(true);
+      // If we have already auto-adjusted, don't do it again.
+      if (hasAutoAdjusted.current) return;
+
+      // Only attempt to adjust if data is present
+      if (teams.length > 0 || matches.length > 0) {
+          const hasR32Matches = matches.some(m => m.roundLabel && m.roundLabel.startsWith('R32'));
+          // Default to large if lots of teams or R32 matches exist
+          if (teams.length > 16 || hasR32Matches) {
+              setIsLargeBracket(true);
+          }
+          // Mark as done so we don't override user later
+          hasAutoAdjusted.current = true;
       }
   }, [teams.length, matches]);
 
