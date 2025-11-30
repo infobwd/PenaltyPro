@@ -1,0 +1,5 @@
+{
+  "name": "BWD Penalty Pro Recorder",
+  "description": "A professional penalty shootout recording application with Gemini-powered commentary and analysis. Features simulated Google Sheets export capability.",
+  "requestFramePermissions": []
+}
