@@ -16,8 +16,9 @@ import ScheduleList from './components/ScheduleList';
 import NewsFeed from './components/NewsFeed'; 
 import TournamentSelector from './components/TournamentSelector';
 import DonationDialog from './components/DonationDialog';
+import TeamEditModal from './components/TeamEditModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet } from './services/sheetService';
+import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
 import { initializeLiff } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users } from 'lucide-react';
@@ -95,8 +96,12 @@ function App() {
   const [distanceToVenue, setDistanceToVenue] = useState<string | null>(null);
   const [announcementIndex, setAnnouncementIndex] = useState(0);
   const [isDonationOpen, setIsDonationOpen] = useState(false);
-  const [isDonorListOpen, setIsDonorListOpen] = useState(false); // New State
+  const [isDonorListOpen, setIsDonorListOpen] = useState(false); 
   const [activeImageMode, setActiveImageMode] = useState<'before' | 'after'>('before');
+  
+  // Team Edit Modal State
+  const [isTeamEditModalOpen, setIsTeamEditModalOpen] = useState(false);
+  const [teamToEdit, setTeamToEdit] = useState<{team: Team, players: Player[]} | null>(null);
 
   const activeTeams = currentTournamentId ? availableTeams.filter(t => t.tournamentId === currentTournamentId || (!t.tournamentId && currentTournamentId === 'default')) : [];
   const activePlayers = currentTournamentId ? availablePlayers.filter(p => p.tournamentId === currentTournamentId || (!p.tournamentId && currentTournamentId === 'default')) : [];
@@ -129,7 +134,7 @@ function App() {
       description: tConfig.objective.description,
       goal: tConfig.objective.goal,
       images: tConfig.objective.images || [],
-      docUrl: tConfig.objective.docUrl // New
+      docUrl: tConfig.objective.docUrl
   } : {
       title: appConfig.objectiveTitle,
       description: appConfig.objectiveDescription,
@@ -149,22 +154,14 @@ function App() {
   const incomeFromFees = approvedTeamsCount * regFee;
   const verifiedDonations = activeDonations.filter(d => d.status === 'Verified').reduce((sum, d) => sum + d.amount, 0);
   
-  // Total Prizes
   const totalPrizeAmount = prizes.reduce((sum, p) => {
       const num = parseInt(p.amount.replace(/,/g, ''));
       return isNaN(num) ? sum : sum + num;
   }, 0);
   
-  // Total Income (Donations + Fees)
   const totalIncome = verifiedDonations + incomeFromFees;
-
-  // Net Raised (Income - Prizes)
   const netRaised = Math.max(0, totalIncome - totalPrizeAmount);
-
-  // Goal
   const goal = objectiveData.goal || 0;
-
-  // Progress based on Net Raised vs Goal
   const fundraisingProgress = goal > 0 ? Math.min(100, (netRaised / goal) * 100) : 0;
 
   useEffect(() => {
@@ -199,10 +196,8 @@ function App() {
           const teamId = params.get('teamId'); 
           const tournamentIdParam = params.get('tournamentId');
 
-          // Handle Deep Link for Tournament
           if (tournamentIdParam) {
               setCurrentTournamentId(tournamentIdParam);
-              // Clean up URL if possible, or just let it be
           } else if (view === 'match_detail' && id) { 
               setInitialMatchId(id); 
               setCurrentView('schedule'); 
@@ -246,7 +241,6 @@ function App() {
         setDonations(data.donations || []);
         if (!currentTournamentId) { 
             const savedTId = localStorage.getItem('current_tournament_id'); 
-            // Also check URL param for tournamentId here in case of race condition
             const params = new URLSearchParams(window.location.search);
             const urlTId = params.get('tournamentId');
 
@@ -263,14 +257,35 @@ function App() {
   };
 
   const handleRegisterClick = () => { if (isRegistrationFull) { showNotification("ขออภัย", "การลงทะเบียนเต็มจำนวนแล้ว", "info"); return; } setEditingTeamData(null); if (currentUser) setCurrentView('register'); else setIsUserLoginOpen(true); };
-  const handleEditMyTeam = (team: Team) => { if (registrationDeadline) { const deadline = new Date(registrationDeadline); if (new Date() > deadline && !isAdmin) { showNotification("ปิดรับสมัครแล้ว", "ไม่สามารถแก้ไขข้อมูลได้เนื่องจากเลยกำหนด", "warning"); return; } } const teamPlayers = activePlayers.filter(p => p.teamId === team.id); setEditingTeamData({ team, players: teamPlayers }); setCurrentView('register'); };
+  
+  const handleEditMyTeam = (team: Team) => { 
+      if (registrationDeadline) { 
+          const deadline = new Date(registrationDeadline); 
+          if (new Date() > deadline && !isAdmin) { 
+              showNotification("ปิดรับสมัครแล้ว", "ไม่สามารถแก้ไขข้อมูลได้เนื่องจากเลยกำหนด", "warning"); 
+              return; 
+          } 
+      } 
+      const teamPlayers = activePlayers.filter(p => p.teamId === team.id); 
+      setTeamToEdit({ team, players: teamPlayers }); 
+      setIsTeamEditModalOpen(true);
+  };
+
+  const handleSaveTeamEdit = async (updatedTeam: Team, updatedPlayers: Player[]) => {
+      try {
+          await updateMyTeam(updatedTeam, updatedPlayers, currentUser?.userId || '');
+          showNotification("สำเร็จ", "บันทึกข้อมูลเรียบร้อย", "success");
+          loadData(); // Refresh to see changes
+      } catch (error) {
+          showNotification("ผิดพลาด", "บันทึกข้อมูลไม่สำเร็จ", "error");
+      }
+  };
+
   const handleUserLoginSuccess = (user: UserProfile) => { setCurrentUser(user); if (user.role === 'admin') setIsAdmin(true); if (user.type === 'credentials') localStorage.setItem('penalty_pro_user', JSON.stringify(user)); showNotification("ยินดีต้อนรับ", `สวัสดีคุณ ${user.displayName}`, "success"); };
   const handleLogout = () => { authLogout(); setCurrentUser(null); setIsAdmin(false); showNotification("ออกจากระบบแล้ว"); };
   
   const startMatchSession = (teamA: Team, teamB: Team, matchId?: string) => { 
-      // Ensure we have a match ID, create one if not provided (e.g. ad-hoc match)
       const finalMatchId = matchId || `M_${Date.now()}`;
-      
       setMatchState({ 
           matchId: finalMatchId, 
           teamA, 
@@ -304,7 +319,7 @@ function App() {
           result, 
           timestamp: Date.now(), 
           tournamentId: currentTournamentId || 'default',
-          matchId: matchState.matchId || '' // Include Match ID
+          matchId: matchState.matchId || '' 
       }; 
       setMatchState(prev => { 
           if (!prev) return null; 
@@ -344,14 +359,14 @@ function App() {
           <div className="bg-slate-50 min-h-screen font-sans" style={{ fontFamily: "'Kanit', sans-serif" }}>
               <TournamentSelector 
                   tournaments={tournaments} 
-                  teams={availableTeams} // Pass teams data here
-                  donations={donations} // Pass donations here
+                  teams={availableTeams} 
+                  donations={donations} 
                   onSelect={(id) => { setCurrentTournamentId(id); localStorage.setItem('current_tournament_id', id); }} 
                   isAdmin={isAdmin} 
                   onRefresh={loadData}
                   showNotification={showNotification}
                   isLoading={isLoadingData}
-                  defaultFee={appConfig.registrationFee} // Pass default fee from global config
+                  defaultFee={appConfig.registrationFee} 
               />
               {!isAdmin && tournaments.length === 0 && (<div className="fixed bottom-4 right-4"><button onClick={() => setIsLoginOpen(true)} className="bg-white/50 p-2 rounded-full hover:bg-white transition text-slate-400"><Lock className="w-4 h-4"/></button></div>)}
               <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={() => { setIsAdmin(true); showNotification('เข้าสู่ระบบผู้ดูแลแล้ว'); }} />
@@ -377,7 +392,6 @@ function App() {
   return (
     <div className="bg-slate-50 min-h-screen text-slate-900 font-sans pb-24" style={{ fontFamily: "'Kanit', sans-serif" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-      {/* ... (rest of the render is unchanged) ... */}
       <SettingsDialog isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSave={loadData} currentSettings={appConfig} />
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={() => { setIsAdmin(true); if(currentView !== 'tournament') setCurrentView('admin'); showNotification('เข้าสู่ระบบผู้ดูแลแล้ว'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
@@ -390,6 +404,17 @@ function App() {
         tournamentId={currentTournamentId}
         currentUser={currentUser}
       />
+      
+      {/* Team Edit Modal for Users */}
+      {isTeamEditModalOpen && teamToEdit && (
+          <TeamEditModal
+              isOpen={isTeamEditModalOpen}
+              onClose={() => setIsTeamEditModalOpen(false)}
+              team={teamToEdit.team}
+              currentPlayers={teamToEdit.players}
+              onSave={handleSaveTeamEdit}
+          />
+      )}
       
       {/* Donor List Modal */}
       {isDonorListOpen && (
@@ -487,7 +512,6 @@ function App() {
         <div className="min-h-screen bg-slate-100">
           {connectionError && <div className="bg-red-50 border-b border-red-200 p-3 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-red-700 text-sm font-bold"><WifiOff className="w-4 h-4" /><span>{connectionError}</span></div><button onClick={loadData} className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50">ลองใหม่</button></div>}
           
-          {/* Top Bar */}
           <div className="bg-white sticky top-0 z-40 border-b border-slate-200 shadow-sm px-4 py-3 flex justify-between items-center">
               <div className="flex items-center gap-2">
                   <img src={effectiveSettings.competitionLogo || "https://via.placeholder.com/40"} className="w-8 h-8 object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
@@ -529,7 +553,6 @@ function App() {
               </div>
           </div>
 
-          {/* Banner & Hero */}
           <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 pb-12 relative overflow-hidden transition-all duration-300">
               <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
               <div className="relative z-10 max-w-4xl mx-auto">
@@ -566,7 +589,6 @@ function App() {
 
           <div className="max-w-4xl mx-auto px-4 -mt-8 relative z-20 space-y-6">
               
-              {/* Location Card */}
               <div className="bg-white rounded-xl shadow-lg p-4 flex items-center justify-between animate-in slide-in-from-bottom-2">
                   <div>
                     <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm sm:text-base">
@@ -592,7 +614,6 @@ function App() {
                   )}
               </div>
 
-              {/* Fundraising / Objective Card */}
               {(objectiveData.goal > 0 || objectiveData.title) && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-2">
                       <div className="p-0 relative">
@@ -656,7 +677,6 @@ function App() {
                   </div>
               )}
 
-              {/* LIVE MATCHES SCROLLER */}
               {liveMatches.length > 0 && (
                   <div className="space-y-2 animate-in slide-in-from-right-4">
                       <div className="flex items-center gap-2 px-1">
@@ -687,7 +707,6 @@ function App() {
                   </div>
               )}
 
-              {/* Penalty Mode / Match Setup */}
               {activeTournament?.type === 'Penalty' && (
                   <div className="animate-in slide-in-from-bottom-3">
                       <MatchSetup 
@@ -699,7 +718,6 @@ function App() {
                   </div>
               )}
 
-              {/* My Teams Section */}
               {currentUser && myTeams.length > 0 && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-4 animate-in slide-in-from-bottom-2">
                       <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><User className="w-5 h-5 text-indigo-600" /> ทีมของคุณ</h3>
@@ -722,7 +740,6 @@ function App() {
                   </div>
               )}
 
-              {/* Prize Summary Card */}
               {prizes.length > 0 && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
                       <div className="bg-gradient-to-r from-yellow-500 to-amber-500 p-4 text-white">
@@ -747,7 +764,6 @@ function App() {
                   </div>
               )}
 
-              {/* Recent Results (Horizontal Scroll) */}
               {recentFinishedMatches.length > 0 && (
                   <div className="space-y-3 animate-in slide-in-from-right-4">
                       <div className="flex items-center justify-between px-1">
@@ -792,7 +808,6 @@ function App() {
                   </div>
               )}
 
-              {/* News Feed */}
               <div className="pt-2">
                   <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
