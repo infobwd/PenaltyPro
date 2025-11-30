@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
-import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List } from 'lucide-react';
+import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal } from 'lucide-react';
 import { scheduleMatch, saveMatchToSheet, deleteMatch } from '../services/sheetService';
 import { shareMatch } from '../services/liffService';
 
@@ -29,7 +30,6 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   const [slotSelection, setSlotSelection] = useState<{ matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string } | null>(null);
 
   // Ref to track if we have already auto-sized the bracket based on data
-  // This prevents the view from resetting to 32 teams when data updates if the user manually set it to 16
   const hasAutoAdjusted = useRef(false);
 
   useEffect(() => {
@@ -120,6 +120,22 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       return grouped;
   }, [matches, teams]);
 
+  // Identify Winning Teams for Selection
+  const winningTeams = useMemo(() => {
+      const winners = new Set<string>();
+      matches.forEach(m => {
+          if (m.winner) {
+              const wName = m.winner === 'A' 
+                  ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)
+                  : m.winner === 'B' 
+                      ? (typeof m.teamB === 'string' ? m.teamB : m.teamB.name)
+                      : m.winner;
+              if (wName) winners.add(wName);
+          }
+      });
+      return teams.filter(t => winners.has(t.name));
+  }, [matches, teams]);
+
   // Helper to identify next round slot
   const getNextRoundInfo = (currentLabel: string) => {
       const numStr = currentLabel.match(/\d+/)?.[0];
@@ -133,8 +149,6 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       else if (currentLabel.startsWith('SF')) nextRoundLabel = `FINAL`;
       else return null;
 
-      // Logic: Odd match number goes to A, Even match number goes to B
-      // e.g. R16-1 -> QF1 (A), R16-2 -> QF1 (B)
       const nextSlot: 'A' | 'B' = (currentLabel.startsWith('SF') ? (currentLabel === 'SF1' ? 'A' : 'B') : (num % 2 !== 0 ? 'A' : 'B'));
       return { label: nextRoundLabel, slot: nextSlot };
   };
@@ -152,88 +166,46 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
           setLocalMatches(prev => {
               const newMatches = [...prev];
               
-              // A. Remove Current Match from local state if it's empty now
               const currentMatchIndex = newMatches.findIndex(m => m.roundLabel === roundLabel);
               if (currentMatchIndex >= 0) {
                   const m = newMatches[currentMatchIndex];
-                  
-                  // Use standard empty string
                   const newTeamA = slot === 'A' ? '' : m.teamA;
                   const newTeamB = slot === 'B' ? '' : m.teamB;
-                  
                   const isOtherEmpty = (!newTeamA || newTeamA === '') && (!newTeamB || newTeamB === '');
                   
                   if (isOtherEmpty) {
                       newMatches.splice(currentMatchIndex, 1);
                   } else {
-                      newMatches[currentMatchIndex] = {
-                          ...m,
-                          teamA: newTeamA,
-                          teamB: newTeamB
-                      };
+                      newMatches[currentMatchIndex] = { ...m, teamA: newTeamA, teamB: newTeamB };
                   }
               }
-
-              // B. Cascading Delete: Remove this team from Next Round
-              const nextInfo = getNextRoundInfo(roundLabel);
-              if (nextInfo) {
-                  const nextMatchIndex = newMatches.findIndex(m => m.roundLabel === nextInfo.label);
-                  if (nextMatchIndex >= 0) {
-                      const nextM = newMatches[nextMatchIndex];
-                      updatedNextMatch = {
-                          ...nextM,
-                          teamA: nextInfo.slot === 'A' ? '' : nextM.teamA,
-                          teamB: nextInfo.slot === 'B' ? '' : nextM.teamB
-                      };
-                      newMatches[nextMatchIndex] = updatedNextMatch;
-                  }
-              }
-
               return newMatches;
           });
 
-          // Call Backend
-          // Pass explicitly undefined to one slot if we don't want to touch it, but here we want to CLEAR it.
           const matchToUpdate = localMatches.find(m => m.roundLabel === roundLabel);
           const currentA = matchToUpdate ? (typeof matchToUpdate.teamA === 'string' ? matchToUpdate.teamA : matchToUpdate.teamA.name) : '';
           const currentB = matchToUpdate ? (typeof matchToUpdate.teamB === 'string' ? matchToUpdate.teamB : matchToUpdate.teamB.name) : '';
           
-          const payload: any = {
-              matchId: existingMatchId && !existingMatchId.includes('TEMP') ? existingMatchId : '',
-              roundLabel: roundLabel
-          };
-          if (slot === 'A') payload.teamA = ""; // Send empty string to clear
+          const payload: any = { matchId: existingMatchId && !existingMatchId.includes('TEMP') ? existingMatchId : '', roundLabel: roundLabel };
+          if (slot === 'A') payload.teamA = "";
           if (slot === 'B') payload.teamB = "";
 
-          // If ID exists and we are clearing the last slot, delete row
-          if (existingMatchId && !existingMatchId.includes('TEMP') && 
-             ((slot === 'A' && !currentB) || (slot === 'B' && !currentA))) {
+          if (existingMatchId && !existingMatchId.includes('TEMP') && ((slot === 'A' && !currentB) || (slot === 'B' && !currentA))) {
                  await deleteMatch(existingMatchId);
                  if (showNotification) showNotification("ลบรายการ", "ลบการแข่งขันออกจากระบบแล้ว", "info");
           } else {
                  await scheduleMatch(payload.matchId, payload.teamA, payload.teamB, payload.roundLabel, undefined, undefined, undefined, undefined, tournamentId);
           }
 
-          // Update Next Round (Cascading)
-          if (updatedNextMatch) {
-              const uMatch = updatedNextMatch as Match;
-              const nextInfo = getNextRoundInfo(roundLabel);
-              if (nextInfo) {
-                  const nextPayload: any = { matchId: uMatch.id, roundLabel: uMatch.roundLabel };
-                  if (nextInfo.slot === 'A') nextPayload.teamA = "";
-                  if (nextInfo.slot === 'B') nextPayload.teamB = "";
-                  await scheduleMatch(nextPayload.matchId, nextPayload.teamA, nextPayload.teamB, nextPayload.roundLabel, undefined, undefined, undefined, undefined, tournamentId);
-              }
-          }
-
       } else {
-          // UPDATE/CREATE Logic (Assigning a team)
-          // Determine ID and values synchronously BEFORE updating state
-          let matchToUpdate = localMatches.find(m => m.roundLabel === roundLabel);
+          // UPDATE/CREATE Logic
+          // CRITICAL FIX: Look for match by label in BOTH local state AND props to find real ID
+          // This prevents creating duplicate matches with new IDs
+          let matchToUpdate = localMatches.find(m => m.roundLabel === roundLabel) || matches.find(m => m.roundLabel === roundLabel);
           
           let finalMatchId = matchToUpdate?.id;
           if (!finalMatchId || finalMatchId.includes('TEMP')) {
-              // Prefer existing matchId if passed via props, otherwise generate new stable one
+              // Only use existingMatchId if it's real
               finalMatchId = (existingMatchId && !existingMatchId.includes('TEMP')) ? existingMatchId : `M_${roundLabel}_${Date.now()}`;
           }
 
@@ -268,8 +240,6 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
               return newMatches;
           });
 
-          // Call Backend
-          // Pass tournamentId explicitly to backend
           await scheduleMatch(
               finalMatchId, 
               teamAToSave, 
@@ -288,58 +258,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   const handleMatchDetailsUpdate = async (match: Match, updates: Partial<Match>) => {
       const updatedMatch = { ...match, ...updates };
       setLocalMatches(prev => prev.map(m => m.id === match.id ? updatedMatch : m));
-      // Just send the updates
       await scheduleMatch(updatedMatch.id, undefined, undefined, updatedMatch.roundLabel || '', updatedMatch.venue, updatedMatch.scheduledTime, undefined, undefined, tournamentId);
-  };
-
-  // --- AUTO ADVANCE LOGIC ---
-  const advanceWinnerToNextRound = async (currentRoundLabel: string, winnerName: string) => {
-      const nextInfo = getNextRoundInfo(currentRoundLabel);
-      if (!nextInfo) return;
-
-      const { label: nextRoundLabel, slot: nextSlot } = nextInfo;
-
-      let nextMatchId = '';
-      
-      setLocalMatches(prev => {
-          const newMatches = [...prev];
-          const existingIndex = newMatches.findIndex(m => m.roundLabel === nextRoundLabel);
-          
-          if (existingIndex >= 0) {
-              const m = newMatches[existingIndex];
-              nextMatchId = m.id;
-              // IMPORTANT: Only update the specific slot! Keep the other one.
-              newMatches[existingIndex] = {
-                  ...m,
-                  teamA: nextSlot === 'A' ? winnerName : (typeof m.teamA === 'string' ? m.teamA : m.teamA.name),
-                  teamB: nextSlot === 'B' ? winnerName : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name),
-              };
-          } else {
-              // Create a robust ID that backend will use or replace
-              nextMatchId = `M_${nextRoundLabel}_${Date.now()}`;
-              newMatches.push({
-                  id: nextMatchId,
-                  teamA: nextSlot === 'A' ? winnerName : '',
-                  teamB: nextSlot === 'B' ? winnerName : '',
-                  scoreA: 0, scoreB: 0, winner: null, date: new Date().toISOString(),
-                  roundLabel: nextRoundLabel, status: 'Scheduled',
-                  tournamentId: tournamentId
-              } as Match);
-          }
-          return newMatches;
-      });
-
-      // Backend Call: Send ONLY the winner to the specific slot
-      const payload: any = {
-          matchId: nextMatchId, 
-          roundLabel: nextRoundLabel
-      };
-      if (nextSlot === 'A') payload.teamA = winnerName;
-      if (nextSlot === 'B') payload.teamB = winnerName;
-      
-      await scheduleMatch(payload.matchId, payload.teamA, payload.teamB, payload.roundLabel, undefined, undefined, undefined, undefined, tournamentId);
-      
-      if (showNotification) showNotification("Auto Advance", `ส่งทีม ${winnerName} เข้าสู่รอบถัดไป (${nextRoundLabel}) แล้ว`, "success");
   };
 
   const handleWalkover = async (winner: string) => {
@@ -368,12 +287,12 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
      };
      await saveMatchToSheet(dummyMatch, "ชนะบาย (Walkover) / สละสิทธิ์", false, tournamentId);
      
-     // Auto Advance
-     await advanceWinnerToNextRound(walkoverModal.label, winner);
+     // DISABLE AUTO ADVANCE: The user wants to manually select winners in next round.
+     // await advanceWinnerToNextRound(walkoverModal.label, winner);
 
      setWalkoverModal(null);
      setSelectedMatch(null);
-     if (showNotification) showNotification("เรียบร้อย", "บันทึกผลชนะบายและเลื่อนรอบแล้ว", "success");
+     if (showNotification) showNotification("เรียบร้อย", "บันทึกผลชนะบายเรียบร้อย (กรุณาเลือกทีมชนะในรอบถัดไปเอง)", "success");
   };
 
   const handleStartMatch = () => {
@@ -382,9 +301,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       const tA = teams.find(t => t.name === (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)) || { id: 'tempA', name: m.teamA as string } as Team;
       const tB = teams.find(t => t.name === (typeof m.teamB === 'string' ? m.teamB : m.teamB.name)) || { id: 'tempB', name: m.teamB as string } as Team;
       
-      // Ensure we pass a valid ID. If it's a TEMP ID from the view (unassigned), create a real one.
       const validId = (m.id && !m.id.includes('TEMP')) ? m.id : `M_${selectedMatch.label}_${Date.now()}`;
-      
       onSelectMatch(tA, tB, validId);
       setSelectedMatch(null);
   };
@@ -510,6 +427,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
               onClose={() => setSlotSelection(null)}
               onAssign={(teamName) => handleUpdateSlot(teamName)}
               teams={teams}
+              winningTeams={winningTeams}
               groupStandings={groupStandings}
               currentSlotName={slotSelection.currentName}
               slotLabel={`${slotSelection.roundLabel} - Team ${slotSelection.slot}`}
@@ -642,18 +560,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   );
 };
 
-// ... (Sub Components remain unchanged)
-
 const TeamAssignmentModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     onAssign: (teamName: string) => void;
     teams: Team[];
+    winningTeams: Team[];
     groupStandings: Record<string, { team: Team, points: number, gd: number, rank: number }[]>;
     currentSlotName: string;
     slotLabel: string;
-}> = ({ isOpen, onClose, onAssign, teams, groupStandings, currentSlotName, slotLabel }) => {
-    const [tab, setTab] = useState<'all' | 'standings'>('standings');
+}> = ({ isOpen, onClose, onAssign, teams, winningTeams, groupStandings, currentSlotName, slotLabel }) => {
+    const [tab, setTab] = useState<'winners' | 'standings' | 'all'>('winners');
     const [search, setSearch] = useState('');
 
     if (!isOpen) return null;
@@ -674,8 +591,9 @@ const TeamAssignmentModal: React.FC<{
                 </div>
 
                 <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
-                    <button onClick={() => setTab('standings')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'standings' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><LayoutGrid className="w-4 h-4 inline mr-1"/> อันดับกลุ่ม</button>
-                    <button onClick={() => setTab('all')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'all' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><List className="w-4 h-4 inline mr-1"/> ทีมทั้งหมด</button>
+                    <button onClick={() => setTab('winners')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'winners' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><Medal className="w-4 h-4 inline mr-1"/> ผู้ชนะ</button>
+                    <button onClick={() => setTab('standings')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'standings' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><LayoutGrid className="w-4 h-4 inline mr-1"/> อันดับ</button>
+                    <button onClick={() => setTab('all')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'all' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><List className="w-4 h-4 inline mr-1"/> ทั้งหมด</button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-2 bg-slate-50">
@@ -683,6 +601,31 @@ const TeamAssignmentModal: React.FC<{
                     <button onClick={() => onAssign('CLEAR_SLOT')} className="w-full p-3 mb-3 bg-red-50 border border-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-100 transition">
                         <Eraser className="w-4 h-4"/> ล้างช่อง / ลบทีมออก (Clear)
                     </button>
+
+                    {tab === 'winners' && (
+                        <div className="space-y-2">
+                            <p className="text-xs text-slate-400 pl-2 mb-2">ทีมที่ชนะในรอบก่อนหน้า</p>
+                            {winningTeams.length === 0 ? (
+                                <div className="text-center py-8 text-slate-400 italic">ยังไม่มีทีมชนะ</div>
+                            ) : (
+                                winningTeams.map(t => (
+                                    <button 
+                                        key={t.id}
+                                        onClick={() => onAssign(t.name)}
+                                        className="w-full bg-white p-3 rounded-xl border border-green-200 flex items-center gap-3 hover:border-green-400 hover:shadow-md transition text-left"
+                                    >
+                                        <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center font-bold">
+                                            <Trophy className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <div className={`text-sm font-bold ${t.name === currentSlotName ? 'text-indigo-600' : 'text-slate-700'}`}>{t.name}</div>
+                                            <div className="text-[10px] text-green-600 font-medium">Winner</div>
+                                        </div>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    )}
 
                     {tab === 'standings' && (
                         <div className="space-y-4">
