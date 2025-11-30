@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Team, Match, KickResult } from '../types';
-import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info } from 'lucide-react';
+import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List } from 'lucide-react';
 import { scheduleMatch, saveMatchToSheet } from '../services/sheetService';
 import { shareMatch } from '../services/liffService';
 
@@ -24,6 +24,9 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   
   const [selectedMatch, setSelectedMatch] = useState<{match: Match, label: string} | null>(null);
   const [walkoverModal, setWalkoverModal] = useState<{match: Match, label: string} | null>(null);
+  
+  // New: Slot Selection for "Click to Assign"
+  const [slotSelection, setSlotSelection] = useState<{ matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string } | null>(null);
 
   useEffect(() => {
       if (teams.length > 16) {
@@ -80,17 +83,71 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
 
   const getScheduledMatch = (label: string) => localMatches.find(m => m.roundLabel === label);
 
-  const handleDragStart = (e: React.DragEvent, name: string) => {
-      e.dataTransfer.setData('text/plain', name);
-      e.dataTransfer.effectAllowed = 'copyMove';
-  };
+  // --- Logic for Standings Calculation (copied/adapted from StandingsView) ---
+  const groupStandings = useMemo(() => {
+      const standings: Record<string, { team: Team, points: number, gd: number, rank: number }> = {};
+      
+      // Initialize
+      teams.forEach(t => {
+          if (t.status === 'Approved') {
+              standings[t.id] = { team: t, points: 0, gd: 0, rank: 0 };
+          }
+      });
 
-  const handleDrop = async (teamName: string, roundLabel: string, slot: 'A' | 'B') => {
+      // Process Matches
+      matches.forEach(m => {
+          if (!m.winner || !m.roundLabel?.match(/group|กลุ่ม|สาย/i)) return;
+          
+          // Resolve Team IDs
+          const tA = teams.find(t => t.name === (typeof m.teamA === 'string' ? m.teamA : m.teamA.name));
+          const tB = teams.find(t => t.name === (typeof m.teamB === 'string' ? m.teamB : m.teamB.name));
+
+          if (tA && standings[tA.id] && tB && standings[tB.id]) {
+              const scoreA = parseInt(m.scoreA.toString() || '0');
+              const scoreB = parseInt(m.scoreB.toString() || '0');
+              
+              standings[tA.id].gd += (scoreA - scoreB);
+              standings[tB.id].gd += (scoreB - scoreA);
+
+              if (m.winner === 'A' || m.winner === tA.name) standings[tA.id].points += 3;
+              else if (m.winner === 'B' || m.winner === tB.name) standings[tB.id].points += 3;
+              else {
+                  standings[tA.id].points += 1;
+                  standings[tB.id].points += 1;
+              }
+          }
+      });
+
+      // Group and Sort
+      const grouped: Record<string, typeof standings[string][]> = {};
+      Object.values(standings).forEach(s => {
+          const g = s.team.group || 'Unassigned';
+          if (!grouped[g]) grouped[g] = [];
+          grouped[g].push(s);
+      });
+
+      Object.keys(grouped).forEach(key => {
+          grouped[key].sort((a, b) => {
+              if (b.points !== a.points) return b.points - a.points;
+              return b.gd - a.gd;
+          });
+          // Assign Rank
+          grouped[key].forEach((s, idx) => s.rank = idx + 1);
+      });
+
+      return grouped;
+  }, [matches, teams]);
+
+  const handleUpdateSlot = async (teamName: string) => {
+      if (!slotSelection) return;
+      const { roundLabel, slot } = slotSelection;
+      
+      const finalName = teamName === 'CLEAR_SLOT' ? '' : teamName;
+
       let updatedMatch: Match | null = null;
       setLocalMatches(prev => {
           const newMatches = [...prev];
           const existingIndex = newMatches.findIndex(m => m.roundLabel === roundLabel);
-          const finalName = teamName === 'CLEAR_SLOT' ? '' : teamName;
 
           if (existingIndex >= 0) {
               const m = newMatches[existingIndex];
@@ -114,11 +171,13 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       });
 
       if (updatedMatch) {
-          const teamA = typeof updatedMatch.teamA === 'object' ? updatedMatch.teamA.name : updatedMatch.teamA;
-          const teamB = typeof updatedMatch.teamB === 'object' ? updatedMatch.teamB.name : updatedMatch.teamB;
-          await scheduleMatch(updatedMatch.id, teamA as string, teamB as string, roundLabel, updatedMatch.venue, updatedMatch.scheduledTime);
-          setTimeout(onRefresh, 1500);
+          const uMatch = updatedMatch as Match; // Cast to ensure type
+          const teamA = typeof uMatch.teamA === 'object' ? uMatch.teamA.name : uMatch.teamA;
+          const teamB = typeof uMatch.teamB === 'object' ? uMatch.teamB.name : uMatch.teamB;
+          await scheduleMatch(uMatch.id, teamA as string, teamB as string, roundLabel, uMatch.venue, uMatch.scheduledTime);
+          setTimeout(onRefresh, 500);
       }
+      setSlotSelection(null);
   };
 
   const handleMatchDetailsUpdate = async (match: Match, updates: Partial<Match>) => {
@@ -160,8 +219,6 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       setSelectedMatch(null);
   };
 
-  const approvedTeams = teams.filter(t => t.status === 'Approved');
-
   // Pairings for connector lines
   const round32_A_Pairs = chunkArray(Array(8).fill(null).map((_, i) => ({ label: `R32-${i+1}`, title: `คู่ที่ ${i+1}` })), 2);
   const round16_A_Pairs = chunkArray(Array(4).fill(null).map((_, i) => ({ label: `R16-${i+1}`, title: `คู่ที่ ${i+1}` })), 2);
@@ -175,6 +232,15 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   
   const final = [{ label: `FINAL`, title: `ชิงชนะเลิศ` }];
 
+  // Helper component to trigger the slot selection modal
+  const handleSlotClick = (matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string) => {
+      if (editMode && isAdmin) {
+          setSlotSelection({ matchId, roundLabel, slot, currentName });
+      } else {
+          // Normal View mode logic handled by node click
+      }
+  };
+
   return (
     <div className="w-full max-w-[98%] mx-auto p-2 md:p-4 min-h-screen flex flex-col bg-slate-50">
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 sticky top-0 z-30">
@@ -183,7 +249,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                 <Trophy className="w-6 h-6 text-yellow-500" /> แผนผัง <span className="hidden md:inline">การแข่งขัน</span>
              </h2>
              <p className="text-xs text-slate-500">
-                {isAdmin ? "ลากทีมเพื่อจับคู่ หรือคลิกเพื่อจัดการ" : "คลิกที่คู่แข่งขันเพื่อดูรายละเอียด"}
+                {isAdmin ? (editMode ? "แตะที่ชื่อทีมในผังเพื่อเปลี่ยนหรือลบ" : "คลิก 'จัดการ' เพื่อแก้ไขผัง") : "คลิกที่คู่แข่งขันเพื่อดูรายละเอียด"}
              </p>
          </div>
          <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
@@ -205,20 +271,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
 
       <div className="flex flex-col lg:flex-row gap-6 flex-1 items-start relative">
           
-          {editMode && isAdmin && (
-            <div className="lg:w-64 w-full bg-white rounded-xl shadow-lg border border-slate-200 p-4 lg:sticky top-28 max-h-[300px] lg:max-h-[calc(100vh-120px)] overflow-y-auto z-40">
-                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><UserX className="w-4 h-4" /> ทีมที่ผ่านเข้ารอบ</h3>
-                <div className="mb-4 pb-4 border-b border-slate-100">
-                    <div draggable onDragStart={(e) => handleDragStart(e, "Wildcard")} className="p-3 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg cursor-grab text-sm font-bold flex gap-2 mb-2"><Sparkles className="w-4 h-4" /> Wildcard</div>
-                    <div draggable onDragStart={(e) => handleDragStart(e, "CLEAR_SLOT")} className="p-2 bg-red-50 border border-red-200 text-red-500 rounded-lg cursor-grab text-xs text-center"><Eraser className="w-3 h-3 inline" /> ล้างช่อง</div>
-                </div>
-                <div className="space-y-2 mb-4">
-                    {approvedTeams.map(t => (
-                        <div key={t.id} draggable onDragStart={(e) => handleDragStart(e, t.name)} className="p-2 bg-slate-50 border border-slate-200 rounded cursor-grab text-sm font-medium truncate flex gap-2"><GripVertical className="w-3 h-3 text-slate-300" />{t.name}</div>
-                    ))}
-                </div>
-            </div>
-          )}
+          {/* Note: Sidebar removed in favor of modal based selection for better mobile support */}
 
           <div className="flex-1 w-full overflow-x-auto pb-10 custom-scrollbar -webkit-overflow-scrolling-touch px-2">
              <div className="md:hidden text-center text-slate-400 text-xs mb-2 flex items-center justify-center gap-2 opacity-50">
@@ -233,17 +286,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                      <div className="flex justify-start gap-0 items-stretch pt-4">
                         {isLargeBracket && (
                             <BracketColumn title="รอบ 32">
-                                {isLoading ? <BracketSkeleton count={4} /> : round32_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                                {isLoading ? <BracketSkeleton count={4} /> : round32_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                             </BracketColumn>
                         )}
                         <BracketColumn title="รอบ 16">
-                             {isLoading ? <BracketSkeleton count={2} /> : round16_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={2} /> : round16_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รอบ 8">
-                             {isLoading ? <BracketSkeleton count={1} /> : quarters_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : quarters_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รองชนะเลิศ" isSingle>
-                             {isLoading ? <BracketSkeleton count={1} /> : semis_A.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : semis_A.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
                         </BracketColumn>
                      </div>
                  </div>
@@ -254,7 +307,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                         <div className="h-8 w-0.5 bg-yellow-400"></div>
                         <div className="bg-gradient-to-b from-yellow-50 to-yellow-100 p-4 rounded-xl border-2 border-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.2)] transform scale-110">
                              <h3 className="text-center font-black text-yellow-700 text-lg mb-2 uppercase tracking-widest flex items-center justify-center gap-2"><Trophy className="w-5 h-5" /> Final</h3>
-                             {isLoading ? <BracketSkeleton count={1} /> : final.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} isFinal />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : final.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} isFinal />)}
                         </div>
                         <div className="h-8 w-0.5 bg-yellow-400"></div>
                      </div>
@@ -266,17 +319,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                      <div className="flex justify-start gap-0 items-stretch pt-4">
                         {isLargeBracket && (
                             <BracketColumn title="รอบ 32">
-                                {isLoading ? <BracketSkeleton count={4} /> : round32_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                                {isLoading ? <BracketSkeleton count={4} /> : round32_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                             </BracketColumn>
                         )}
                         <BracketColumn title="รอบ 16">
-                             {isLoading ? <BracketSkeleton count={2} /> : round16_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={2} /> : round16_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รอบ 8">
-                             {isLoading ? <BracketSkeleton count={1} /> : quarters_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : quarters_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รองชนะเลิศ" isSingle>
-                             {isLoading ? <BracketSkeleton count={1} /> : semis_B.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onDrop={handleDrop} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : semis_B.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
                         </BracketColumn>
                      </div>
                  </div>
@@ -285,6 +338,19 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
           </div>
       </div>
       
+      {/* SLOT ASSIGNMENT MODAL (Replaces Side Panel for Mobile Friendliness) */}
+      {slotSelection && (
+          <TeamAssignmentModal 
+              isOpen={!!slotSelection}
+              onClose={() => setSlotSelection(null)}
+              onAssign={(teamName) => handleUpdateSlot(teamName)}
+              teams={teams}
+              groupStandings={groupStandings}
+              currentSlotName={slotSelection.currentName}
+              slotLabel={`${slotSelection.roundLabel} - Team ${slotSelection.slot}`}
+          />
+      )}
+
       {/* MATCH DETAIL MODAL */}
       {selectedMatch && (
           <div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedMatch(null)}>
@@ -411,6 +477,115 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   );
 };
 
+// --- Sub Components ---
+
+const TeamAssignmentModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onAssign: (teamName: string) => void;
+    teams: Team[];
+    groupStandings: Record<string, { team: Team, points: number, gd: number, rank: number }[]>;
+    currentSlotName: string;
+    slotLabel: string;
+}> = ({ isOpen, onClose, onAssign, teams, groupStandings, currentSlotName, slotLabel }) => {
+    const [tab, setTab] = useState<'all' | 'standings'>('standings');
+    const [search, setSearch] = useState('');
+
+    if (!isOpen) return null;
+
+    const filteredAllTeams = teams
+        .filter(t => t.status === 'Approved')
+        .filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
+
+    return (
+        <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+                <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
+                    <div>
+                        <div className="text-xs text-indigo-300 font-bold uppercase tracking-wider">{slotLabel}</div>
+                        <h3 className="font-bold text-lg">เลือกทีมลงผังแข่งขัน</h3>
+                    </div>
+                    <button onClick={onClose}><X className="w-5 h-5"/></button>
+                </div>
+
+                <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
+                    <button onClick={() => setTab('standings')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'standings' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><LayoutGrid className="w-4 h-4 inline mr-1"/> อันดับกลุ่ม</button>
+                    <button onClick={() => setTab('all')} className={`flex-1 py-3 text-sm font-bold transition ${tab === 'all' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}><List className="w-4 h-4 inline mr-1"/> ทีมทั้งหมด</button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-2 bg-slate-50">
+                    {/* Clear Slot Option */}
+                    <button onClick={() => onAssign('CLEAR_SLOT')} className="w-full p-3 mb-3 bg-red-50 border border-red-200 text-red-600 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-100 transition">
+                        <Eraser className="w-4 h-4"/> ล้างช่อง (Clear Slot)
+                    </button>
+
+                    {tab === 'standings' && (
+                        <div className="space-y-4">
+                            {Object.keys(groupStandings).sort().map(group => (
+                                <div key={group} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                                    <div className="bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 flex justify-between">
+                                        <span>Group {group}</span>
+                                        <span className="text-indigo-500">Pts</span>
+                                    </div>
+                                    <div className="divide-y divide-slate-50">
+                                        {groupStandings[group].map((entry) => (
+                                            <button 
+                                                key={entry.team.id}
+                                                onClick={() => onAssign(entry.team.name)}
+                                                className="w-full text-left p-3 hover:bg-indigo-50 flex items-center justify-between transition group"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${entry.rank <= 2 ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {entry.rank}
+                                                    </div>
+                                                    {entry.team.logoUrl && <img src={entry.team.logoUrl} className="w-6 h-6 object-contain"/>}
+                                                    <span className={`text-sm font-medium ${entry.team.name === currentSlotName ? 'text-indigo-600 font-bold' : 'text-slate-700'}`}>{entry.team.name}</span>
+                                                </div>
+                                                <span className="font-mono font-bold text-sm text-slate-400 group-hover:text-indigo-600">{entry.points}</span>
+                                            </button>
+                                        ))}
+                                        {groupStandings[group].length === 0 && <div className="p-3 text-center text-xs text-slate-400">ยังไม่มีทีม</div>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {tab === 'all' && (
+                        <div className="space-y-2">
+                            <div className="sticky top-0 bg-slate-50 pb-2 z-10">
+                                <input 
+                                    type="text" 
+                                    placeholder="ค้นหาทีม..." 
+                                    className="w-full p-3 border rounded-xl text-sm shadow-sm"
+                                    value={search}
+                                    onChange={e => setSearch(e.target.value)}
+                                />
+                            </div>
+                            <button onClick={() => onAssign("Wildcard")} className="w-full p-3 bg-purple-50 text-purple-700 rounded-xl font-bold text-sm flex items-center gap-2 border border-purple-100 hover:bg-purple-100">
+                                <Sparkles className="w-4 h-4"/> Wildcard Team
+                            </button>
+                            {filteredAllTeams.map(t => (
+                                <button 
+                                    key={t.id}
+                                    onClick={() => onAssign(t.name)}
+                                    className="w-full bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-3 hover:border-indigo-300 hover:shadow-md transition text-left"
+                                >
+                                    {t.logoUrl ? <img src={t.logoUrl} className="w-8 h-8 object-contain"/> : <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-xs font-bold text-slate-400">{t.name.substring(0,1)}</div>}
+                                    <div>
+                                        <div className={`text-sm font-bold ${t.name === currentSlotName ? 'text-indigo-600' : 'text-slate-700'}`}>{t.name}</div>
+                                        <div className="text-[10px] text-slate-400">{t.province} {t.group ? `• Gr. ${t.group}` : ''}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const BracketSkeleton: React.FC<{count: number}> = ({count}) => (
     <div className="flex flex-col justify-around h-full w-full gap-4">
         {Array(count).fill(0).map((_, i) => (
@@ -458,7 +633,7 @@ interface BracketNodeProps {
     match?: Match;
     isEditing: boolean;
     isAdmin: boolean;
-    onDrop: (teamName: string, roundLabel: string, slot: 'A' | 'B') => void;
+    onSlotClick: (matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string) => void;
     onSelect: (data: {match: Match, label: string}) => void;
     fullTeams: Team[];
     onUpdateDetails: (match: Match, updates: Partial<Match>) => void;
@@ -466,9 +641,7 @@ interface BracketNodeProps {
     showConnector?: string | boolean;
 }
 
-const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdmin, onDrop, onSelect, fullTeams, onUpdateDetails, isFinal, showConnector }) => {
-    const [isDragOverA, setIsDragOverA] = useState(false);
-    const [isDragOverB, setIsDragOverB] = useState(false);
+const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdmin, onSlotClick, onSelect, fullTeams, onUpdateDetails, isFinal, showConnector }) => {
     const teamA_Name = typeof match?.teamA === 'object' ? match.teamA.name : match?.teamA;
     const teamB_Name = typeof match?.teamB === 'object' ? match.teamB.name : match?.teamB;
     
@@ -482,30 +655,26 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
     const tA = resolveTeamDisplay(teamA_Name);
     const tB = resolveTeamDisplay(teamB_Name);
 
-    const handleDropEvent = (e: React.DragEvent, slotKey: 'A' | 'B') => {
-        e.preventDefault(); e.stopPropagation();
-        if (slotKey === 'A') setIsDragOverA(false); else setIsDragOverB(false);
-        const teamName = e.dataTransfer.getData('text/plain');
-        if (isAdmin && teamName) onDrop(teamName, slot.label, slotKey);
-    };
-
     const handleNodeClick = () => {
-        if (!tA && !tB) return;
-        const currentMatch = match || {
-            id: `M_${slot.label}_TEMP`,
-            teamA: teamA_Name || '',
-            teamB: teamB_Name || '',
-            roundLabel: slot.label,
-            status: 'Scheduled',
-            scoreA: 0, scoreB: 0, winner: null
-        } as Match;
-        onSelect({ match: currentMatch, label: slot.label });
+        // If viewing mode, open match details
+        if (!isEditing) {
+            if (!tA && !tB) return;
+            const currentMatch = match || {
+                id: `M_${slot.label}_TEMP`,
+                teamA: teamA_Name || '',
+                teamB: teamB_Name || '',
+                roundLabel: slot.label,
+                status: 'Scheduled',
+                scoreA: 0, scoreB: 0, winner: null
+            } as Match;
+            onSelect({ match: currentMatch, label: slot.label });
+        }
     };
 
     return (
         <div className="relative flex items-center">
             <div 
-                className={`relative flex flex-col rounded-xl border w-full transition-all cursor-pointer ${isFinal ? 'border-yellow-300 shadow-md bg-yellow-50/50' : 'border-slate-200 shadow-sm bg-white hover:border-indigo-300'} overflow-hidden min-w-[220px]`}
+                className={`relative flex flex-col rounded-xl border w-full transition-all ${isFinal ? 'border-yellow-300 shadow-md bg-yellow-50/50' : 'border-slate-200 shadow-sm bg-white hover:border-indigo-300'} overflow-hidden min-w-[220px]`}
                 onClick={handleNodeClick}
             >
                  <div className="bg-slate-50/80 px-2 py-1 text-[9px] text-slate-400 font-bold border-b flex justify-between items-center backdrop-blur-sm">
@@ -516,24 +685,40 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                  
                  <div className="divide-y divide-slate-100 text-xs">
                      {/* TEAM A */}
-                     <div className={`p-2 flex justify-between items-center h-9 transition-all duration-200 ${tA ? (match?.winner === 'A' ? 'bg-green-50' : 'bg-white') : 'bg-slate-50/30'} ${isDragOverA ? 'bg-indigo-100' : ''}`} onDragOver={(e) => { e.preventDefault(); setIsDragOverA(true); }} onDragLeave={() => setIsDragOverA(false)} onDrop={(e) => handleDropEvent(e, 'A')}>
+                     <div 
+                        className={`p-2 flex justify-between items-center h-9 transition-all duration-200 ${tA ? (match?.winner === 'A' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100' : 'bg-slate-50/30'}`}
+                        onClick={(e) => {
+                            if (isEditing) {
+                                e.stopPropagation();
+                                onSlotClick(match?.id || '', slot.label, 'A', teamA_Name || '');
+                            }
+                        }}
+                     >
                          {tA ? (
                              <div className="flex items-center gap-2 overflow-hidden w-full">
                                  {tA.logo ? <img src={tA.logo} className="w-5 h-5 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-5 h-5 rounded-full bg-slate-200 shrink-0"></div>}
                                  <span className={`font-bold truncate ${match?.winner === 'A' ? 'text-slate-900' : 'text-slate-600'}`}>{tA.name}</span>
                              </div>
-                         ) : <span className="text-[10px] text-slate-300 italic select-none">รอคู่แข่ง</span>}
+                         ) : <span className={`text-[10px] italic select-none ${isEditing ? 'text-indigo-400 font-bold' : 'text-slate-300'}`}>{isEditing ? '+ เลือกทีม A' : 'รอคู่แข่ง'}</span>}
                          {match && match.winner && <span className={`font-bold px-1.5 rounded ${match.winner === 'A' ? 'bg-green-600 text-white' : 'text-slate-400'}`}>{match.scoreA}</span>}
                      </div>
 
                      {/* TEAM B */}
-                     <div className={`p-2 flex justify-between items-center h-9 transition-all duration-200 ${tB ? (match?.winner === 'B' ? 'bg-green-50' : 'bg-white') : 'bg-slate-50/30'} ${isDragOverB ? 'bg-indigo-100' : ''}`} onDragOver={(e) => { e.preventDefault(); setIsDragOverB(true); }} onDragLeave={() => setIsDragOverB(false)} onDrop={(e) => handleDropEvent(e, 'B')}>
+                     <div 
+                        className={`p-2 flex justify-between items-center h-9 transition-all duration-200 ${tB ? (match?.winner === 'B' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100' : 'bg-slate-50/30'}`}
+                        onClick={(e) => {
+                            if (isEditing) {
+                                e.stopPropagation();
+                                onSlotClick(match?.id || '', slot.label, 'B', teamB_Name || '');
+                            }
+                        }}
+                     >
                          {tB ? (
                              <div className="flex items-center gap-2 overflow-hidden w-full">
                                  {tB.logo ? <img src={tB.logo} className="w-5 h-5 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-5 h-5 rounded-full bg-slate-200 shrink-0"></div>}
                                  <span className={`font-bold truncate ${match?.winner === 'B' ? 'text-slate-900' : 'text-slate-600'}`}>{tB.name}</span>
                              </div>
-                         ) : <span className="text-[10px] text-slate-300 italic select-none">รอคู่แข่ง</span>}
+                         ) : <span className={`text-[10px] italic select-none ${isEditing ? 'text-indigo-400 font-bold' : 'text-slate-300'}`}>{isEditing ? '+ เลือกทีม B' : 'รอคู่แข่ง'}</span>}
                          {match && match.winner && <span className={`font-bold px-1.5 rounded ${match.winner === 'B' ? 'bg-green-600 text-white' : 'text-slate-400'}`}>{match.scoreB}</span>}
                      </div>
                  </div>
