@@ -201,8 +201,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       try { 
           await updateTeamStatus(teamId, status, group, reason); 
           notify("สำเร็จ", status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย", "success"); 
-          // Background refresh
-          // onRefresh();  <-- No need to refresh immediately if optimistic update works
       } catch (e) { 
           console.error(e); 
           notify("ผิดพลาด", "บันทึกสถานะไม่สำเร็จ", "error"); 
@@ -219,7 +217,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       
       // Initialize Groups
       const groups: Record<string, Team[]> = {};
-      const groupNames = Array.from({ length: drawGroupCount }, (_, i) => String.fromCharCode(65 + i));
+      const groupNames = Array(drawGroupCount).fill(null).map((_, i) => String.fromCharCode(65 + i));
       groupNames.forEach(g => groups[g] = []);
 
       setPoolTeams([...approvedTeams]); // Copy teams
@@ -407,8 +405,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           // Check if pool is empty
           if (localPool.length === 0) break;
           
-          // Check if specific group is full (read from state + allow for pending updates if needed, 
-          // but since we do one pass, state check is usually okay if we assume sync or simply check length)
           if (liveGroups[groupName].length >= teamsPerGroup) continue;
 
           // START DRAW FOR THIS GROUP
@@ -479,8 +475,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           }));
 
           // 2. Background Save
-          // API Limitations: Saving one by one
-          let successCount = 0;
           const promises = updates.map(u => updateTeamStatus(u.teamId, 'Approved', u.group, ''));
           await Promise.all(promises);
 
@@ -529,8 +523,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       }
   };
   const handleAddPlayer = () => { if (!editForm) return; const newPlayer: Player = { id: `TEMP_${Date.now()}_${Math.floor(Math.random()*1000)}`, teamId: editForm.team.id, name: '', number: '', position: 'Player', photoUrl: '', birthDate: '' }; setEditForm({ ...editForm, players: [...editForm.players, newPlayer] }); };
-  const handleRemovePlayer = (index: number) => { if (!editForm) return; const updatedPlayers = editForm.players.filter((_, i) => i !== index); setEditForm({ ...editForm, players: updatedPlayers }); };
-  const handleRemovePlayerPhoto = (index: number) => {
+  const removePlayer = (index: number) => { if (!editForm) return; const updatedPlayers = editForm.players.filter((_, i) => i !== index); setEditForm({ ...editForm, players: updatedPlayers }); };
+  const removePlayerPhoto = (index: number) => {
       if (editForm) {
           const updatedPlayers = [...editForm.players];
           updatedPlayers[index] = { ...updatedPlayers[index], photoUrl: '' }; // Clear photo URL
@@ -1469,39 +1463,39 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                 {/* Personnel Edit */}
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4">
                                     <h4 className="font-bold text-slate-700 border-b pb-2">บุคลากร</h4>
-                                    <div className="grid grid-cols-1 gap-3">
-                                        <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้อำนวยการ</label><input type="text" value={editForm.team.directorName || ''} onChange={e => handleEditFieldChange('directorName', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้จัดการทีม</label><input type="text" value={editForm.team.managerName} onChange={e => handleEditFieldChange('managerName', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
-                                            <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (ผจก)</label><input type="text" value={editForm.team.managerPhone || ''} onChange={e => handleEditFieldChange('managerPhone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้ฝึกสอน</label><input type="text" value={editForm.team.coachName} onChange={e => handleEditFieldChange('coachName', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
-                                            <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (โค้ช)</label><input type="text" value={editForm.team.coachPhone || ''} onChange={e => handleEditFieldChange('coachPhone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
-                                        </div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้อำนวยการ</label><input type="text" value={editForm.team.directorName || ''} onChange={e => handleEditFieldChange('directorName', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้จัดการทีม</label><input type="text" value={editForm.team.managerName || ''} onChange={e => handleEditFieldChange('managerName', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
+                                        <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (ผจก)</label><input type="text" value={editForm.team.managerPhone || ''} onChange={e => handleEditFieldChange('managerPhone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้ฝึกสอน</label><input type="text" value={editForm.team.coachName || ''} onChange={e => handleEditFieldChange('coachName', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
+                                        <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (โค้ช)</label><input type="text" value={editForm.team.coachPhone || ''} onChange={e => handleEditFieldChange('coachPhone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" /></div>
                                     </div>
                                 </div>
 
                                 {/* Players Edit */}
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4">
                                     <div className="flex justify-between items-center border-b pb-2">
-                                        <h4 className="font-bold text-slate-700">รายชื่อนักกีฬา</h4>
-                                        <button onClick={handleAddPlayer} className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 font-bold flex items-center gap-1"><Plus className="w-3 h-3"/> เพิ่ม</button>
+                                        <h4 className="font-bold text-slate-700">แก้ไขรายชื่อนักกีฬา</h4>
+                                        <button onClick={handleAddPlayer} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-100"><Plus className="w-3 h-3"/> เพิ่ม</button>
                                     </div>
                                     <div className="space-y-3">
                                         {editForm.players.map((p, idx) => (
-                                            <div key={idx} className="flex items-start gap-2 p-2 border rounded-lg bg-slate-50">
-                                                <div className="w-12 h-12 bg-white rounded-lg border flex items-center justify-center shrink-0 overflow-hidden relative group">
+                                            <div key={p.id} className="flex items-start gap-2 p-2 border rounded-lg bg-slate-50">
+                                                <div className="w-12 h-16 bg-white rounded border flex items-center justify-center shrink-0 overflow-hidden relative group">
                                                     {p.photoUrl ? <img src={p.photoUrl} className="w-full h-full object-cover" /> : <User className="w-6 h-6 text-slate-300"/>}
                                                     <label className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition">
                                                         <Camera className="w-4 h-4 text-white"/>
                                                         <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handlePlayerPhotoChange(idx, e.target.files[0])} />
                                                     </label>
+                                                    {p.photoUrl && <button onClick={() => handleRemovePlayerPhoto(idx)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100"><X className="w-3 h-3"/></button>}
                                                 </div>
                                                 <div className="flex-1 grid grid-cols-12 gap-2">
-                                                    <div className="col-span-2"><input type="text" placeholder="เบอร์" value={p.number} onChange={e => handlePlayerChange(idx, 'number', e.target.value)} className="w-full p-1 border rounded text-xs text-center font-bold" /></div>
-                                                    <div className="col-span-6"><input type="text" placeholder="ชื่อ-นามสกุล" value={p.name} onChange={e => handlePlayerChange(idx, 'name', e.target.value)} className="w-full p-1 border rounded text-xs" /></div>
-                                                    <div className="col-span-4"><input type="text" placeholder="วว/ดด/ปปปป" value={p.birthDate || ''} onChange={e => handleDateInput(idx, e.target.value)} className="w-full p-1 border rounded text-xs" /></div>
+                                                    <div className="col-span-3"><input type="text" placeholder="เบอร์" value={p.number} onChange={e => handlePlayerChange(idx, 'number', e.target.value)} className="w-full p-1.5 border rounded text-xs text-center font-bold" /></div>
+                                                    <div className="col-span-9"><input type="text" placeholder="ชื่อ-นามสกุล" value={p.name} onChange={e => handlePlayerChange(idx, 'name', e.target.value)} className="w-full p-1.5 border rounded text-xs" /></div>
+                                                    <div className="col-span-6"><input type="text" placeholder="วันเกิด (วว/ดด/ปปปป)" value={p.birthDate || ''} onChange={e => handleDateInput(idx, e.target.value)} className="w-full p-1.5 border rounded text-xs" /></div>
+                                                    <div className="col-span-6"><input type="text" placeholder="ตำแหน่ง" value={p.position || 'Player'} onChange={e => handlePlayerChange(idx, 'position', e.target.value)} className="w-full p-1.5 border rounded text-xs" /></div>
                                                 </div>
                                                 <button onClick={() => handleRemovePlayer(idx)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button>
                                             </div>
@@ -1509,50 +1503,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                     </div>
                                 </div>
 
-                                {/* Files Edit */}
-                                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-4">
-                                    <h4 className="font-bold text-slate-700 border-b pb-2">เอกสารแนบ</h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">ใบสมัคร (PDF/Doc)</label>
-                                            <div className="flex items-center gap-2">
-                                                <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-100 transition flex-1 truncate text-center">
-                                                    {editForm.newDoc ? editForm.newDoc.name : (editForm.team.docUrl ? 'เปลี่ยนไฟล์' : 'เลือกไฟล์')}
-                                                    <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('doc', e.target.files[0])} />
-                                                </label>
-                                                {editForm.team.docUrl && (
-                                                    <a href={editForm.team.docUrl} target="_blank" className="p-1.5 bg-blue-50 text-blue-600 rounded border border-blue-200 hover:bg-blue-100" title="ดูไฟล์เดิม">
-                                                        <ExternalLink className="w-4 h-4" />
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">สลิปโอนเงิน (Image)</label>
-                                            <div className="flex items-center gap-2">
-                                                <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-100 transition flex-1 truncate text-center">
-                                                    {editForm.newSlip ? editForm.newSlip.name : (editForm.team.slipUrl ? 'เปลี่ยนไฟล์' : 'เลือกไฟล์')}
-                                                    <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('slip', e.target.files[0])} />
-                                                </label>
-                                                {editForm.team.slipUrl && (
-                                                    <a href={editForm.team.slipUrl} target="_blank" className="p-1.5 bg-blue-50 text-blue-600 rounded border border-blue-200 hover:bg-blue-100" title="ดูรูปเดิม">
-                                                        <ExternalLink className="w-4 h-4" />
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-3 pt-4 border-t mt-4 sticky bottom-0 bg-slate-50 pb-2">
-                                    <button 
-                                        onClick={() => { setIsEditingTeam(false); }} 
-                                        className="flex-1 py-3 border-2 border-slate-300 rounded-xl font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
-                                    >
-                                        ยกเลิก
-                                    </button>
-                                    <button onClick={handleSaveTeamChanges} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-lg">
-                                        {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : 'บันทึกการแก้ไข'}
+                                {/* Save Button */}
+                                <div className="pt-2">
+                                    <button onClick={handleSaveTeamChanges} disabled={isSavingTeam} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-lg shadow-indigo-200">
+                                        {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5"/>} บันทึกการแก้ไข
                                     </button>
                                 </div>
                             </div>

@@ -149,10 +149,18 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       let matchIndex = localMatches.findIndex(m => m.roundLabel === roundLabel);
       let matchToUpdate = matchIndex >= 0 ? localMatches[matchIndex] : null;
 
-      // Calculate ID
+      // Calculate ID: Strict Check
+      // 1. Try to use the ID from the existing local object
       let finalMatchId = matchToUpdate?.id;
+      // 2. If not found or is temp, try to find in server matches props to prevent duplicate
       if (!finalMatchId || finalMatchId.includes('TEMP')) {
-           finalMatchId = (existingMatchId && !existingMatchId.includes('TEMP')) ? existingMatchId : `M_${roundLabel}_${Date.now()}`;
+           const existingServerMatch = matches.find(m => m.roundLabel === roundLabel);
+           if (existingServerMatch) {
+               finalMatchId = existingServerMatch.id;
+           } else {
+               // 3. Fallback to generating a new ID
+               finalMatchId = (existingMatchId && !existingMatchId.includes('TEMP')) ? existingMatchId : `M_${roundLabel}_${Date.now()}`;
+           }
       }
 
       const currentA = matchToUpdate ? (typeof matchToUpdate.teamA === 'object' ? matchToUpdate.teamA.name : matchToUpdate.teamA) : '';
@@ -168,6 +176,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       setLocalMatches(prev => {
           const newMatches = [...prev];
           if (isBothEmpty) {
+              // Only remove from local array if it's already there
               if (matchIndex >= 0) newMatches.splice(matchIndex, 1);
           } else {
               const newMatchObj: Match = {
