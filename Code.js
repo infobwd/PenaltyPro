@@ -46,6 +46,10 @@ function doPost(e) {
     else if (action === 'submitDonation') return submitDonation(data);
     else if (action === 'verifyDonation') return verifyDonation(data.donationId, data.status);
     else if (action === 'updateUserRole') return updateUserRole(data.userId, data.role);
+    // User CRUD
+    else if (action === 'createUser') return createUser(data);
+    else if (action === 'updateUserDetails') return updateUserDetails(data);
+    else if (action === 'deleteUser') return deleteUser(data.userId);
     
     return errorResponse("Unknown action: " + action);
     
@@ -129,7 +133,9 @@ function getData() {
          competitionName: r[0], competitionLogo: toLh3Link(r[1]), bankName: r[2], bankAccount: r[3], accountName: r[4],
          locationName: r[5], locationLink: r[6], announcement: r[7], adminPin: String(r[8] || '1234'),
          locationLat: r[9] || 0, locationLng: r[10] || 0, registrationFee: r[11] || 0, fundraisingGoal: r[12] || 0,
-         objectiveTitle: r[13] || '', objectiveDescription: r[14] || '', objectiveImageUrl: toLh3Link(r[15] || '')
+         objectiveTitle: r[13] || '', objectiveDescription: r[14] || '', objectiveImageUrl: toLh3Link(r[15] || ''),
+         // New Fields
+         liffId: r[16] || '', pwaStartUrl: r[17] || '', pwaScope: r[18] || ''
        };
     }
   }
@@ -513,11 +519,21 @@ function saveMatchEvents(events) {
 function saveSettings(settings) {
     const ss = getSpreadsheet();
     let sheet = ss.getSheetByName("Config");
-    if (!sheet) { sheet = ss.insertSheet("Config"); sheet.appendRow(["CompName","Logo","BankName","BankAccount","AccountName","Location","Link","Announcement","PIN","Lat","Lng","Fee","Goal","ObjTitle","ObjDesc","ObjImg"]); }
+    if (!sheet) { sheet = ss.insertSheet("Config"); sheet.appendRow(["CompName","Logo","BankName","BankAccount","AccountName","Location","Link","Announcement","PIN","Lat","Lng","Fee","Goal","ObjTitle","ObjDesc","ObjImg","LiffID","StartUrl","Scope"]); }
     let logoUrl = settings.competitionLogo; if (logoUrl && logoUrl.startsWith('data:')) logoUrl = saveFileToDrive(logoUrl, 'comp_logo_' + Date.now());
     let objImgUrl = settings.objectiveImageUrl; if (objImgUrl && objImgUrl.startsWith('data:')) objImgUrl = saveFileToDrive(objImgUrl, 'obj_img_' + Date.now());
-    const rowData = [ settings.competitionName, logoUrl, settings.bankName, settings.bankAccount, settings.accountName, settings.locationName, settings.locationLink, settings.announcement, settings.adminPin, settings.locationLat, settings.locationLng, settings.registrationFee, settings.fundraisingGoal, settings.objectiveTitle, settings.objectiveDescription, objImgUrl ];
-    if (sheet.getLastRow() < 2) sheet.appendRow(rowData); else sheet.getRange(2, 1, 1, rowData.length).setValues([rowData]);
+    
+    // Updated Row Data (Including new LiffID, PwaStartUrl, PwaScope)
+    const rowData = [ 
+      settings.competitionName, logoUrl, settings.bankName, settings.bankAccount, settings.accountName, 
+      settings.locationName, settings.locationLink, settings.announcement, settings.adminPin, 
+      settings.locationLat, settings.locationLng, settings.registrationFee, settings.fundraisingGoal, 
+      settings.objectiveTitle, settings.objectiveDescription, objImgUrl,
+      settings.liffId || '', settings.pwaStartUrl || '', settings.pwaScope || ''
+    ];
+    
+    if (sheet.getLastRow() < 2) sheet.appendRow(rowData); 
+    else sheet.getRange(2, 1, 1, rowData.length).setValues([rowData]);
     return successResponse({ status: 'success' });
 }
 
@@ -603,6 +619,56 @@ function updateUserRole(userId, role) {
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(userId)) {
       sheet.getRange(i + 1, 5).setValue(role); 
+      return successResponse({ status: 'success' });
+    }
+  }
+  return errorResponse("User not found");
+}
+
+// --- USER CRUD ---
+function createUser(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("Users");
+  if (!sheet) {
+    sheet = ss.insertSheet("Users");
+    sheet.appendRow(["ID", "Username", "Password", "DisplayName", "Role", "Phone", "PictureUrl", "LineUserId", "LastLogin"]);
+  }
+  
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]).trim() === String(data.username).trim()) return errorResponse("Username already exists");
+  }
+  
+  const newId = 'U_' + Date.now();
+  sheet.appendRow([newId, data.username, data.password, data.displayName, data.role || 'user', data.phone || '', '', '', new Date()]);
+  return successResponse({ status: 'success', userId: newId });
+}
+
+function updateUserDetails(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("Users");
+  const rows = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(data.userId)) {
+      if(data.displayName !== undefined) sheet.getRange(i+1, 4).setValue(data.displayName);
+      if(data.phone !== undefined) sheet.getRange(i+1, 6).setValue(data.phone);
+      if(data.role !== undefined) sheet.getRange(i+1, 5).setValue(data.role);
+      if(data.password && data.password.trim() !== "") sheet.getRange(i+1, 3).setValue(data.password);
+      
+      return successResponse({ status: 'success' });
+    }
+  }
+  return errorResponse("User not found");
+}
+
+function deleteUser(userId) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("Users");
+  const rows = sheet.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(userId)) {
+      sheet.deleteRow(i + 1);
       return successResponse({ status: 'success' });
     }
   }

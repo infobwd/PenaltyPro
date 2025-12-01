@@ -3,6 +3,8 @@
 
 
 
+
+
 import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
@@ -102,6 +104,48 @@ export const updateUserRole = async (userId: string, role: string): Promise<bool
         return true;
     } catch (e) { return false; }
 }
+
+export const createUser = async (data: any): Promise<boolean> => {
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'createUser', ...data })
+        });
+        if (response.ok) {
+            const result = await response.json();
+            return result.status === 'success';
+        }
+        return false;
+    } catch (e) { return false; }
+};
+
+export const updateUserDetails = async (data: any): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'updateUserDetails', ...data })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
+export const deleteUser = async (userId: string): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'deleteUser', userId })
+        });
+        return true;
+    } catch (e) { return false; }
+};
 
 // --- DONATIONS ---
 export const verifyDonation = async (donationId: string, status: 'Verified' | 'Rejected'): Promise<boolean> => {

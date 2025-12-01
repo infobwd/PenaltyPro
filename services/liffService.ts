@@ -1,5 +1,7 @@
 
-import { LIFF_ID, Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament } from '../types';
+
+
+import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament } from '../types';
 
 declare global {
   interface Window {
@@ -7,10 +9,14 @@ declare global {
   }
 }
 
-export const initializeLiff = async () => {
+export const initializeLiff = async (liffId?: string) => {
   try {
     if (!window.liff) return;
-    await window.liff.init({ liffId: LIFF_ID });
+    if (!liffId) {
+        console.warn("LIFF ID not provided in config");
+        return;
+    }
+    await window.liff.init({ liffId });
   } catch (error) {
     console.error('LIFF Init Failed', error);
   }
@@ -38,23 +44,30 @@ export const sharePlayerCardFlex = async (player: Player, team: Team, stats: any
 };
 
 export const shareRegistration = async (data: RegistrationData, teamId: string) => {
+  const liffId = window.liff?.id; 
   if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  const adminLink = `https://liff.line.me/${LIFF_ID}?view=admin&teamId=${teamId}`;
-  const statusLink = `https://liff.line.me/${LIFF_ID}`;
+  
+  // Use dynamic liff link if available, else standard fallback logic might be needed or rely on current URL
+  const baseUrl = `https://liff.line.me/${liffId}`;
+  const adminLink = `${baseUrl}?view=admin&teamId=${teamId}`;
+  const statusLink = `${baseUrl}`;
+  
   const flexMessage = { type: "flex", altText: `ใบสมัคร: ${truncate(data.schoolName, 20)}`, contents: { "type": "bubble", "header": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "ใบสมัครเข้าร่วมการแข่งขัน", "weight": "bold", "color": "#FFFFFF", "size": "md" } ], "backgroundColor": "#166534", "paddingAll": "lg" }, "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": truncate(data.schoolName, 50), "weight": "bold", "size": "xl", "color": "#1F2937", "wrap": true }, { "type": "text", "text": `ทีม: ${truncate(data.schoolName, 30)} (${data.shortName})`, "size": "sm", "color": "#4B5563", "margin": "md", "wrap": true }, { "type": "separator", "margin": "lg" }, { "type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [ { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "ผู้ติดต่อ", "color": "#9CA3AF", "size": "xs", "flex": 2 }, { "type": "text", "text": data.phone, "color": "#4B5563", "size": "xs", "flex": 4 } ] }, { "type": "box", "layout": "baseline", "contents": [ { "type": "text", "text": "เวลาสมัคร", "color": "#9CA3AF", "size": "xs", "flex": 2 }, { "type": "text", "text": new Date().toLocaleString('th-TH'), "color": "#4B5563", "size": "xs", "flex": 4 } ] } ] } ] }, "footer": { "type": "box", "layout": "vertical", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "สำหรับแอดมิน: ตรวจสอบ/อนุมัติ", "uri": adminLink }, "color": "#2563EB" }, { "type": "button", "style": "secondary", "height": "sm", "action": { "type": "uri", "label": "ตรวจสอบสถานะ", "uri": statusLink } } ] } } };
   try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
 };
 
 export const shareNews = async (news: NewsItem) => {
+  const liffId = window.liff?.id;
   if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  const liffUrl = `https://liff.line.me/${LIFF_ID}?view=news&id=${news.id}`;
+  const liffUrl = `https://liff.line.me/${liffId}?view=news&id=${news.id}`;
   const flexMessage = { type: "flex", altText: truncate(`ข่าวสาร: ${news.title}`, 350), contents: { "type": "bubble", "size": "mega", "hero": news.imageUrl ? { "type": "image", "url": news.imageUrl, "size": "full", "aspectRatio": "20:13", "aspectMode": "cover", "action": { "type": "uri", "uri": liffUrl } } : undefined, "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": truncate(news.title, 100), "weight": "bold", "size": "xl", "wrap": true }, { "type": "text", "text": new Date(news.timestamp).toLocaleDateString('th-TH'), "size": "xs", "color": "#aaaaaa", "margin": "xs" }, { "type": "text", "text": truncate(news.content, 200), "size": "sm", "color": "#666666", "wrap": true, "margin": "md", "maxLines": 3 } ] }, "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "button", "action": { "type": "uri", "label": "อ่านเพิ่มเติม", "uri": liffUrl }, "style": "primary", "color": "#1e40af" } ] } } };
   try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
 };
 
 export const shareMatch = async (match: Match, teamAName: string, teamBName: string, teamALogo: string, teamBLogo: string) => {
+  const liffId = window.liff?.id;
   if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  const liffUrl = `https://liff.line.me/${LIFF_ID}?view=match_detail&id=${match.id}`;
+  const liffUrl = `https://liff.line.me/${liffId}?view=match_detail&id=${match.id}`;
   const isFinished = !!match.winner;
   const title = isFinished ? "ผลการแข่งขัน" : "โปรแกรมการแข่งขัน";
   const headerColor = isFinished ? "#166534" : "#1e40af"; 
@@ -72,6 +85,7 @@ export const shareMatch = async (match: Match, teamAName: string, teamBName: str
 };
 
 export const shareTournament = async (tournament: Tournament, teamCount: number = 0, maxTeams: number = 0) => {
+    const liffId = window.liff?.id;
     if (!window.liff) { alert("LIFF SDK not loaded"); return; }
     if (!window.liff.isLoggedIn()) {
         window.liff.login();
@@ -79,7 +93,7 @@ export const shareTournament = async (tournament: Tournament, teamCount: number 
     }
     
     // Construct Deep Link with tournamentId
-    const liffUrl = `https://liff.line.me/${LIFF_ID}?tournamentId=${tournament.id}`;
+    const liffUrl = `https://liff.line.me/${liffId}?tournamentId=${tournament.id}`;
     
     // Simple Alt Text
     const altText = `เชิญสมัคร: ${tournament.name}`;

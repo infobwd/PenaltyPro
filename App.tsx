@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -38,7 +39,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   fundraisingGoal: 0,
   objectiveTitle: "",
   objectiveDescription: "",
-  objectiveImageUrl: ""
+  objectiveImageUrl: "",
+  liffId: ""
 };
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -192,26 +194,71 @@ function App() {
   const fundraisingProgress = goal > 0 ? Math.min(100, (netRaised / goal) * 100) : 0;
 
   useEffect(() => {
+    // 1. Load Data First
     const init = async () => {
-        await initializeLiff();
-        const liffUser = await checkSession(); 
-        if (liffUser) {
-            try {
-                if (liffUser.type === 'line') {
-                    const backendUser = await authenticateUser({ authType: 'line', lineUserId: liffUser.userId, displayName: liffUser.displayName, pictureUrl: liffUser.pictureUrl });
-                    if (backendUser) { setCurrentUser(backendUser); if (backendUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
-                } else if (liffUser.role) { setCurrentUser(liffUser); if (liffUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
-            } catch (e) { console.warn("Backend Auth Sync Failed", e); setCurrentUser(liffUser); }
+        setIsLoadingData(true);
+        try {
+            const data = await fetchDatabase();
+            let configData = DEFAULT_SETTINGS;
+            
+            if (data) {
+                setAvailableTeams(data.teams);
+                setAvailablePlayers(data.players);
+                setMatchesLog(data.matches || []);
+                configData = { ...DEFAULT_SETTINGS, ...data.config };
+                setAppConfig(configData); 
+                setSchools(data.schools || []);
+                setNewsItems(data.news || []);
+                setTournaments(data.tournaments || []);
+                setDonations(data.donations || []);
+                
+                // Logic for tournament ID selection
+                if (!currentTournamentId) { 
+                    const savedTId = localStorage.getItem('current_tournament_id'); 
+                    const params = new URLSearchParams(window.location.search);
+                    const urlTId = params.get('tournamentId');
+
+                    if (urlTId && data.tournaments.find(t => t.id === urlTId)) {
+                        setCurrentTournamentId(urlTId);
+                    } else if (savedTId && data.tournaments.find(t => t.id === savedTId)) { 
+                        setCurrentTournamentId(savedTId); 
+                    } else if (data.tournaments.length === 1) { 
+                        setCurrentTournamentId(data.tournaments[0].id); 
+                    } 
+                }
+            }
+
+            // 2. Initialize LIFF with ID from config
+            if (configData.liffId) {
+                await initializeLiff(configData.liffId);
+            }
+
+            // 3. Check Session
+            const liffUser = await checkSession(); 
+            if (liffUser) {
+                try {
+                    if (liffUser.type === 'line') {
+                        const backendUser = await authenticateUser({ authType: 'line', lineUserId: liffUser.userId, displayName: liffUser.displayName, pictureUrl: liffUser.pictureUrl });
+                        if (backendUser) { setCurrentUser(backendUser); if (backendUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
+                    } else if (liffUser.role) { setCurrentUser(liffUser); if (liffUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
+                } catch (e) { console.warn("Backend Auth Sync Failed", e); setCurrentUser(liffUser); }
+            }
+
+        } catch (e: any) { 
+            console.warn("Database/Init Error", e); 
+            setConnectionError(e.message); 
+            showNotification("เชื่อมต่อไม่ได้", e.message, 'error'); 
+        } finally { 
+            setIsLoadingData(false); 
         }
     };
-    loadData();
+
     init();
+
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition((position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }), (error) => console.log("Geolocation error:", error));
     }
-    const savedTId = localStorage.getItem('current_tournament_id');
-    if (savedTId) setCurrentTournamentId(savedTId);
-  }, []);
+  }, []); // Run once
 
   useEffect(() => { if (userLocation && effectiveSettings.locationLat && effectiveSettings.locationLng) { const dist = calculateDistance(userLocation.lat, userLocation.lng, effectiveSettings.locationLat, effectiveSettings.locationLng); setDistanceToVenue(dist); } }, [userLocation, effectiveSettings.locationLat, effectiveSettings.locationLng]);
   useEffect(() => { if (announcements.length > 1) { const interval = setInterval(() => setAnnouncementIndex(prev => (prev + 1) % announcements.length), 5000); return () => clearInterval(interval); } }, [announcements.length]);
@@ -223,7 +270,7 @@ function App() {
           const teamId = params.get('teamId'); 
           const tournamentIdParam = params.get('tournamentId');
 
-          if (tournamentIdParam) {
+          if (tournamentIdParam && tournamentIdParam !== currentTournamentId) {
               setCurrentTournamentId(tournamentIdParam);
           } else if (view === 'match_detail' && id) { 
               setInitialMatchId(id); 
@@ -266,19 +313,6 @@ function App() {
         setNewsItems(data.news || []);
         setTournaments(data.tournaments || []);
         setDonations(data.donations || []);
-        if (!currentTournamentId) { 
-            const savedTId = localStorage.getItem('current_tournament_id'); 
-            const params = new URLSearchParams(window.location.search);
-            const urlTId = params.get('tournamentId');
-
-            if (urlTId && data.tournaments.find(t => t.id === urlTId)) {
-                setCurrentTournamentId(urlTId);
-            } else if (savedTId && data.tournaments.find(t => t.id === savedTId)) { 
-                setCurrentTournamentId(savedTId); 
-            } else if (data.tournaments.length === 1) { 
-                setCurrentTournamentId(data.tournaments[0].id); 
-            } 
-        }
       }
     } catch (e: any) { console.warn("Database Error", e); setConnectionError(e.message); showNotification("เชื่อมต่อไม่ได้", e.message, 'error'); } finally { setIsLoadingData(false); }
   };

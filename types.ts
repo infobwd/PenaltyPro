@@ -1,9 +1,4 @@
 
-
-
-
-export const LIFF_ID = '2006490627-Z0WmzYVd';
-
 export enum KickResult {
   GOAL = 'GOAL',
   SAVED = 'SAVED',
@@ -27,7 +22,11 @@ export interface AppSettings {
   fundraisingGoal?: number; 
   objectiveTitle?: string; 
   objectiveDescription?: string; 
-  objectiveImageUrl?: string; 
+  objectiveImageUrl?: string;
+  // New Configs
+  liffId?: string;
+  pwaStartUrl?: string;
+  pwaScope?: string;
 }
 
 export interface NewsItem {
@@ -37,7 +36,7 @@ export interface NewsItem {
   imageUrl?: string;
   documentUrl?: string; 
   timestamp: number;
-  tournamentId?: string; // Updated: for separation
+  tournamentId?: string;
 }
 
 export interface School {
@@ -84,7 +83,7 @@ export interface TournamentConfig {
     description: string;
     goal: number;
     images: ProjectImage[];
-    docUrl?: string; // New: Project Detail File
+    docUrl?: string; 
   };
 
   prizes?: TournamentPrize[];
@@ -100,7 +99,7 @@ export interface DonationRequest {
   taxId?: string;
   address?: string;
   lineUserId?: string; 
-  isAnonymous?: boolean; // New
+  isAnonymous?: boolean;
 }
 
 export interface Donation {
@@ -116,7 +115,7 @@ export interface Donation {
   tournamentId: string;
   lineUserId?: string; 
   status: 'Pending' | 'Verified' | 'Rejected'; 
-  isAnonymous?: boolean; // New
+  isAnonymous?: boolean;
 }
 
 export interface Tournament {
@@ -254,7 +253,7 @@ export interface RegistrationData {
   }[];
   tournamentId?: string;
   creatorId?: string;
-  lineUserId?: string; // New field for Line ID
+  lineUserId?: string;
 }
 
 export interface Standing {
