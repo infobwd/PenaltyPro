@@ -1489,7 +1489,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                                         <Camera className="w-4 h-4 text-white"/>
                                                         <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handlePlayerPhotoChange(idx, e.target.files[0])} />
                                                     </label>
-                                                    {p.photoUrl && <button onClick={() => handleRemovePlayerPhoto(idx)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100"><X className="w-3 h-3"/></button>}
+                                                    {p.photoUrl && <button onClick={() => removePlayerPhoto(idx)} className="absolute top-0 right-0 bg-red-500 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100"><X className="w-3 h-3"/></button>}
                                                 </div>
                                                 <div className="flex-1 grid grid-cols-12 gap-2">
                                                     <div className="col-span-3"><input type="text" placeholder="เบอร์" value={p.number} onChange={e => handlePlayerChange(idx, 'number', e.target.value)} className="w-full p-1.5 border rounded text-xs text-center font-bold" /></div>
@@ -1497,7 +1497,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                                     <div className="col-span-6"><input type="text" placeholder="วันเกิด (วว/ดด/ปปปป)" value={p.birthDate || ''} onChange={e => handleDateInput(idx, e.target.value)} className="w-full p-1.5 border rounded text-xs" /></div>
                                                     <div className="col-span-6"><input type="text" placeholder="ตำแหน่ง" value={p.position || 'Player'} onChange={e => handlePlayerChange(idx, 'position', e.target.value)} className="w-full p-1.5 border rounded text-xs" /></div>
                                                 </div>
-                                                <button onClick={() => handleRemovePlayer(idx)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button>
+                                                <button onClick={() => removePlayer(idx)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button>
                                             </div>
                                         ))}
                                     </div>

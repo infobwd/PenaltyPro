@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -60,6 +59,33 @@ const getDisplayUrl = (url: string) => {
     return url;
 };
 
+// Beautiful Loading Component
+const LoadingScreen = () => {
+  return (
+    <div className="fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center animate-in fade-in duration-500">
+      <div className="relative mb-8">
+        <div className="absolute inset-0 bg-indigo-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
+        <div className="relative w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center p-4 border border-slate-100">
+           <img 
+             src="https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif" 
+             className="w-full h-full object-contain"
+             alt="Logo"
+           />
+        </div>
+      </div>
+      <h1 className="text-2xl font-black text-slate-800 tracking-tight mb-2">Penalty Pro <span className="text-indigo-600">Arena</span></h1>
+      <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
+        <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+        <span>กำลังโหลดข้อมูลการแข่งขัน...</span>
+      </div>
+      
+      <div className="absolute bottom-10 text-xs text-slate-300 font-mono">
+        Powered by Google Gemini
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [currentView, setCurrentView] = useState<string>('home');
   const [viewKey, setViewKey] = useState<number>(0); 
@@ -80,7 +106,7 @@ function App() {
   const [currentTournamentId, setCurrentTournamentId] = useState<string | null>(null);
   const [donations, setDonations] = useState<Donation[]>([]); 
 
-  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [matchState, setMatchState] = useState<MatchState | null>(null);
   const [pendingMatchSetup, setPendingMatchSetup] = useState<{teamA: Team, teamB: Team, matchId?: string} | null>(null);
@@ -354,6 +380,10 @@ function App() {
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
   const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(); setCurrentView('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
   const handleUpdateRegularMatchState = (state: MatchState) => { };
+
+  if (isLoadingData) {
+      return <LoadingScreen />;
+  }
 
   if (!currentTournamentId) {
       return (

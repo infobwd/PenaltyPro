@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
-import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus } from 'lucide-react';
+import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus, Download, Image as ImageIcon } from 'lucide-react';
 import { scheduleMatch, saveMatchToSheet, deleteMatch } from '../services/sheetService';
 import { shareMatch } from '../services/liffService';
+import html2canvas from 'html2canvas';
 
 interface TournamentViewProps {
   teams: Team[];
@@ -22,7 +23,10 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   const [editMode, setEditMode] = useState(false);
   const [localMatches, setLocalMatches] = useState<Match[]>([]);
   const [isLargeBracket, setIsLargeBracket] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   
+  const bracketRef = useRef<HTMLDivElement>(null);
+
   // Batch Save State
   const [pendingUpdates, setPendingUpdates] = useState<Map<string, Match>>(new Map());
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
@@ -136,6 +140,48 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       });
       return teams.filter(t => winners.has(t.name));
   }, [matches, teams]);
+
+  const handleExportImage = async () => {
+      if (!bracketRef.current) return;
+      setIsExporting(true);
+      try {
+          // Use html2canvas to capture the bracket container
+          // We need to ensure we capture the full scroll width
+          const element = bracketRef.current;
+          
+          // Temporary style adjustment to capture full width
+          const originalWidth = element.style.width;
+          const originalOverflow = element.style.overflow;
+          
+          // Force layout to fit content
+          element.style.width = 'fit-content';
+          element.style.overflow = 'visible';
+
+          const canvas = await html2canvas(element, {
+              scale: 2, // Higher resolution
+              useCORS: true,
+              backgroundColor: '#f8fafc', // Match bg-slate-50
+              ignoreElements: (el) => el.classList.contains('no-export') // Exclude UI controls if tagged
+          });
+
+          // Restore styles
+          element.style.width = originalWidth;
+          element.style.overflow = originalOverflow;
+
+          const image = canvas.toDataURL("image/png");
+          const link = document.createElement("a");
+          link.href = image;
+          link.download = `tournament_bracket_${Date.now()}.png`;
+          link.click();
+          
+          if (showNotification) showNotification("สำเร็จ", "ดาวน์โหลดรูปผังการแข่งขันเรียบร้อย", "success");
+      } catch (err) {
+          console.error("Export failed", err);
+          if (showNotification) showNotification("ผิดพลาด", "ไม่สามารถดาวน์โหลดรูปภาพได้", "error");
+      } finally {
+          setIsExporting(false);
+      }
+  };
 
   const handleUpdateSlot = async (teamName: string, targetSelection?: any) => {
       // Allow passing selection directly or using state
@@ -349,6 +395,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
           </div>
       )}
 
+      {/* EXPORT OVERLAY */}
+      {isExporting && (
+          <div className="fixed inset-0 z-[2000] bg-black/70 backdrop-blur-sm flex items-center justify-center flex-col text-white animate-in fade-in duration-300">
+              <div className="bg-white/10 p-6 rounded-3xl backdrop-blur-md flex flex-col items-center border border-white/20 shadow-2xl">
+                  <Loader2 className="w-12 h-12 animate-spin mb-4 text-green-400" />
+                  <h3 className="text-xl font-bold mb-1">กำลังสร้างรูปภาพ...</h3>
+                  <p className="text-sm text-slate-300">กรุณารอสักครู่</p>
+              </div>
+          </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 sticky top-0 z-30">
          <div className="w-full md:w-auto">
              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -374,6 +431,10 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                 </button>
             )}
 
+            <button onClick={handleExportImage} disabled={isExporting} className="flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-200 transition text-xs whitespace-nowrap">
+                {isExporting ? <Loader2 className="w-4 h-4 animate-spin"/> : <ImageIcon className="w-4 h-4" />} รูปภาพ
+            </button>
+
             <button onClick={() => setIsLargeBracket(!isLargeBracket)} className="flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-200 transition text-xs whitespace-nowrap">
                 {isLargeBracket ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />} {isLargeBracket ? 'ลด (16)' : 'ขยาย (32)'}
             </button>
@@ -390,14 +451,15 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
          </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6 flex-1 items-start relative">
+      <div className="flex flex-col lg:flex-row gap-6 flex-1 items-start relative overflow-x-auto">
           
-          <div className="flex-1 w-full overflow-x-auto pb-10 custom-scrollbar -webkit-overflow-scrolling-touch px-2">
-             <div className="md:hidden text-center text-slate-400 text-xs mb-2 flex items-center justify-center gap-2 opacity-50">
-                 <ArrowRight className="w-3 h-3" /> เลื่อนเพื่อดูสายการแข่งขัน <ArrowRight className="w-3 h-3" />
+          <div ref={bracketRef} className="flex-1 w-full pb-10 px-4 pt-4 bg-slate-50 min-h-[600px]">
+             {/* This container div is what gets captured by html2canvas */}
+             <div className="mb-4 text-center hidden" id="bracket-header">
+                 <h2 className="text-2xl font-bold text-slate-800">Tournament Bracket</h2>
              </div>
 
-             <div className={`flex flex-col gap-8 ${isLargeBracket ? 'min-w-[1400px]' : 'min-w-[1100px]'}`}>
+             <div className={`flex flex-col gap-8 mx-auto ${isLargeBracket ? 'min-w-[1400px]' : 'min-w-[1100px]'}`}>
                  
                  {/* LINE A */}
                  <div className="bg-blue-50/30 p-4 md:p-6 rounded-3xl border border-blue-100 shadow-inner relative">
