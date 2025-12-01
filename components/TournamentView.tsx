@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
-import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal } from 'lucide-react';
+import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus } from 'lucide-react';
 import { scheduleMatch, saveMatchToSheet, deleteMatch } from '../services/sheetService';
 import { shareMatch } from '../services/liffService';
 
@@ -22,6 +22,11 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   const [editMode, setEditMode] = useState(false);
   const [localMatches, setLocalMatches] = useState<Match[]>([]);
   const [isLargeBracket, setIsLargeBracket] = useState(false);
+  
+  // Batch Save State
+  const [pendingUpdates, setPendingUpdates] = useState<Map<string, Match>>(new Map());
+  const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+  const [isSaving, setIsSaving] = useState(false);
   
   const [selectedMatch, setSelectedMatch] = useState<{match: Match, label: string} | null>(null);
   const [walkoverModal, setWalkoverModal] = useState<{match: Match, label: string} | null>(null);
@@ -49,14 +54,14 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   }, [teams.length, matches]);
 
   useEffect(() => {
-      const savedLayout = localStorage.getItem('bracket_layout_backup');
-      let cachedMatches: Match[] = [];
-      if (savedLayout) {
-          try {
-              cachedMatches = JSON.parse(savedLayout);
-          } catch (e) {}
+      // CRITICAL: Stop Auto-Refresh Logic
+      // If user has unsaved changes (pendingUpdates/Deletes), DO NOT overwrite local state with props.matches.
+      // This prevents the UI from "refreshing on its own" while the user is working.
+      if (pendingUpdates.size > 0 || pendingDeletes.size > 0) {
+          return;
       }
 
+      // Standard Slot Definitions
       const allSlots = [
           ...Array(8).fill(null).map((_, i) => `R32-${i+1}`),
           ...Array(4).fill(null).map((_, i) => `R16-${i+1}`),
@@ -71,15 +76,14 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
 
       const combinedMatches: Match[] = [];
       allSlots.forEach(label => {
+          // Find strictly from server matches first
           const serverMatch = matches.find(m => m.roundLabel === label);
           if (serverMatch) {
               combinedMatches.push(serverMatch);
-          } else {
-              const localMatch = cachedMatches.find(m => m.roundLabel === label);
-              if (localMatch) combinedMatches.push(localMatch);
-          }
+          } 
       });
       
+      // Add any other matches that don't fit the standard slots (custom rounds, groups, etc.)
       matches.forEach(m => {
           if (!m.roundLabel || !combinedMatches.find(cm => cm.id === m.id)) {
               combinedMatches.push(m);
@@ -87,13 +91,10 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       });
 
       setLocalMatches(combinedMatches);
-  }, [matches]);
-
-  useEffect(() => {
-      if (localMatches.length > 0) {
-          localStorage.setItem('bracket_layout_backup', JSON.stringify(localMatches));
-      }
-  }, [localMatches]);
+      
+      // Note: We don't clear pending updates here because of the guard clause at the top.
+      // If this runs, it means there were no pending updates anyway.
+  }, [matches, pendingUpdates.size, pendingDeletes.size]);
 
   const getScheduledMatch = (label: string) => localMatches.find(m => m.roundLabel === label);
 
@@ -136,129 +137,128 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       return teams.filter(t => winners.has(t.name));
   }, [matches, teams]);
 
-  // Helper to identify next round slot
-  const getNextRoundInfo = (currentLabel: string) => {
-      const numStr = currentLabel.match(/\d+/)?.[0];
-      const num = numStr ? parseInt(numStr) : 0;
-      if (!num && currentLabel !== 'SF1' && currentLabel !== 'SF2') return null;
-
-      let nextRoundLabel = '';
-      if (currentLabel.startsWith('R32-')) nextRoundLabel = `R16-${Math.ceil(num/2)}`;
-      else if (currentLabel.startsWith('R16-')) nextRoundLabel = `QF${Math.ceil(num/2)}`;
-      else if (currentLabel.startsWith('QF')) nextRoundLabel = `SF${Math.ceil(num/2)}`;
-      else if (currentLabel.startsWith('SF')) nextRoundLabel = `FINAL`;
-      else return null;
-
-      const nextSlot: 'A' | 'B' = (currentLabel.startsWith('SF') ? (currentLabel === 'SF1' ? 'A' : 'B') : (num % 2 !== 0 ? 'A' : 'B'));
-      return { label: nextRoundLabel, slot: nextSlot };
-  };
-
-  const handleUpdateSlot = async (teamName: string) => {
-      if (!slotSelection) return;
-      const { roundLabel, slot, matchId: existingMatchId, currentName } = slotSelection;
+  const handleUpdateSlot = async (teamName: string, targetSelection?: any) => {
+      // Allow passing selection directly or using state
+      const selection = targetSelection || slotSelection;
+      if (!selection) return;
+      
+      const { roundLabel, slot, matchId: existingMatchId } = selection;
       const isClear = teamName === 'CLEAR_SLOT';
 
-      // 1. Update/Delete Current Slot
-      if (isClear) {
-          // DELETE Logic
-          let updatedNextMatch: Match | null = null;
+      // Current State in Local
+      let matchIndex = localMatches.findIndex(m => m.roundLabel === roundLabel);
+      let matchToUpdate = matchIndex >= 0 ? localMatches[matchIndex] : null;
 
-          setLocalMatches(prev => {
-              const newMatches = [...prev];
-              
-              const currentMatchIndex = newMatches.findIndex(m => m.roundLabel === roundLabel);
-              if (currentMatchIndex >= 0) {
-                  const m = newMatches[currentMatchIndex];
-                  const newTeamA = slot === 'A' ? '' : m.teamA;
-                  const newTeamB = slot === 'B' ? '' : m.teamB;
-                  const isOtherEmpty = (!newTeamA || newTeamA === '') && (!newTeamB || newTeamB === '');
-                  
-                  if (isOtherEmpty) {
-                      newMatches.splice(currentMatchIndex, 1);
-                  } else {
-                      newMatches[currentMatchIndex] = { ...m, teamA: newTeamA, teamB: newTeamB };
-                  }
-              }
-              return newMatches;
-          });
-
-          const matchToUpdate = localMatches.find(m => m.roundLabel === roundLabel);
-          const currentA = matchToUpdate ? (typeof matchToUpdate.teamA === 'string' ? matchToUpdate.teamA : matchToUpdate.teamA.name) : '';
-          const currentB = matchToUpdate ? (typeof matchToUpdate.teamB === 'string' ? matchToUpdate.teamB : matchToUpdate.teamB.name) : '';
-          
-          const payload: any = { matchId: existingMatchId && !existingMatchId.includes('TEMP') ? existingMatchId : '', roundLabel: roundLabel };
-          if (slot === 'A') payload.teamA = "";
-          if (slot === 'B') payload.teamB = "";
-
-          if (existingMatchId && !existingMatchId.includes('TEMP') && ((slot === 'A' && !currentB) || (slot === 'B' && !currentA))) {
-                 await deleteMatch(existingMatchId);
-                 if (showNotification) showNotification("ลบรายการ", "ลบการแข่งขันออกจากระบบแล้ว", "info");
-          } else {
-                 await scheduleMatch(payload.matchId, payload.teamA, payload.teamB, payload.roundLabel, undefined, undefined, undefined, undefined, tournamentId);
-          }
-
-      } else {
-          // UPDATE/CREATE Logic
-          // CRITICAL FIX: Look for match by label in BOTH local state AND props to find real ID
-          // This prevents creating duplicate matches with new IDs
-          let matchToUpdate = localMatches.find(m => m.roundLabel === roundLabel) || matches.find(m => m.roundLabel === roundLabel);
-          
-          let finalMatchId = matchToUpdate?.id;
-          if (!finalMatchId || finalMatchId.includes('TEMP')) {
-              // Only use existingMatchId if it's real
-              finalMatchId = (existingMatchId && !existingMatchId.includes('TEMP')) ? existingMatchId : `M_${roundLabel}_${Date.now()}`;
-          }
-
-          const currentA = matchToUpdate ? (typeof matchToUpdate.teamA === 'object' ? matchToUpdate.teamA.name : matchToUpdate.teamA) : '';
-          const currentB = matchToUpdate ? (typeof matchToUpdate.teamB === 'object' ? matchToUpdate.teamB.name : matchToUpdate.teamB) : '';
-
-          const teamAToSave = slot === 'A' ? teamName : currentA;
-          const teamBToSave = slot === 'B' ? teamName : currentB;
-
-          // Update Local State for UI
-          setLocalMatches(prev => {
-              const newMatches = [...prev];
-              const idx = newMatches.findIndex(m => m.roundLabel === roundLabel);
-
-              if (idx >= 0) {
-                  newMatches[idx] = {
-                      ...newMatches[idx],
-                      id: finalMatchId, // Sync ID
-                      teamA: teamAToSave,
-                      teamB: teamBToSave,
-                  };
-              } else {
-                  newMatches.push({
-                      id: finalMatchId,
-                      teamA: teamAToSave,
-                      teamB: teamBToSave,
-                      scoreA: 0, scoreB: 0, winner: null, date: new Date().toISOString(),
-                      roundLabel: roundLabel, status: 'Scheduled',
-                      tournamentId: tournamentId
-                  } as Match);
-              }
-              return newMatches;
-          });
-
-          await scheduleMatch(
-              finalMatchId, 
-              teamAToSave, 
-              teamBToSave, 
-              roundLabel, 
-              matchToUpdate?.venue, 
-              matchToUpdate?.scheduledTime, 
-              undefined, 
-              undefined, 
-              tournamentId
-          );
+      // Calculate ID
+      let finalMatchId = matchToUpdate?.id;
+      if (!finalMatchId || finalMatchId.includes('TEMP')) {
+           finalMatchId = (existingMatchId && !existingMatchId.includes('TEMP')) ? existingMatchId : `M_${roundLabel}_${Date.now()}`;
       }
+
+      const currentA = matchToUpdate ? (typeof matchToUpdate.teamA === 'object' ? matchToUpdate.teamA.name : matchToUpdate.teamA) : '';
+      const currentB = matchToUpdate ? (typeof matchToUpdate.teamB === 'object' ? matchToUpdate.teamB.name : matchToUpdate.teamB) : '';
+
+      const newTeamA = slot === 'A' ? (isClear ? '' : teamName) : currentA;
+      const newTeamB = slot === 'B' ? (isClear ? '' : teamName) : currentB;
+
+      // Determine if this results in an empty match (deletion)
+      const isBothEmpty = (!newTeamA || newTeamA === '') && (!newTeamB || newTeamB === '');
+
+      // 1. Update Local UI State
+      setLocalMatches(prev => {
+          const newMatches = [...prev];
+          if (isBothEmpty) {
+              if (matchIndex >= 0) newMatches.splice(matchIndex, 1);
+          } else {
+              const newMatchObj: Match = {
+                  ...(matchToUpdate || {
+                      scoreA: 0, scoreB: 0, winner: null, date: new Date().toISOString(), status: 'Scheduled', tournamentId
+                  }),
+                  id: finalMatchId,
+                  roundLabel,
+                  teamA: newTeamA,
+                  teamB: newTeamB
+              };
+              if (matchIndex >= 0) newMatches[matchIndex] = newMatchObj;
+              else newMatches.push(newMatchObj);
+          }
+          return newMatches;
+      });
+
+      // 2. Track Pending Changes
+      if (isBothEmpty) {
+          // DELETE
+          setPendingUpdates(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(finalMatchId);
+              return newMap;
+          });
+          // If it exists in Server Data (prop matches), mark for delete
+          const existsInServer = matches.find(m => m.id === finalMatchId);
+          if (existsInServer) {
+              setPendingDeletes(prev => new Set(prev).add(finalMatchId));
+          }
+      } else {
+          // UPDATE / CREATE
+          const newMatchObj: Match = {
+              ...(matchToUpdate || {
+                  scoreA: 0, scoreB: 0, winner: null, date: new Date().toISOString(), status: 'Scheduled', tournamentId
+              }),
+              id: finalMatchId,
+              roundLabel,
+              teamA: newTeamA,
+              teamB: newTeamB
+          };
+          
+          setPendingUpdates(prev => new Map(prev).set(finalMatchId, newMatchObj));
+          setPendingDeletes(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(finalMatchId);
+              return newSet;
+          });
+      }
+
       setSlotSelection(null);
   };
 
-  const handleMatchDetailsUpdate = async (match: Match, updates: Partial<Match>) => {
+  const handleMatchDetailsUpdate = (match: Match, updates: Partial<Match>) => {
       const updatedMatch = { ...match, ...updates };
       setLocalMatches(prev => prev.map(m => m.id === match.id ? updatedMatch : m));
-      await scheduleMatch(updatedMatch.id, undefined, undefined, updatedMatch.roundLabel || '', updatedMatch.venue, updatedMatch.scheduledTime, undefined, undefined, tournamentId);
+      setPendingUpdates(prev => new Map(prev).set(updatedMatch.id, updatedMatch));
+  };
+
+  const handleSaveChanges = async () => {
+      setIsSaving(true);
+      try {
+          // Process Deletes
+          for (const id of pendingDeletes) {
+              await deleteMatch(id);
+          }
+          // Process Updates
+          for (const match of pendingUpdates.values()) {
+               await scheduleMatch(
+                match.id, 
+                typeof match.teamA === 'string' ? match.teamA : match.teamA.name, 
+                typeof match.teamB === 'string' ? match.teamB : match.teamB.name, 
+                match.roundLabel || '', 
+                match.venue, 
+                match.scheduledTime, 
+                undefined, 
+                undefined, 
+                tournamentId
+            );
+          }
+          
+          setPendingUpdates(new Map());
+          setPendingDeletes(new Set());
+          if (showNotification) showNotification("บันทึกสำเร็จ", "อัปเดตผังการแข่งขันเรียบร้อย", "success");
+          onRefresh(); // Refresh from server to sync final IDs/state
+      } catch (e) {
+          if (showNotification) showNotification("ผิดพลาด", "เกิดข้อผิดพลาดในการบันทึก", "error");
+      } finally {
+          setIsSaving(false);
+          setEditMode(false);
+      }
   };
 
   const handleWalkover = async (winner: string) => {
@@ -274,7 +274,6 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
          status: 'Finished'
      } : m));
 
-     // Save to Backend
      const dummyMatch: any = {
          matchId: matchId,
          teamA: { name: typeof walkoverModal.match.teamA === 'string' ? walkoverModal.match.teamA : (walkoverModal.match.teamA as Team).name }, 
@@ -287,9 +286,6 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
      };
      await saveMatchToSheet(dummyMatch, "ชนะบาย (Walkover) / สละสิทธิ์", false, tournamentId);
      
-     // DISABLE AUTO ADVANCE: The user wants to manually select winners in next round.
-     // await advanceWinnerToNextRound(walkoverModal.label, winner);
-
      setWalkoverModal(null);
      setSelectedMatch(null);
      if (showNotification) showNotification("เรียบร้อย", "บันทึกผลชนะบายเรียบร้อย (กรุณาเลือกทีมชนะในรอบถัดไปเอง)", "success");
@@ -325,18 +321,50 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       }
   };
 
+  const handleQuickRemove = (matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string) => {
+      // Direct call to update slot with CLEAR_SLOT without opening modal
+      handleUpdateSlot('CLEAR_SLOT', { matchId, roundLabel, slot, currentName });
+  };
+
   return (
-    <div className="w-full max-w-[98%] mx-auto p-2 md:p-4 min-h-screen flex flex-col bg-slate-50">
+    <div className="w-full max-w-[98%] mx-auto p-2 md:p-4 min-h-screen flex flex-col bg-slate-50 relative">
+      
+      {/* LOADING OVERLAY */}
+      {isSaving && (
+          <div className="fixed inset-0 z-[2000] bg-black/70 backdrop-blur-sm flex items-center justify-center flex-col text-white animate-in fade-in duration-300">
+              <div className="bg-white/10 p-6 rounded-3xl backdrop-blur-md flex flex-col items-center border border-white/20 shadow-2xl">
+                  <Loader2 className="w-12 h-12 animate-spin mb-4 text-indigo-400" />
+                  <h3 className="text-xl font-bold mb-1">กำลังบันทึกข้อมูล...</h3>
+                  <p className="text-sm text-slate-300">กรุณารอสักครู่ ห้ามปิดหน้าต่าง</p>
+              </div>
+          </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200 sticky top-0 z-30">
          <div className="w-full md:w-auto">
              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                 <Trophy className="w-6 h-6 text-yellow-500" /> แผนผัง <span className="hidden md:inline">การแข่งขัน</span>
              </h2>
-             <p className="text-xs text-slate-500">
-                {isAdmin ? (editMode ? "แตะที่ชื่อทีมในผังเพื่อเปลี่ยนหรือลบ" : "คลิก 'จัดการ' เพื่อแก้ไขผัง") : "คลิกที่คู่แข่งขันเพื่อดูรายละเอียด"}
-             </p>
+             <div className="flex items-center gap-2">
+                 {editMode && <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded-full animate-pulse border border-orange-200">EDIT MODE</span>}
+                 <p className="text-xs text-slate-500">
+                    {isAdmin ? (editMode ? "แตะช่องว่างเพื่อเพิ่มทีม หรือแตะที่ทีมเพื่อแก้ไข" : "คลิก 'จัดการ' เพื่อแก้ไขผัง") : "คลิกที่คู่แข่งขันเพื่อดูรายละเอียด"}
+                 </p>
+             </div>
          </div>
          <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+            {/* SAVE BUTTON */}
+            {(pendingUpdates.size > 0 || pendingDeletes.size > 0) && isAdmin && (
+                <button 
+                    onClick={handleSaveChanges} 
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-bold text-xs whitespace-nowrap shadow-md animate-pulse"
+                >
+                    <Save className="w-4 h-4"/>
+                    บันทึก ({pendingUpdates.size + pendingDeletes.size})
+                </button>
+            )}
+
             <button onClick={() => setIsLargeBracket(!isLargeBracket)} className="flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-200 transition text-xs whitespace-nowrap">
                 {isLargeBracket ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />} {isLargeBracket ? 'ลด (16)' : 'ขยาย (32)'}
             </button>
@@ -345,8 +373,8 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
             </button>
             {!isAdmin && <button onClick={onLoginClick} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition font-bold text-xs whitespace-nowrap"><Lock className="w-4 h-4" /> Login</button>}
             {isAdmin && (
-                <button onClick={() => setEditMode(!editMode)} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition font-bold text-xs whitespace-nowrap ${editMode ? 'bg-indigo-600 text-white shadow-lg ring-2 ring-indigo-200' : 'bg-white border border-slate-300 text-slate-600'}`}>
-                    {editMode ? <Check className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />} {editMode ? 'เสร็จสิ้น' : 'จัดการ'}
+                <button onClick={() => setEditMode(!editMode)} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition font-bold text-xs whitespace-nowrap ${editMode ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg ring-2 ring-orange-200' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                    {editMode ? <Check className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />} {editMode ? 'เสร็จสิ้น' : 'จัดการผัง'}
                 </button>
             )}
             <button onClick={onBack} className="text-xs text-slate-500 hover:text-indigo-600 px-4 py-2 font-medium whitespace-nowrap">กลับ</button>
@@ -368,17 +396,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                      <div className="flex justify-start gap-0 items-stretch pt-4">
                         {isLargeBracket && (
                             <BracketColumn title="รอบ 32">
-                                {isLoading ? <BracketSkeleton count={4} /> : round32_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                                {isLoading ? <BracketSkeleton count={4} /> : round32_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                             </BracketColumn>
                         )}
                         <BracketColumn title="รอบ 16">
-                             {isLoading ? <BracketSkeleton count={2} /> : round16_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={2} /> : round16_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รอบ 8">
-                             {isLoading ? <BracketSkeleton count={1} /> : quarters_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : quarters_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รองชนะเลิศ" isSingle>
-                             {isLoading ? <BracketSkeleton count={1} /> : semis_A.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : semis_A.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
                         </BracketColumn>
                      </div>
                  </div>
@@ -389,7 +417,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                         <div className="h-8 w-0.5 bg-yellow-400"></div>
                         <div className="bg-gradient-to-b from-yellow-50 to-yellow-100 p-4 rounded-xl border-2 border-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.2)] transform scale-110">
                              <h3 className="text-center font-black text-yellow-700 text-lg mb-2 uppercase tracking-widest flex items-center justify-center gap-2"><Trophy className="w-5 h-5" /> Final</h3>
-                             {isLoading ? <BracketSkeleton count={1} /> : final.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} isFinal />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : final.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} isFinal />)}
                         </div>
                         <div className="h-8 w-0.5 bg-yellow-400"></div>
                      </div>
@@ -401,17 +429,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                      <div className="flex justify-start gap-0 items-stretch pt-4">
                         {isLargeBracket && (
                             <BracketColumn title="รอบ 32">
-                                {isLoading ? <BracketSkeleton count={4} /> : round32_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                                {isLoading ? <BracketSkeleton count={4} /> : round32_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                             </BracketColumn>
                         )}
                         <BracketColumn title="รอบ 16">
-                             {isLoading ? <BracketSkeleton count={2} /> : round16_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={2} /> : round16_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รอบ 8">
-                             {isLoading ? <BracketSkeleton count={1} /> : quarters_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : quarters_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
                         </BracketColumn>
                         <BracketColumn title="รองชนะเลิศ" isSingle>
-                             {isLoading ? <BracketSkeleton count={1} /> : semis_B.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
+                             {isLoading ? <BracketSkeleton count={1} /> : semis_B.map(slot => <BracketNode key={slot.label} slot={slot} match={getScheduledMatch(slot.label)} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} showConnector={true} />)}
                         </BracketColumn>
                      </div>
                  </div>
@@ -742,6 +770,7 @@ interface BracketNodeProps {
     isEditing: boolean;
     isAdmin: boolean;
     onSlotClick: (matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string) => void;
+    onQuickRemove: (matchId: string, roundLabel: string, slot: 'A' | 'B', currentName: string) => void;
     onSelect: (data: {match: Match, label: string}) => void;
     fullTeams: Team[];
     onUpdateDetails: (match: Match, updates: Partial<Match>) => void;
@@ -749,7 +778,7 @@ interface BracketNodeProps {
     showConnector?: string | boolean;
 }
 
-const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdmin, onSlotClick, onSelect, fullTeams, onUpdateDetails, isFinal, showConnector }) => {
+const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdmin, onSlotClick, onQuickRemove, onSelect, fullTeams, onUpdateDetails, isFinal, showConnector }) => {
     const teamA_Name = typeof match?.teamA === 'object' ? match.teamA.name : match?.teamA;
     const teamB_Name = typeof match?.teamB === 'object' ? match.teamB.name : match?.teamB;
     
@@ -806,7 +835,7 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                  <div className="divide-y divide-slate-100 text-xs">
                      {/* TEAM A */}
                      <div 
-                        className={`p-2 flex justify-between items-center h-9 transition-all duration-200 ${tA ? (match?.winner === 'A' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100' : 'bg-slate-50/30'}`}
+                        className={`p-2 flex justify-between items-center h-10 transition-all duration-200 ${tA ? (match?.winner === 'A' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100 group' : 'bg-slate-50/30'}`}
                         onClick={(e) => {
                             if (isEditing) {
                                 e.stopPropagation();
@@ -815,17 +844,36 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                         }}
                      >
                          {tA ? (
-                             <div className="flex items-center gap-2 overflow-hidden w-full">
-                                 {tA.logo ? <img src={tA.logo} className="w-5 h-5 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-5 h-5 rounded-full bg-slate-200 shrink-0"></div>}
+                             <div className="flex items-center gap-2 overflow-hidden w-full relative">
+                                 {tA.logo ? <img src={tA.logo} className="w-6 h-6 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-6 h-6 rounded-full bg-slate-200 shrink-0"></div>}
                                  <span className={`font-bold truncate ${match?.winner === 'A' ? 'text-slate-900' : 'text-slate-600'}`}>{tA.name}</span>
+                                 
+                                 {/* Quick Remove Button (Edit Mode Only) */}
+                                 {isEditing && (
+                                     <button 
+                                        className="absolute right-0 bg-red-100 hover:bg-red-500 hover:text-white text-red-500 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onQuickRemove(match?.id || '', slot.label, 'A', teamA_Name || '');
+                                        }}
+                                        title="ลบทีมนี้"
+                                     >
+                                         <Trash2 className="w-3 h-3" />
+                                     </button>
+                                 )}
                              </div>
-                         ) : <span className={`text-[10px] italic select-none ${isEditing ? 'text-indigo-400 font-bold' : 'text-slate-300'}`}>{isEditing ? '+ เลือกทีม A' : 'รอคู่แข่ง'}</span>}
+                         ) : (
+                             <div className="flex items-center gap-2 w-full text-slate-400 opacity-70 group-hover:opacity-100 group-hover:text-indigo-600">
+                                 {isEditing ? <Plus className="w-4 h-4 border border-dashed border-indigo-300 rounded-full" /> : <div className="w-4 h-4"></div>}
+                                 <span className={`text-[10px] italic select-none ${isEditing ? 'font-bold' : ''}`}>{isEditing ? 'เลือกทีม A' : 'รอคู่แข่ง'}</span>
+                             </div>
+                         )}
                          {match && match.winner && <span className={`font-bold px-1.5 rounded ${match.winner === 'A' ? 'bg-green-600 text-white' : 'text-slate-400'}`}>{match.scoreA}</span>}
                      </div>
 
                      {/* TEAM B */}
                      <div 
-                        className={`p-2 flex justify-between items-center h-9 transition-all duration-200 ${tB ? (match?.winner === 'B' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100' : 'bg-slate-50/30'}`}
+                        className={`p-2 flex justify-between items-center h-10 transition-all duration-200 ${tB ? (match?.winner === 'B' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100 group' : 'bg-slate-50/30'}`}
                         onClick={(e) => {
                             if (isEditing) {
                                 e.stopPropagation();
@@ -834,11 +882,30 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                         }}
                      >
                          {tB ? (
-                             <div className="flex items-center gap-2 overflow-hidden w-full">
-                                 {tB.logo ? <img src={tB.logo} className="w-5 h-5 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-5 h-5 rounded-full bg-slate-200 shrink-0"></div>}
+                             <div className="flex items-center gap-2 overflow-hidden w-full relative">
+                                 {tB.logo ? <img src={tB.logo} className="w-6 h-6 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-6 h-6 rounded-full bg-slate-200 shrink-0"></div>}
                                  <span className={`font-bold truncate ${match?.winner === 'B' ? 'text-slate-900' : 'text-slate-600'}`}>{tB.name}</span>
+                                 
+                                 {/* Quick Remove Button (Edit Mode Only) */}
+                                 {isEditing && (
+                                     <button 
+                                        className="absolute right-0 bg-red-100 hover:bg-red-500 hover:text-white text-red-500 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onQuickRemove(match?.id || '', slot.label, 'B', teamB_Name || '');
+                                        }}
+                                        title="ลบทีมนี้"
+                                     >
+                                         <Trash2 className="w-3 h-3" />
+                                     </button>
+                                 )}
                              </div>
-                         ) : <span className={`text-[10px] italic select-none ${isEditing ? 'text-indigo-400 font-bold' : 'text-slate-300'}`}>{isEditing ? '+ เลือกทีม B' : 'รอคู่แข่ง'}</span>}
+                         ) : (
+                             <div className="flex items-center gap-2 w-full text-slate-400 opacity-70 group-hover:opacity-100 group-hover:text-indigo-600">
+                                 {isEditing ? <Plus className="w-4 h-4 border border-dashed border-indigo-300 rounded-full" /> : <div className="w-4 h-4"></div>}
+                                 <span className={`text-[10px] italic select-none ${isEditing ? 'font-bold' : ''}`}>{isEditing ? 'เลือกทีม B' : 'รอคู่แข่ง'}</span>
+                             </div>
+                         )}
                          {match && match.winner && <span className={`font-bold px-1.5 rounded ${match.winner === 'B' ? 'bg-green-600 text-white' : 'text-slate-400'}`}>{match.scoreB}</span>}
                      </div>
                  </div>

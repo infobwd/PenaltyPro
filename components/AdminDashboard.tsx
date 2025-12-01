@@ -336,7 +336,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       // Simple shuffle
       for (let i = currentPool.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          [currentPool[i], currentPool[j]] = [currentPool[j], currentPool[i]];
+          const temp = currentPool[i];
+          currentPool[i] = currentPool[j];
+          currentPool[j] = temp;
       }
 
       // 3. Animation
@@ -464,7 +466,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       const updates: { teamId: string, group: string }[] = [];
       
       Object.entries(liveGroups).forEach(([groupName, teams]) => {
-          teams.forEach(t => {
+          (teams as Team[]).forEach(t => {
               updates.push({ teamId: t.id, group: groupName });
           });
       });
