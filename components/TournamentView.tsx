@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
 import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus, Download, Image as ImageIcon } from 'lucide-react';
@@ -145,30 +147,34 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       if (!bracketRef.current) return;
       setIsExporting(true);
       try {
-          // Use html2canvas to capture the bracket container
-          // We need to ensure we capture the full scroll width
           const element = bracketRef.current;
           
           // Temporary style adjustment to capture full width
           const originalWidth = element.style.width;
           const originalOverflow = element.style.overflow;
+          const originalMinHeight = element.style.minHeight;
           
-          // Force layout to fit content
+          // Ensure container expands to fit content completely
           element.style.width = 'fit-content';
+          element.style.minWidth = `${element.scrollWidth}px`;
+          element.style.minHeight = `${element.scrollHeight}px`;
           element.style.overflow = 'visible';
 
           const canvas = await html2canvas(element, {
-              scale: 2, // Higher resolution
+              scale: 4, // High Resolution
               useCORS: true,
-              backgroundColor: '#f8fafc', // Match bg-slate-50
-              ignoreElements: (el) => el.classList.contains('no-export') // Exclude UI controls if tagged
+              backgroundColor: '#f8fafc',
+              ignoreElements: (el) => el.classList.contains('no-export'),
+              windowWidth: element.scrollWidth, // Ensure capture isn't clipped by viewport
+              windowHeight: element.scrollHeight
           });
 
           // Restore styles
           element.style.width = originalWidth;
           element.style.overflow = originalOverflow;
+          element.style.minHeight = originalMinHeight;
 
-          const image = canvas.toDataURL("image/png");
+          const image = canvas.toDataURL("image/png", 1.0);
           const link = document.createElement("a");
           link.href = image;
           link.download = `tournament_bracket_${Date.now()}.png`;
@@ -401,7 +407,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
               <div className="bg-white/10 p-6 rounded-3xl backdrop-blur-md flex flex-col items-center border border-white/20 shadow-2xl">
                   <Loader2 className="w-12 h-12 animate-spin mb-4 text-green-400" />
                   <h3 className="text-xl font-bold mb-1">กำลังสร้างรูปภาพ...</h3>
-                  <p className="text-sm text-slate-300">กรุณารอสักครู่</p>
+                  <p className="text-sm text-slate-300">ความละเอียดสูง (High Quality)</p>
               </div>
           </div>
       )}

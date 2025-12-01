@@ -1,9 +1,13 @@
 
 
 
+
+
 import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
+const CACHE_KEY_DB = 'penalty_pro_db_cache';
+const CACHE_KEY_TIMESTAMP = 'penalty_pro_db_timestamp';
 
 export const getStoredScriptUrl = (): string | null => {
   return API_URL;
@@ -15,24 +19,27 @@ export const setStoredScriptUrl = (url: string) => {
 
 export const fetchDatabase = async (): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[] } | null> => {
   try {
+    // 1. Attempt Network Request
     const response = await fetch(`${API_URL}?action=getData&t=${Date.now()}`, {
         method: 'GET',
         redirect: 'follow'
     });
+    
     if (!response.ok) throw new Error(`Network response was not ok`);
+    
     const text = await response.text();
-    // Validate JSON
+    let data;
     try {
-        var data = JSON.parse(text);
+        data = JSON.parse(text);
     } catch(e) {
-        throw new Error("Invalid JSON response from server: " + text.substring(0, 100));
+        throw new Error("Invalid JSON response from server");
     }
     
     if (data && data.status === 'error') throw new Error(data.message);
     
+    // 2. Parse Data
     const configData = (data && data.config) ? data.config : {};
-
-    return {
+    const parsedData = {
         teams: (data && data.teams) || [],
         players: (data && data.players) || [],
         matches: (data && data.matches) || [],
@@ -42,8 +49,30 @@ export const fetchDatabase = async (): Promise<{ teams: Team[], players: Player[
         tournaments: (data && data.tournaments) || [],
         donations: (data && data.donations) || []
     };
-  } catch (error) {
-    console.error("Failed to fetch:", error);
+
+    // 3. Save to Local Cache (Success)
+    localStorage.setItem(CACHE_KEY_DB, JSON.stringify(parsedData));
+    localStorage.setItem(CACHE_KEY_TIMESTAMP, Date.now().toString());
+
+    return parsedData;
+
+  } catch (error: any) {
+    console.warn("Network fetch failed, attempting offline cache:", error);
+    
+    // 4. Fallback to Local Cache (Offline)
+    const cachedData = localStorage.getItem(CACHE_KEY_DB);
+    if (cachedData) {
+        try {
+            const parsedCache = JSON.parse(cachedData);
+            console.log("Serving from offline cache");
+            // Optionally: You could return a flag here to tell UI to show "Offline Mode"
+            return parsedCache;
+        } catch (e) {
+            console.error("Cache corrupted", e);
+        }
+    }
+    
+    // 5. Fail completely if no cache
     throw error;
   }
 };

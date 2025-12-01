@@ -1,0 +1,22 @@
+{
+  "name": "Penalty Pro Arena",
+  "short_name": "PenaltyPro",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "description": "Professional tournament management and scoreboard app",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif",
+      "sizes": "192x192",
+      "type": "image/gif"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif",
+      "sizes": "512x512",
+      "type": "image/gif"
+    }
+  ]
+}
