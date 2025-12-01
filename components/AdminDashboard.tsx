@@ -93,7 +93,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const [newsForm, setNewsForm] = useState<{ id: string | null, title: string, content: string, imageFile: File | null, imagePreview: string | null, docFile: File | null, tournamentId: string }>({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' });
   const [isSavingNews, setIsSavingNews] = useState(false);
   const [isEditingNews, setIsEditingNews] = useState(false);
-  const [deleteNewsId, setDeleteNewsId] = useState<string | null>(null);
+  
+  // News Delete Confirmation
+  const [newsToDelete, setNewsToDelete] = useState<string | null>(null);
+  const [isDeletingNews, setIsDeletingNews] = useState(false);
   
   const [settingsLogoPreview, setSettingsLogoPreview] = useState<string | null>(null);
   const [objectiveImagePreview, setObjectiveImagePreview] = useState<string | null>(null);
@@ -216,27 +219,26 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       setIsVerifyingDonation(false);
   };
 
-  const handleAdminTaxUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!selectedDonation || !e.target.files || !e.target.files[0]) return;
-      const file = e.target.files[0];
-      setAdminTaxFile(file);
-      
-      if (!confirm(`ยืนยันการอัปโหลดไฟล์ ${file.name} ให้กับ ${selectedDonation.donorName}?`)) {
-          setAdminTaxFile(null);
-          e.target.value = '';
+  const handleTaxFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0]) {
+          setAdminTaxFile(e.target.files[0]);
+      }
+  };
+
+  const handleSaveTaxFile = async () => {
+      if (!selectedDonation || !adminTaxFile) {
+          notify("แจ้งเตือน", "กรุณาเลือกไฟล์ก่อนบันทึก", "warning");
           return;
       }
-
+      
       setIsVerifyingDonation(true);
       try {
-          const base64 = await fileToBase64(file);
-          // Assuming updateDonationDetails can handle generic updates including taxFile
-          // Note: The backend logic in sheetService must support 'taxFile' update.
-          // Based on typical implementation, we send the file data.
+          const base64 = await fileToBase64(adminTaxFile);
           const success = await updateDonationDetails(selectedDonation.id, { taxFile: base64 });
           
           if (success) {
               notify("สำเร็จ", "อัปโหลดไฟล์ e-Donation เรียบร้อย", "success");
+              setAdminTaxFile(null); // Clear file after success
               onRefresh();
           } else {
               notify("ผิดพลาด", "อัปโหลดไม่สำเร็จ", "error");
@@ -246,8 +248,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           notify("ผิดพลาด", "เกิดข้อผิดพลาดในการอัปโหลด", "error");
       } finally {
           setIsVerifyingDonation(false);
-          setAdminTaxFile(null);
-          e.target.value = '';
       }
   };
 
@@ -585,21 +585,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   };
   
   const triggerDeleteNews = (id: string) => { 
-      if(confirm("ยืนยันการลบข่าวสารนี้?")) {
-          setDeleteNewsId(id);
-          confirmDeleteNews(id);
-      }
+      setNewsToDelete(id);
   };
   
-  const confirmDeleteNews = async (id: string) => { 
+  const confirmDeleteNews = async () => {
+      if (!newsToDelete) return;
+      setIsDeletingNews(true);
       try { 
-          await manageNews('delete', { id: id }); 
+          await manageNews('delete', { id: newsToDelete }); 
           await onRefresh(); 
-          setDeleteNewsId(null); 
           notify("สำเร็จ", "ลบข่าวเรียบร้อย", "success"); 
       } catch (e) { 
           notify("ผิดพลาด", "ลบข่าวไม่สำเร็จ", "error"); 
-      } 
+      } finally {
+          setIsDeletingNews(false);
+          setNewsToDelete(null);
+      }
   };
 
   const handleSort = (key: string) => { let direction: 'asc' | 'desc' = 'asc'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { direction = 'desc'; } setSortConfig({ key, direction }); };
@@ -644,6 +645,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       
       {/* HIDDEN CANVAS FOR CERTIFICATE */}
       <canvas ref={certificateCanvasRef} className="hidden"></canvas>
+
+      {/* CONFIRM DELETE NEWS MODAL */}
+      {newsToDelete && (
+          <div className="fixed inset-0 z-[1500] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-xs w-full animate-in zoom-in duration-200 text-center">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Trash2 className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800 mb-2">ยืนยันการลบข่าว?</h3>
+                  <p className="text-sm text-slate-500 mb-6">คุณต้องการลบข่าวสารนี้ออกจากระบบใช่หรือไม่ การกระทำนี้ไม่สามารถย้อนกลับได้</p>
+                  <div className="flex gap-3">
+                      <button onClick={() => setNewsToDelete(null)} className="flex-1 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold transition">ยกเลิก</button>
+                      <button onClick={confirmDeleteNews} disabled={isDeletingNews} className="flex-1 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 font-bold shadow-md transition flex items-center justify-center gap-2">
+                          {isDeletingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : 'ลบเลย'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* Live Draw & Setup Modals */}
       {isLiveDrawActive && (
@@ -800,11 +820,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">สีหลัก</label>
-                                        <input type="color" value={editPrimaryColor} onChange={e => handleColorChange('primary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                        <div className="flex items-center gap-2">
+                                            <input type="color" value={editPrimaryColor} onChange={e => handleColorChange('primary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                        </div>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">สีรอง</label>
-                                        <input type="color" value={editSecondaryColor} onChange={e => handleColorChange('secondary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                        <div className="flex items-center gap-2">
+                                            <input type="color" value={editSecondaryColor} onChange={e => handleColorChange('secondary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="mt-4 flex items-center gap-4">
@@ -1055,10 +1079,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                       <div className="mt-4 pt-4 border-t border-slate-200">
                           <label className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดไฟล์ e-Donation / ลดหย่อนภาษี (Admin)</label>
                           <div className="flex gap-2">
-                              <label className="flex-1 cursor-pointer bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 p-2 rounded-lg text-xs font-bold text-center flex items-center justify-center gap-2 transition">
+                              <label className={`flex-1 cursor-pointer bg-white border text-xs font-bold text-center flex items-center justify-center gap-2 transition p-2 rounded-lg ${adminTaxFile ? 'border-indigo-500 text-indigo-600 bg-indigo-50' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}>
                                   <Upload className="w-3 h-3"/> {adminTaxFile ? adminTaxFile.name : 'เลือกไฟล์'}
-                                  <input type="file" onChange={handleAdminTaxUpload} className="hidden" accept="image/*,.pdf" />
+                                  <input type="file" onChange={handleTaxFileSelect} className="hidden" accept="image/*,.pdf" />
                               </label>
+                              {adminTaxFile && (
+                                  <button 
+                                      onClick={handleSaveTaxFile}
+                                      disabled={isVerifyingDonation}
+                                      className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-xs hover:bg-green-700 transition flex items-center gap-1 shadow-sm"
+                                  >
+                                      {isVerifyingDonation ? <Loader2 className="w-3 h-3 animate-spin"/> : <Save className="w-3 h-3"/>}
+                                      บันทึก
+                                  </button>
+                              )}
                           </div>
                       </div>
                   </div>
@@ -1367,7 +1401,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                             <th className="p-4">User</th>
                             <th className="p-4">Role</th>
                             <th className="p-4">Phone</th>
-                            <th className="p-4">Line</th>
+                            <th className="p-4">ใช้งานล่าสุด</th>
                             <th className="p-4 text-right">Action</th>
                         </tr>
                     </thead>
@@ -1378,14 +1412,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                     <div className="flex items-center gap-3">
                                         {u.pictureUrl ? <img src={u.pictureUrl} className="w-8 h-8 rounded-full object-cover"/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center"><User className="w-4 h-4"/></div>}
                                         <div>
-                                            <div className="font-bold text-slate-800">{u.displayName}</div>
+                                            <div className="font-bold text-slate-800 flex items-center gap-1">
+                                                {u.displayName}
+                                                {u.lineUserId && (
+                                                    <span className="bg-[#06C755] text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 ml-1">
+                                                        <MessageCircle className="w-3 h-3 fill-white" /> LINE
+                                                    </span>
+                                                )}
+                                            </div>
                                             <div className="text-xs text-slate-500">{u.username}</div>
                                         </div>
                                     </div>
                                 </td>
                                 <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold uppercase">{u.role}</span></td>
                                 <td className="p-4 text-slate-600">{u.phoneNumber || '-'}</td>
-                                <td className="p-4 text-slate-600">{u.lineUserId ? <span className="text-green-600 font-bold text-xs">Linked</span> : '-'}</td>
+                                <td className="p-4 text-slate-600 text-xs">
+                                    {u.lastLogin ? new Date(u.lastLogin).toLocaleString('th-TH', { 
+                                        day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' 
+                                    }) : '-'}
+                                </td>
                                 <td className="p-4 text-right flex justify-end gap-2">
                                     <button onClick={() => handleOpenUserModal(u)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded"><Edit3 className="w-4 h-4"/></button>
                                     <button onClick={() => handleDeleteUser(u.userId)} className="p-2 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>

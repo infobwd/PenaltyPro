@@ -45,7 +45,7 @@ function doPost(e) {
     else if (action === 'updateTournament') return updateTournament(data.tournament);
     else if (action === 'submitDonation') return submitDonation(data);
     else if (action === 'verifyDonation') return verifyDonation(data.donationId, data.status);
-    else if (action === 'updateDonationDetails') return updateDonationDetails(data); // NEW Handler
+    else if (action === 'updateDonationDetails') return updateDonationDetails(data);
     else if (action === 'updateUserRole') return updateUserRole(data.userId, data.role);
     // User CRUD
     else if (action === 'createUser') return createUser(data);
@@ -78,7 +78,8 @@ function getUsers() {
         role: r[4] || 'user',
         phoneNumber: r[5],
         pictureUrl: r[6],
-        lineUserId: r[7] || ''
+        lineUserId: r[7] || '',
+        lastLogin: r[8] ? new Date(r[8]).toISOString() : ''
       });
     }
   }
@@ -177,7 +178,6 @@ function getData() {
         registrationTime: teamsData[i][17], 
         tournamentId: teamsData[i][18] || 'default',
         creatorId: String(teamsData[i][19] || ''), // Read Creator ID
-        // LineUserID is at index 20, but not explicitly returned in the Team object to frontend usually, unless needed
       });
   }
 
@@ -197,7 +197,6 @@ function getData() {
   for(let i=1; i<matchesData.length; i++) {
       if(matchesData[i][0]) {
           const mid = String(matchesData[i][0]);
-          // Use index 14 for TournamentID, defaulting to 'default' if undefined/empty
           matches.push({ 
               id: mid, 
               teamA: matchesData[i][1], 
@@ -236,7 +235,7 @@ function getData() {
           lineUserId: donationData[i][10], 
           status: donationData[i][11] || 'Pending',
           isAnonymous: donationData[i][12] || false,
-          taxFileUrl: toLh3Link(donationData[i][13]) // Read the Tax File URL
+          taxFileUrl: toLh3Link(donationData[i][13])
       });
   }
 
@@ -282,7 +281,7 @@ function registerTeam(data) {
   const slipUrl = saveFileToDrive(data.slipFile, `slip_${data.schoolName}_${Date.now()}`);
   const teamId = "T_" + Date.now();
   
-  // Append Row with new fields at the end: CreatorID (19), LineUserID (20)
+  // Append Row
   sheet.appendRow([ 
     teamId, 
     data.schoolName, 
@@ -701,7 +700,14 @@ function updateDonationDetails(data) {
                 // Column 13 is IsAnonymous (Index 12)
                 sheet.getRange(i + 1, 13).setValue(data.isAnonymous);
             }
-            // Add other fields if needed here
+            if (data.taxFile) {
+                // Upload and update tax file URL (Index 13 - Column N)
+                // data.taxFile is base64
+                if (data.taxFile.startsWith('data:')) {
+                    const url = saveFileToDrive(data.taxFile, `donation_tax_${data.donationId}_${Date.now()}`);
+                    sheet.getRange(i + 1, 14).setValue(url);
+                }
+            }
             return successResponse({ status: 'success' });
         }
     }
@@ -759,7 +765,7 @@ function manageNews(data) {
      for (let i = 1; i < rows.length; i++) { 
        if (String(rows[i][0]) === String(item.id)) { 
          sheet.deleteRow(i+1); 
-         return successResponse({ status: 'success' }); // Return immediately on success
+         return successResponse({ status: 'success' }); 
        } 
      }
      return errorResponse("News not found");

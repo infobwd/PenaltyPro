@@ -1,4 +1,6 @@
 
+
+
 export enum KickResult {
   GOAL = 'GOAL',
   SAVED = 'SAVED',
@@ -281,4 +283,5 @@ export interface UserProfile {
   phoneNumber?: string; 
   role?: 'admin' | 'staff' | 'user';
   lineUserId?: string;
+  lastLogin?: string;
 }
