@@ -1,10 +1,9 @@
 
-const CACHE_NAME = 'penalty-pro-v1';
+const CACHE_NAME = 'penalty-pro-v2';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/index.tsx',
-  '/manifest.json'
+  './',
+  './index.html',
+  './manifest.json'
 ];
 
 self.addEventListener('install', (event) => {

@@ -7,7 +7,7 @@
     <title>Penalty Pro Recorder</title>
     
     <!-- PWA Settings -->
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="./manifest.json" />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -63,7 +63,9 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          // Try to register SW with the subdirectory path first
+          const swPath = window.location.pathname.includes('/PenaltyPro/') ? '/PenaltyPro/sw.js' : '/sw.js';
+          navigator.serviceWorker.register(swPath)
             .then(registration => {
               console.log('SW registered: ', registration);
             })
