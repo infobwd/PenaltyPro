@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles } from 'lucide-react';
-import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser } from '../services/sheetService';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle } from 'lucide-react';
+import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails } from '../services/sheetService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -39,6 +38,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const [selectedDonation, setSelectedDonation] = useState<Donation | null>(null);
   const [isVerifyingDonation, setIsVerifyingDonation] = useState(false);
 
+  // Teams Filter State
+  const [filterStatus, setFilterStatus] = useState<string>('All');
+
   // Draw Logic State
   const [isDrawModalOpen, setIsDrawModalOpen] = useState(false);
   const [drawGroupCount, setDrawGroupCount] = useState(4);
@@ -67,6 +69,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [isEditingTeam, setIsEditingTeam] = useState(false);
+  const [modalTab, setModalTab] = useState<'info' | 'players' | 'docs'>('info'); // Added Modal Tab State
   const [editForm, setEditForm] = useState<{ 
       team: Team, 
       players: Player[], 
@@ -182,6 +185,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       setIsVerifyingDonation(false);
   };
 
+  const handleUpdateDonationAnonymous = async (isAnon: boolean) => {
+      if (!selectedDonation) return;
+      setIsVerifyingDonation(true);
+      // Optimistic update
+      setSelectedDonation(prev => prev ? { ...prev, isAnonymous: isAnon } : null);
+      
+      const success = await updateDonationDetails(selectedDonation.id, { isAnonymous: isAnon });
+      if (success) {
+          setDonationList(prev => prev.map(d => d.id === selectedDonation.id ? { ...d, isAnonymous: isAnon } : d));
+          notify("สำเร็จ", "อัปเดตสถานะการแสดงชื่อเรียบร้อย", "success");
+      } else {
+          notify("ผิดพลาด", "อัปเดตไม่สำเร็จ", "error");
+          // Revert optimistic update
+          setSelectedDonation(prev => prev ? { ...prev, isAnonymous: !isAnon } : null);
+      }
+      setIsVerifyingDonation(false);
+  };
+
   useEffect(() => {
       if (initialTeamId && localTeams.length > 0) {
           const found = localTeams.find(t => t.id === initialTeamId);
@@ -213,8 +234,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
         } catch (e) { pColor = selectedTeam.color || '#2563EB'; }
         setEditPrimaryColor(pColor);
         setEditSecondaryColor(sColor);
-        setEditForm({ team: { ...selectedTeam }, players: JSON.parse(JSON.stringify(teamPlayers)), newLogo: null, newSlip: null, newDoc: null });
-        setIsEditingTeam(false); // Default to view mode, admin can click edit
+        setEditForm({ team: { ...selectedTeam }, players: JSON.parse(JSON.stringify(teamPlayers)), newLogo: null, newSlip: null, newDoc: null, logoPreview: selectedTeam.logoUrl || null, slipPreview: selectedTeam.slipUrl || null });
+        setIsEditingTeam(false); // Default to view mode
+        setModalTab('info'); // Reset tab
     }
   }, [selectedTeam]);
 
@@ -225,8 +247,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
     return true;
   };
 
-  // ... (Keep existing Draw Logic & Team Update Logic here) ...
-  // [Code shortened for brevity, keeping all Draw logic logic intact]
   const handleStatusUpdate = async (teamId: string, status: 'Approved' | 'Rejected') => { 
       const currentTeam = editForm?.team || localTeams.find(t => t.id === teamId); 
       if (!currentTeam) return; 
@@ -330,11 +350,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           if (editForm.newLogo) logoBase64 = await fileToBase64(editForm.newLogo);
           if (editForm.newSlip) slipBase64 = await fileToBase64(editForm.newSlip);
           if (editForm.newDoc) docBase64 = await fileToBase64(editForm.newDoc);
-          const teamToSave = { ...editForm.team, logoUrl: logoBase64, slipUrl: slipBase64, docUrl: docBase64 };
+          
+          const combinedColors = JSON.stringify([editPrimaryColor, editSecondaryColor]);
+          
+          const teamToSave = { ...editForm.team, color: combinedColors, logoUrl: logoBase64, slipUrl: slipBase64, docUrl: docBase64 };
           await updateTeamData(teamToSave, editForm.players);
           setLocalTeams(prev => prev.map(t => t.id === teamToSave.id ? teamToSave : t));
           setLocalPlayers(prev => { const others = prev.filter(p => p.teamId !== teamToSave.id); return [...others, ...editForm.players]; });
-          setSelectedTeam(teamToSave); setIsEditingTeam(false); notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success"); onRefresh();
+          setSelectedTeam(teamToSave); 
+          setIsEditingTeam(false); 
+          setEditForm(null); // Close modal
+          notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success"); 
+          onRefresh();
       } catch (error) { console.error(error); notify("ผิดพลาด", "เกิดข้อผิดพลาดในการบันทึก", "error"); } finally { setIsSavingTeam(false); }
   };
   
@@ -379,7 +406,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const confirmDeleteNews = async () => { if (!deleteNewsId) return; try { await manageNews('delete', { id: deleteNewsId }); await onRefresh(); setDeleteNewsId(null); notify("สำเร็จ", "ลบข่าวเรียบร้อย", "success"); } catch (e) { notify("ผิดพลาด", "ลบข่าวไม่สำเร็จ", "error"); } };
   const handleSort = (key: string) => { let direction: 'asc' | 'desc' = 'asc'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { direction = 'desc'; } setSortConfig({ key, direction }); };
   const sortedTeams = [...localTeams].sort((a: any, b: any) => { if (!sortConfig) return 0; if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1; if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1; return 0; });
-  const filteredTeams = sortedTeams.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.province?.toLowerCase().includes(searchTerm.toLowerCase()) || t.district?.toLowerCase().includes(searchTerm.toLowerCase()));
+  
+  // Filter Teams Logic with Status Support
+  const filteredTeams = sortedTeams.filter(t => {
+      const matchSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.province?.toLowerCase().includes(searchTerm.toLowerCase()) || t.district?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchStatus = filterStatus === 'All' || t.status === filterStatus;
+      return matchSearch && matchStatus;
+  });
+
   const downloadCSV = () => { try { const headers = "ID,ชื่อทีม,ตัวย่อ,สถานะ,กลุ่ม,อำเภอ,จังหวัด,ผู้อำนวยการ,ผู้จัดการ,เบอร์โทร,ผู้ฝึกสอน,เบอร์โทรโค้ช"; const rows = filteredTeams.map(t => `"${t.id}","${t.name}","${t.shortName}","${t.status}","${t.group || ''}","${t.district}","${t.province}","${t.directorName || ''}","${t.managerName}","'${t.managerPhone || ''}","${t.coachName}","'${t.coachPhone || ''}"` ); const csvContent = [headers, ...rows].join("\n"); const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "teams_data.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); } catch (e) { console.error("CSV Download Error:", e); notify("ผิดพลาด", "ดาวน์โหลด CSV ไม่สำเร็จ", "error"); } };
   const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); notify("คัดลอกแล้ว", text, "info"); };
 
@@ -406,6 +440,177 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                   <button className="absolute -top-4 -right-4 bg-white rounded-full p-2 text-slate-800" onClick={() => setPreviewImage(null)}><X className="w-6 h-6"/></button>
               </div>
           </div>
+      )}
+
+      {/* TEAM EDIT MODAL */}
+      {editForm && (
+        <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="bg-indigo-900 text-white p-4 flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-3">
+                        {editForm.team.logoUrl ? <img src={editForm.team.logoUrl} className="w-10 h-10 bg-white rounded-lg p-0.5 object-contain" /> : <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center font-bold">{editForm.team.shortName}</div>}
+                        <div>
+                            <h3 className="font-bold text-lg">{editForm.team.name}</h3>
+                            <div className="flex items-center gap-2 text-xs text-indigo-200">
+                                <span>{editForm.team.province}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${editForm.team.status === 'Approved' ? 'bg-green-500' : editForm.team.status === 'Rejected' ? 'bg-red-500' : 'bg-yellow-500'}`}>{editForm.team.status}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={() => { setEditForm(null); setSelectedTeam(null); }} className="hover:bg-white/20 p-1 rounded-full transition"><X className="w-5 h-5"/></button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
+                    <button onClick={() => setModalTab('info')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'info' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>ข้อมูลทั่วไป</button>
+                    <button onClick={() => setModalTab('players')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'players' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>รายชื่อนักกีฬา</button>
+                    <button onClick={() => setModalTab('docs')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'docs' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เอกสารหลักฐาน</button>
+                </div>
+
+                {/* Content */}
+                <div className="p-6 overflow-y-auto flex-1 bg-white">
+                    {modalTab === 'info' && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อทีม/โรงเรียน</label>
+                                    <input type="text" value={editForm.team.name} onChange={e => handleEditFieldChange('name', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อย่อ</label>
+                                    <input type="text" value={editForm.team.shortName} onChange={e => handleEditFieldChange('shortName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">กลุ่ม (Group)</label>
+                                    <input type="text" value={editForm.team.group || ''} onChange={e => handleEditFieldChange('group', e.target.value)} className="w-full p-3 border rounded-lg text-sm" placeholder="เช่น A, B" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">อำเภอ</label>
+                                    <input type="text" value={editForm.team.district || ''} onChange={e => handleEditFieldChange('district', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">จังหวัด</label>
+                                    <input type="text" value={editForm.team.province || ''} onChange={e => handleEditFieldChange('province', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                            </div>
+
+                            <div className="border-t pt-4">
+                                <h4 className="font-bold text-sm text-slate-700 mb-3">อัตลักษณ์ทีม</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">สีหลัก</label>
+                                        <input type="color" value={editPrimaryColor} onChange={e => handleColorChange('primary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">สีรอง</label>
+                                        <input type="color" value={editSecondaryColor} onChange={e => handleColorChange('secondary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                    </div>
+                                </div>
+                                <div className="mt-4 flex items-center gap-4">
+                                    {editForm.logoPreview ? <img src={editForm.logoPreview} className="w-16 h-16 object-contain border rounded-lg p-1"/> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">No Logo</div>}
+                                    <label className="cursor-pointer bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition">
+                                        เปลี่ยนโลโก้
+                                        <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('logo', e.target.files[0])} />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="border-t pt-4">
+                                <h4 className="font-bold text-sm text-slate-700 mb-3">ข้อมูลติดต่อ</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้จัดการทีม</label><input type="text" value={editForm.team.managerName || ''} onChange={e => handleEditFieldChange('managerName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (ผจก)</label><input type="text" value={editForm.team.managerPhone || ''} onChange={e => handleEditFieldChange('managerPhone', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้ฝึกสอน</label><input type="text" value={editForm.team.coachName || ''} onChange={e => handleEditFieldChange('coachName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (โค้ช)</label><input type="text" value={editForm.team.coachPhone || ''} onChange={e => handleEditFieldChange('coachPhone', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {modalTab === 'players' && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <h4 className="font-bold text-sm text-slate-700">รายชื่อนักกีฬา ({editForm.players.length})</h4>
+                                <button onClick={handleAddPlayer} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-700 transition"><Plus className="w-3 h-3"/> เพิ่มนักกีฬา</button>
+                            </div>
+                            <div className="space-y-3">
+                                {editForm.players.map((p, idx) => (
+                                    <div key={idx} className="flex items-start gap-2 p-3 border rounded-xl bg-slate-50">
+                                        <div className="w-16 h-20 bg-white rounded-lg border flex items-center justify-center shrink-0 overflow-hidden relative group">
+                                            {p.photoUrl ? <img src={p.photoUrl} className="w-full h-full object-cover" /> : <User className="w-8 h-8 text-slate-300"/>}
+                                            <label className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition">
+                                                <Camera className="w-5 h-5 text-white"/>
+                                                <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handlePlayerPhotoChange(idx, e.target.files[0])} />
+                                            </label>
+                                        </div>
+                                        <div className="flex-1 grid grid-cols-12 gap-2">
+                                            <div className="col-span-3"><input type="text" placeholder="เบอร์" value={p.number} onChange={e => handlePlayerChange(idx, 'number', e.target.value)} className="w-full p-2 border rounded-lg text-xs text-center font-bold" /></div>
+                                            <div className="col-span-9"><input type="text" placeholder="ชื่อ-นามสกุล" value={p.name} onChange={e => handlePlayerChange(idx, 'name', e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                            <div className="col-span-6"><input type="text" placeholder="วันเกิด (วว/ดด/ปปปป)" value={p.birthDate || ''} onChange={e => handleDateInput(idx, e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                            <div className="col-span-6"><input type="text" placeholder="ตำแหน่ง" value={p.position || 'Player'} onChange={e => handlePlayerChange(idx, 'position', e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                        </div>
+                                        <button onClick={() => removePlayer(idx)} className="text-red-400 hover:text-red-600 p-2"><Trash2 className="w-4 h-4"/></button>
+                                    </div>
+                                ))}
+                                {editForm.players.length === 0 && <div className="text-center py-8 text-slate-400 text-sm">ไม่มีรายชื่อนักกีฬา</div>}
+                            </div>
+                        </div>
+                    )}
+
+                    {modalTab === 'docs' && (
+                        <div className="space-y-6">
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <label className="block text-sm font-bold text-slate-700 mb-2">เอกสารใบสมัคร (PDF/Word)</label>
+                                <div className="flex items-center gap-3">
+                                    <label className="cursor-pointer bg-white border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition flex items-center gap-2 shadow-sm">
+                                        <FileText className="w-4 h-4 text-indigo-600"/>
+                                        {editForm.newDoc ? editForm.newDoc.name : (editForm.team.docUrl ? 'เปลี่ยนไฟล์' : 'อัปโหลดไฟล์')}
+                                        <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('doc', e.target.files[0])} />
+                                    </label>
+                                    {editForm.team.docUrl && (
+                                        <a href={editForm.team.docUrl} target="_blank" className="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 hover:bg-indigo-100 text-xs flex items-center gap-1">
+                                            <ExternalLink className="w-3 h-3" /> ดูไฟล์เดิม
+                                        </a>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <label className="block text-sm font-bold text-slate-700 mb-2">หลักฐานการโอนเงิน (สลิป)</label>
+                                <div className="flex flex-col gap-4">
+                                    <label className="cursor-pointer block w-full border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-white transition">
+                                        <CreditCard className="w-8 h-8 text-slate-300 mx-auto mb-2"/>
+                                        <span className="text-xs text-slate-500 font-bold block">{editForm.newSlip ? editForm.newSlip.name : 'แตะเพื่อเปลี่ยนรูปสลิป'}</span>
+                                        <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('slip', e.target.files[0])} />
+                                    </label>
+                                    {editForm.slipPreview && (
+                                        <div className="relative mx-auto">
+                                            <img src={editForm.slipPreview} className="max-h-64 rounded-lg shadow-sm border" />
+                                            <div className="text-center text-xs text-slate-400 mt-1">ตัวอย่างรูปสลิป</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 border-t bg-white flex gap-3 shrink-0">
+                    <button onClick={() => { setEditForm(null); setSelectedTeam(null); }} className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition">ยกเลิก</button>
+                    {editForm.team.status === 'Pending' && (
+                        <>
+                            <button onClick={() => handleStatusUpdate(editForm.team.id, 'Approved')} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition">อนุมัติ</button>
+                            <button onClick={() => handleStatusUpdate(editForm.team.id, 'Rejected')} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition">ปฏิเสธ</button>
+                        </>
+                    )}
+                    <button onClick={handleSaveTeamChanges} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
+                        {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Save className="w-5 h-5"/> บันทึกข้อมูล</>}
+                    </button>
+                </div>
+            </div>
+        </div>
       )}
 
       {/* USER MANAGEMENT MODAL */}
@@ -492,6 +697,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                           <div className="text-2xl font-bold text-indigo-600 my-2">{selectedDonation.amount.toLocaleString()} บาท</div>
                           <div className="text-xs text-slate-400">{selectedDonation.timestamp}</div>
                       </div>
+                      
+                      <div className="flex items-center justify-center mb-4">
+                          <label className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 px-3 py-1 rounded-full cursor-pointer hover:bg-slate-200 transition">
+                              <input 
+                                  type="checkbox" 
+                                  checked={selectedDonation.isAnonymous} 
+                                  onChange={(e) => handleUpdateDonationAnonymous(e.target.checked)}
+                                  disabled={isVerifyingDonation}
+                                  className="w-4 h-4 rounded border-slate-300 text-indigo-600"
+                              />
+                              ไม่ประสงค์ออกนาม (Anonymous)
+                          </label>
+                      </div>
+
                       <div className="bg-slate-100 rounded-xl p-2 mb-4 border border-slate-200">
                           {selectedDonation.slipUrl ? (
                               <img src={selectedDonation.slipUrl} className="w-full h-auto rounded-lg" />
@@ -517,17 +736,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                       <button 
                         onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} 
                         disabled={isVerifyingDonation}
-                        className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-md"
+                        className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-md flex items-center justify-center gap-2"
                       >
-                          {isVerifyingDonation ? <Loader2 className="w-5 h-5 animate-spin mx-auto"/> : 'ยืนยันยอด'}
+                          {isVerifyingDonation ? <Loader2 className="w-5 h-5 animate-spin"/> : 'ยืนยันยอด'}
                       </button>
                   </div>
               </div>
           </div>
       )}
 
-      {/* LIVE DRAW OVERLAYS ... */}
-      {/* ... [Keep Draw UI] ... */}
+      {/* LIVE DRAW OVERLAYS ... (Same as before) */}
       {isLiveDrawActive && (
           <div className="fixed inset-0 z-[2000] bg-slate-900 flex flex-col p-0 text-white overflow-hidden">
               {/* Confetti Canvas - Local to this modal */}
@@ -855,6 +1073,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                             </button>
                         </div>
                         <div className="flex gap-2 w-full md:w-auto items-center">
+                            <select 
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none"
+                            >
+                                <option value="All">ทุกสถานะ</option>
+                                <option value="Pending">รออนุมัติ</option>
+                                <option value="Approved">อนุมัติแล้ว</option>
+                                <option value="Rejected">ปฏิเสธ</option>
+                            </select>
                             <div className="flex bg-slate-100 rounded-lg p-1">
                                 <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><LayoutGrid className="w-4 h-4"/></button>
                                 <button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
@@ -1025,15 +1253,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                             {item.imageUrl && <div className="h-40 bg-slate-100"><img src={item.imageUrl} className="w-full h-full object-cover"/></div>}
                             <div className="p-4">
                                 <div className="flex justify-between items-start mb-2">
-                                    <h4 className="font-bold text-slate-800 line-clamp-1">{item.title}</h4>
-                                    {(!item.tournamentId || item.tournamentId === 'global') && (
-                                        <span title="Global News">
-                                            <Globe className="w-4 h-4 text-slate-400 shrink-0" />
-                                        </span>
-                                    )}
+                                    <h4 className="font-bold text-slate-800 text-sm mb-1 line-clamp-1">{item.title}</h4>
+                                    <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">{new Date(item.timestamp).toLocaleDateString('th-TH')}</span>
                                 </div>
-                                <p className="text-xs text-slate-500 mb-2">{new Date(item.timestamp).toLocaleDateString()}</p>
-                                <p className="text-sm text-slate-600 line-clamp-2">{item.content}</p>
+                                <p className="text-xs text-slate-600 line-clamp-3">{item.content}</p>
                             </div>
                         </div>
                     ))}
@@ -1043,123 +1266,339 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
 
         {/* --- USERS TAB --- */}
         {activeTab === 'users' && (
-            <div className="animate-in fade-in duration-300 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                    <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><UserCog className="w-5 h-5 text-indigo-600"/> จัดการผู้ใช้งาน</h2>
+            <div className="animate-in fade-in duration-300">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-slate-800">ผู้ใช้งานระบบ</h2>
                     <div className="flex gap-2">
-                        <button onClick={() => handleOpenUserModal(null)} className="flex items-center gap-1 text-sm px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold"><Plus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
-                        <button onClick={loadUsers} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600">รีเฟรช</button>
+                        <button onClick={loadUsers} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-200">
+                            <RefreshCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`} /> รีเฟรช
+                        </button>
+                        <button onClick={() => handleOpenUserModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-indigo-700"><UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
                     </div>
                 </div>
-                {isLoadingUsers ? <div className="p-8 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600"/></div> : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 text-slate-500 text-sm">
-                                <tr>
-                                    <th className="p-4 font-medium">ชื่อผู้ใช้ / Display Name</th>
-                                    <th className="p-4 font-medium">Username / Login ID</th>
-                                    <th className="p-4 font-medium">เบอร์โทร</th>
-                                    <th className="p-4 font-medium">สิทธิ์ (Role)</th>
-                                    <th className="p-4 font-medium text-right">จัดการ</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {userList.map(u => (
-                                    <tr key={u.userId} className="hover:bg-slate-50">
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-3">
-                                                {u.pictureUrl ? <img src={u.pictureUrl} className="w-8 h-8 rounded-full"/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center"><User className="w-4 h-4 text-slate-500"/></div>}
-                                                <div className="flex flex-col">
-                                                    <span className="font-bold text-slate-700">{u.displayName}</span>
-                                                    {u.lineUserId && <span className="text-[10px] text-green-600">LINE Connected</span>}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-sm text-slate-500">{u.username || 'LINE User'}</td>
-                                        <td className="p-4 text-sm text-slate-500">{u.phoneNumber || '-'}</td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${u.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                {u.role}
-                                            </span>
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => handleOpenUserModal(u)} className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600"><Edit3 className="w-4 h-4"/></button>
-                                                <button onClick={() => handleDeleteUser(u.userId)} className="p-1.5 bg-red-50 hover:bg-red-100 rounded text-red-600"><Trash2 className="w-4 h-4"/></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-        )}
-
-        {/* --- DONATIONS TAB --- */}
-        {activeTab === 'donations' && (
-            <div className="animate-in fade-in duration-300 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                    <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2"><DollarSign className="w-5 h-5 text-green-600"/> ตรวจสอบยอดบริจาค</h2>
-                    <button onClick={onRefresh} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600">รีเฟรช</button>
-                </div>
-                <div className="overflow-x-auto">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 text-slate-500 text-sm">
                             <tr>
-                                <th className="p-4 font-medium">วันที่ / เวลา</th>
-                                <th className="p-4 font-medium">ผู้บริจาค</th>
-                                <th className="p-4 font-medium">ยอดเงิน</th>
-                                <th className="p-4 font-medium">สถานะ</th>
-                                <th className="p-4 font-medium text-right">จัดการ</th>
+                                <th className="p-4">ผู้ใช้งาน</th>
+                                <th className="p-4">ประเภท</th>
+                                <th className="p-4">สิทธิ์</th>
+                                <th className="p-4 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {donationList.map((d) => (
-                                <tr key={d.id} className="hover:bg-slate-50">
-                                    <td className="p-4 text-sm text-slate-500">
-                                        {new Date(d.timestamp).toLocaleString('th-TH')}
+                            {userList.map(u => (
+                                <tr key={u.userId} className="hover:bg-slate-50">
+                                    <td className="p-4">
+                                        <div className="flex items-center gap-3">
+                                            {u.pictureUrl ? (
+                                                <img src={u.pictureUrl} className="w-10 h-10 rounded-full border border-slate-200 object-cover" />
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500">
+                                                    <User className="w-6 h-6"/>
+                                                </div>
+                                            )}
+                                            <div>
+                                                <div className="font-bold text-slate-800 text-sm">{u.displayName}</div>
+                                                <div className="text-xs text-slate-500">{u.username}</div>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td className="p-4">
-                                        <div className="font-bold text-slate-700">{d.donorName}</div>
-                                        <div className="text-xs text-slate-400">{d.phone}</div>
+                                        <div className="flex gap-1">
+                                            {u.lineUserId && (
+                                                <span className="bg-[#00B900]/10 text-[#00B900] px-2 py-0.5 rounded text-[10px] font-bold border border-[#00B900]/20 flex items-center gap-1 w-fit">
+                                                    <MessageCircle className="w-3 h-3"/> LINE
+                                                </span>
+                                            )}
+                                            {u.username && u.username !== u.lineUserId && (
+                                                <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold border border-indigo-200 w-fit">
+                                                    Password
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
-                                    <td className="p-4 font-mono font-bold text-indigo-600">
-                                        {d.amount.toLocaleString()}
-                                    </td>
-                                    <td className="p-4">
-                                        <span className={`px-2 py-1 rounded text-xs font-bold ${
-                                            d.status === 'Verified' ? 'bg-green-100 text-green-700' : 
-                                            d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 
-                                            'bg-yellow-100 text-yellow-700'
-                                        }`}>
-                                            {d.status}
-                                        </span>
-                                    </td>
-                                    <td className="p-4 text-right">
-                                        <button 
-                                            onClick={() => setSelectedDonation(d)}
-                                            className="text-sm text-indigo-600 hover:bg-indigo-50 px-3 py-1 rounded-lg font-bold"
-                                        >
-                                            ตรวจสอบ
-                                        </button>
+                                    <td className="p-4"><span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold uppercase">{u.role}</span></td>
+                                    <td className="p-4 text-right flex justify-end gap-2">
+                                        <button onClick={() => handleOpenUserModal(u)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"><Edit3 className="w-4 h-4"/></button>
+                                        <button onClick={() => handleDeleteUser(u.userId)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
                                     </td>
                                 </tr>
                             ))}
-                            {donationList.length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="p-8 text-center text-slate-400">
-                                        ยังไม่มีข้อมูลการบริจาค
-                                    </td>
-                                </tr>
-                            )}
+                            {userList.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-slate-400">ไม่พบข้อมูลผู้ใช้</td></tr>}
                         </tbody>
                     </table>
                 </div>
             </div>
         )}
+
+        {/* --- DONATIONS TAB --- */}
+        {activeTab === 'donations' && (
+            <div className="animate-in fade-in duration-300">
+                <h2 className="text-xl font-bold text-slate-800 mb-4">รายการแจ้งโอนเงินบริจาค</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {donationList.map(d => (
+                        <div key={d.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-indigo-300 transition cursor-pointer" onClick={() => setSelectedDonation(d)}>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{d.status}</span>
+                                <span className="text-xs text-slate-400">{new Date(d.timestamp).toLocaleDateString('th-TH')}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold"><DollarSign className="w-5 h-5"/></div>
+                                <div>
+                                    <div className="font-bold text-slate-800 flex items-center gap-1">
+                                        {d.donorName}
+                                        {d.isAnonymous && <span className="text-[10px] bg-slate-200 text-slate-500 px-1 rounded">Anon</span>}
+                                    </div>
+                                    <div className="text-sm text-indigo-600 font-bold">{d.amount.toLocaleString()} บาท</div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    {donationList.length === 0 && <div className="col-span-full text-center py-10 text-slate-400">ยังไม่มีรายการบริจาค</div>}
+                </div>
+            </div>
+        )}
+
+        {/* --- SETTINGS TAB --- */}
+        {activeTab === 'settings' && (
+            <div className="animate-in fade-in duration-300 max-w-2xl mx-auto">
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
+                    <h3 className="font-bold text-lg border-b pb-2">ตั้งค่าทั่วไป</h3>
+                    
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">ชื่อรายการแข่งขัน</label>
+                        <input type="text" value={configForm.competitionName} onChange={e => setConfigForm({...configForm, competitionName: e.target.value})} className="w-full p-2 border rounded-lg" />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">โลโก้การแข่งขัน</label>
+                        <div className="flex items-center gap-4">
+                            {settingsLogoPreview && <img src={settingsLogoPreview} className="w-16 h-16 object-contain border rounded-lg p-1"/>}
+                            <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleSettingsLogoChange(e.target.files[0])} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        </div>
+                    </div>
+
+                    <h3 className="font-bold text-lg border-b pb-2 pt-4">การระดมทุน (Objective)</h3>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">เป้าหมายระดมทุน (บาท)</label>
+                        <input type="number" value={configForm.fundraisingGoal} onChange={e => setConfigForm({...configForm, fundraisingGoal: Number(e.target.value)})} className="w-full p-2 border rounded-lg" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">ชื่อโครงการ</label>
+                        <input type="text" value={configForm.objectiveTitle} onChange={e => setConfigForm({...configForm, objectiveTitle: e.target.value})} className="w-full p-2 border rounded-lg" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">รายละเอียดโครงการ</label>
+                        <textarea value={configForm.objectiveDescription} onChange={e => setConfigForm({...configForm, objectiveDescription: e.target.value})} className="w-full p-2 border rounded-lg h-24" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">รูปภาพโครงการ</label>
+                        <div className="flex items-center gap-4">
+                            {objectiveImagePreview && <img src={objectiveImagePreview} className="w-16 h-16 object-cover border rounded-lg"/>}
+                            <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleObjectiveImageChange(e.target.files[0])} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        </div>
+                    </div>
+
+                    <h3 className="font-bold text-lg border-b pb-2 pt-4">ระบบ</h3>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">Admin PIN</label>
+                        <input type="text" value={configForm.adminPin} onChange={e => setConfigForm({...configForm, adminPin: e.target.value})} className="w-full p-2 border rounded-lg" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">LIFF ID</label>
+                        <input type="text" value={configForm.liffId} onChange={e => setConfigForm({...configForm, liffId: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Is optional" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">PWA Start URL</label>
+                        <input type="text" value={configForm.pwaStartUrl} onChange={e => setConfigForm({...configForm, pwaStartUrl: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="/PenaltyPro/" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">PWA Scope</label>
+                        <input type="text" value={configForm.pwaScope} onChange={e => setConfigForm({...configForm, pwaScope: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="/PenaltyPro/" />
+                    </div>
+
+                    <div className="pt-4">
+                        <button onClick={handleSaveConfig} disabled={isSavingSettings} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 flex items-center justify-center gap-2">
+                            {isSavingSettings ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5"/>} บันทึกการตั้งค่า
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
       </div>
+
+      {/* TEAM EDIT MODAL */}
+      {editForm && (
+        <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
+            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="bg-indigo-900 text-white p-4 flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-3">
+                        {editForm.team.logoUrl ? <img src={editForm.team.logoUrl} className="w-10 h-10 bg-white rounded-lg p-0.5 object-contain" /> : <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center font-bold">{editForm.team.shortName}</div>}
+                        <div>
+                            <h3 className="font-bold text-lg">{editForm.team.name}</h3>
+                            <div className="flex items-center gap-2 text-xs text-indigo-200">
+                                <span>{editForm.team.province}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${editForm.team.status === 'Approved' ? 'bg-green-500' : editForm.team.status === 'Rejected' ? 'bg-red-500' : 'bg-yellow-500'}`}>{editForm.team.status}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={() => { setEditForm(null); setSelectedTeam(null); }} className="hover:bg-white/20 p-1 rounded-full transition"><X className="w-5 h-5"/></button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
+                    <button onClick={() => setModalTab('info')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'info' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>ข้อมูลทั่วไป</button>
+                    <button onClick={() => setModalTab('players')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'players' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>รายชื่อนักกีฬา</button>
+                    <button onClick={() => setModalTab('docs')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'docs' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เอกสารหลักฐาน</button>
+                </div>
+
+                {/* Content */}
+                <div className="p-6 overflow-y-auto flex-1 bg-white">
+                    {modalTab === 'info' && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อทีม/โรงเรียน</label>
+                                    <input type="text" value={editForm.team.name} onChange={e => handleEditFieldChange('name', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อย่อ</label>
+                                    <input type="text" value={editForm.team.shortName} onChange={e => handleEditFieldChange('shortName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">กลุ่ม (Group)</label>
+                                    <input type="text" value={editForm.team.group || ''} onChange={e => handleEditFieldChange('group', e.target.value)} className="w-full p-3 border rounded-lg text-sm" placeholder="เช่น A, B" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">อำเภอ</label>
+                                    <input type="text" value={editForm.team.district || ''} onChange={e => handleEditFieldChange('district', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">จังหวัด</label>
+                                    <input type="text" value={editForm.team.province || ''} onChange={e => handleEditFieldChange('province', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                            </div>
+
+                            <div className="border-t pt-4">
+                                <h4 className="font-bold text-sm text-slate-700 mb-3">อัตลักษณ์ทีม</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">สีหลัก</label>
+                                        <input type="color" value={editPrimaryColor} onChange={e => handleColorChange('primary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">สีรอง</label>
+                                        <input type="color" value={editSecondaryColor} onChange={e => handleColorChange('secondary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
+                                    </div>
+                                </div>
+                                <div className="mt-4 flex items-center gap-4">
+                                    {editForm.logoPreview ? <img src={editForm.logoPreview} className="w-16 h-16 object-contain border rounded-lg p-1"/> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">No Logo</div>}
+                                    <label className="cursor-pointer bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition">
+                                        เปลี่ยนโลโก้
+                                        <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('logo', e.target.files[0])} />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="border-t pt-4">
+                                <h4 className="font-bold text-sm text-slate-700 mb-3">ข้อมูลติดต่อ</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้จัดการทีม</label><input type="text" value={editForm.team.managerName || ''} onChange={e => handleEditFieldChange('managerName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (ผจก)</label><input type="text" value={editForm.team.managerPhone || ''} onChange={e => handleEditFieldChange('managerPhone', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">ผู้ฝึกสอน</label><input type="text" value={editForm.team.coachName || ''} onChange={e => handleEditFieldChange('coachName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">เบอร์โทร (โค้ช)</label><input type="text" value={editForm.team.coachPhone || ''} onChange={e => handleEditFieldChange('coachPhone', e.target.value)} className="w-full p-3 border rounded-lg text-sm" /></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {modalTab === 'players' && (
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <h4 className="font-bold text-sm text-slate-700">รายชื่อนักกีฬา ({editForm.players.length})</h4>
+                                <button onClick={handleAddPlayer} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-700 transition"><Plus className="w-3 h-3"/> เพิ่มนักกีฬา</button>
+                            </div>
+                            <div className="space-y-3">
+                                {editForm.players.map((p, idx) => (
+                                    <div key={idx} className="flex items-start gap-2 p-3 border rounded-xl bg-slate-50">
+                                        <div className="w-16 h-20 bg-white rounded-lg border flex items-center justify-center shrink-0 overflow-hidden relative group">
+                                            {p.photoUrl ? <img src={p.photoUrl} className="w-full h-full object-cover" /> : <User className="w-8 h-8 text-slate-300"/>}
+                                            <label className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition">
+                                                <Camera className="w-5 h-5 text-white"/>
+                                                <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handlePlayerPhotoChange(idx, e.target.files[0])} />
+                                            </label>
+                                        </div>
+                                        <div className="flex-1 grid grid-cols-12 gap-2">
+                                            <div className="col-span-3"><input type="text" placeholder="เบอร์" value={p.number} onChange={e => handlePlayerChange(idx, 'number', e.target.value)} className="w-full p-2 border rounded-lg text-xs text-center font-bold" /></div>
+                                            <div className="col-span-9"><input type="text" placeholder="ชื่อ-นามสกุล" value={p.name} onChange={e => handlePlayerChange(idx, 'name', e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                            <div className="col-span-6"><input type="text" placeholder="วันเกิด (วว/ดด/ปปปป)" value={p.birthDate || ''} onChange={e => handleDateInput(idx, e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                            <div className="col-span-6"><input type="text" placeholder="ตำแหน่ง" value={p.position || 'Player'} onChange={e => handlePlayerChange(idx, 'position', e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                        </div>
+                                        <button onClick={() => removePlayer(idx)} className="text-red-400 hover:text-red-600 p-2"><Trash2 className="w-4 h-4"/></button>
+                                    </div>
+                                ))}
+                                {editForm.players.length === 0 && <div className="text-center py-8 text-slate-400 text-sm">ไม่มีรายชื่อนักกีฬา</div>}
+                            </div>
+                        </div>
+                    )}
+
+                    {modalTab === 'docs' && (
+                        <div className="space-y-6">
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <label className="block text-sm font-bold text-slate-700 mb-2">เอกสารใบสมัคร (PDF/Word)</label>
+                                <div className="flex items-center gap-3">
+                                    <label className="cursor-pointer bg-white border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition flex items-center gap-2 shadow-sm">
+                                        <FileText className="w-4 h-4 text-indigo-600"/>
+                                        {editForm.newDoc ? editForm.newDoc.name : (editForm.team.docUrl ? 'เปลี่ยนไฟล์' : 'อัปโหลดไฟล์')}
+                                        <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('doc', e.target.files[0])} />
+                                    </label>
+                                    {editForm.team.docUrl && (
+                                        <a href={editForm.team.docUrl} target="_blank" className="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 hover:bg-indigo-100 text-xs flex items-center gap-1">
+                                            <ExternalLink className="w-3 h-3" /> ดูไฟล์เดิม
+                                        </a>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <label className="block text-sm font-bold text-slate-700 mb-2">หลักฐานการโอนเงิน (สลิป)</label>
+                                <div className="flex flex-col gap-4">
+                                    <label className="cursor-pointer block w-full border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-white transition">
+                                        <CreditCard className="w-8 h-8 text-slate-300 mx-auto mb-2"/>
+                                        <span className="text-xs text-slate-500 font-bold block">{editForm.newSlip ? editForm.newSlip.name : 'แตะเพื่อเปลี่ยนรูปสลิป'}</span>
+                                        <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('slip', e.target.files[0])} />
+                                    </label>
+                                    {editForm.slipPreview && (
+                                        <div className="relative mx-auto">
+                                            <img src={editForm.slipPreview} className="max-h-64 rounded-lg shadow-sm border" />
+                                            <div className="text-center text-xs text-slate-400 mt-1">ตัวอย่างรูปสลิป</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 border-t bg-white flex gap-3 shrink-0">
+                    <button onClick={() => { setEditForm(null); setSelectedTeam(null); }} className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition">ยกเลิก</button>
+                    {editForm.team.status === 'Pending' && (
+                        <>
+                            <button onClick={() => handleStatusUpdate(editForm.team.id, 'Approved')} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition">อนุมัติ</button>
+                            <button onClick={() => handleStatusUpdate(editForm.team.id, 'Rejected')} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition">ปฏิเสธ</button>
+                        </>
+                    )}
+                    <button onClick={handleSaveTeamChanges} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
+                        {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Save className="w-5 h-5"/> บันทึกข้อมูล</>}
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

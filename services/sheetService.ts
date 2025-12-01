@@ -5,6 +5,10 @@
 
 
 
+
+
+
+
 import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
@@ -156,6 +160,19 @@ export const verifyDonation = async (donationId: string, status: 'Verified' | 'R
             redirect: 'follow',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'verifyDonation', donationId, status })
+        });
+        return true;
+    } catch (e) { return false; }
+}
+
+export const updateDonationDetails = async (donationId: string, updates: any): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'updateDonationDetails', donationId, ...updates })
         });
         return true;
     } catch (e) { return false; }

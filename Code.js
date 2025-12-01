@@ -45,6 +45,7 @@ function doPost(e) {
     else if (action === 'updateTournament') return updateTournament(data.tournament);
     else if (action === 'submitDonation') return submitDonation(data);
     else if (action === 'verifyDonation') return verifyDonation(data.donationId, data.status);
+    else if (action === 'updateDonationDetails') return updateDonationDetails(data); // NEW Handler
     else if (action === 'updateUserRole') return updateUserRole(data.userId, data.role);
     // User CRUD
     else if (action === 'createUser') return createUser(data);
@@ -682,6 +683,24 @@ function verifyDonation(donationId, status) {
     for (let i = 1; i < data.length; i++) {
         if (String(data[i][0]) === String(donationId)) {
             sheet.getRange(i + 1, 12).setValue(status);
+            return successResponse({ status: 'success' });
+        }
+    }
+    return errorResponse("Donation not found");
+}
+
+// NEW FUNCTION to update other donation details
+function updateDonationDetails(data) {
+    const ss = getSpreadsheet();
+    let sheet = ss.getSheetByName("Donations");
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+        if (String(rows[i][0]) === String(data.donationId)) {
+            if (data.isAnonymous !== undefined) {
+                // Column 13 is IsAnonymous (Index 12)
+                sheet.getRange(i + 1, 13).setValue(data.isAnonymous);
+            }
+            // Add other fields if needed here
             return successResponse({ status: 'success' });
         }
     }

@@ -1,6 +1,8 @@
 
 
 
+
+
 import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament } from '../types';
 
 declare global {
