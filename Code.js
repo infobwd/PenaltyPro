@@ -112,7 +112,7 @@ function getData() {
   }
   if(!ss.getSheetByName("Donations")) {
      const s = ss.insertSheet("Donations");
-     s.appendRow(["ID", "Timestamp", "DonorName", "Amount", "Phone", "IsEDonation", "TaxID", "Address", "SlipURL", "TournamentID", "LineUserID", "Status", "IsAnonymous"]);
+     s.appendRow(["ID", "Timestamp", "DonorName", "Amount", "Phone", "IsEDonation", "TaxID", "Address", "SlipURL", "TournamentID", "LineUserID", "Status", "IsAnonymous", "TaxFileURL"]);
   }
   if(!ss.getSheetByName("News")) {
      const s = ss.insertSheet("News");
@@ -227,7 +227,7 @@ function getData() {
           timestamp: donationData[i][1], 
           donorName: donationData[i][2], 
           amount: Number(donationData[i][3]), 
-          phone: String(donationData[i][4]), 
+          phone: String(donationData[i][4]).replace(/^'/, ''), 
           isEdonation: donationData[i][5], 
           taxId: String(donationData[i][6]), 
           address: String(donationData[i][7]), 
@@ -235,7 +235,8 @@ function getData() {
           tournamentId: donationData[i][9], 
           lineUserId: donationData[i][10], 
           status: donationData[i][11] || 'Pending',
-          isAnonymous: donationData[i][12] || false
+          isAnonymous: donationData[i][12] || false,
+          taxFileUrl: toLh3Link(donationData[i][13]) // Read the Tax File URL
       });
   }
 
@@ -710,11 +711,19 @@ function updateDonationDetails(data) {
 function submitDonation(data) {
     const ss = getSpreadsheet();
     let sheet = ss.getSheetByName("Donations");
-    if (!sheet) { sheet = ss.insertSheet("Donations"); sheet.appendRow(["ID", "Timestamp", "DonorName", "Amount", "Phone", "IsEDonation", "TaxID", "Address", "SlipURL", "TournamentID", "LineUserID", "Status", "IsAnonymous"]); }
+    if (!sheet) { sheet = ss.insertSheet("Donations"); sheet.appendRow(["ID", "Timestamp", "DonorName", "Amount", "Phone", "IsEDonation", "TaxID", "Address", "SlipURL", "TournamentID", "LineUserID", "Status", "IsAnonymous", "TaxFileURL"]); }
+    
     let slipUrl = "";
     if (data.slipFile && data.slipFile.startsWith('data:')) slipUrl = saveFileToDrive(data.slipFile, `donation_slip_${Date.now()}`);
+    
+    let taxFileUrl = "";
+    if (data.taxFile && data.taxFile.startsWith('data:')) taxFileUrl = saveFileToDrive(data.taxFile, `donation_tax_${Date.now()}`);
+
     const id = "DON_" + Date.now();
-    sheet.appendRow([ id, new Date(), data.donorName, data.amount, data.donorPhone, data.isEdonation, data.taxId, data.address, slipUrl, data.tournamentId, data.lineUserId || '', 'Pending', data.isAnonymous || false ]);
+    // Prepend ' to phone to preserve leading zero
+    const safePhone = "'" + data.donorPhone;
+    
+    sheet.appendRow([ id, new Date(), data.donorName, data.amount, safePhone, data.isEdonation, data.taxId, data.address, slipUrl, data.tournamentId, data.lineUserId || '', 'Pending', data.isAnonymous || false, taxFileUrl ]);
     return successResponse({ status: 'success' });
 }
 
@@ -747,7 +756,13 @@ function manageNews(data) {
      }
   } else if (subAction === 'delete') {
      const rows = sheet.getDataRange().getValues();
-     for (let i = 1; i < rows.length; i++) { if (String(rows[i][0]) === String(item.id)) { sheet.deleteRow(i+1); break; } }
+     for (let i = 1; i < rows.length; i++) { 
+       if (String(rows[i][0]) === String(item.id)) { 
+         sheet.deleteRow(i+1); 
+         return successResponse({ status: 'success' }); // Return immediately on success
+       } 
+     }
+     return errorResponse("News not found");
   }
   return successResponse({ status: 'success' });
 }

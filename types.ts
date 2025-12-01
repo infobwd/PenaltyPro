@@ -100,6 +100,7 @@ export interface DonationRequest {
   address?: string;
   lineUserId?: string; 
   isAnonymous?: boolean;
+  taxFile?: string;
 }
 
 export interface Donation {
@@ -116,6 +117,7 @@ export interface Donation {
   lineUserId?: string; 
   status: 'Pending' | 'Verified' | 'Rejected'; 
   isAnonymous?: boolean;
+  taxFileUrl?: string;
 }
 
 export interface Tournament {
