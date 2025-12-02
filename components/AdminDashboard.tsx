@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
-import { shareNews } from '../services/liffService';
+import { shareNews, shareDonation } from '../services/liffService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -331,7 +331,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       // 4. Central Icon: Vector Heart (Gold/Pink Gradient)
       const centerX = width / 2;
       const heartY = 180;
-      const heartSize = 4;
+      const heartSize = 2.5; // Adjusted size
       
       ctx.save();
       ctx.translate(centerX, heartY);
@@ -346,16 +346,13 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       ctx.bezierCurveTo(55, 10, 55, -25, 25, -25);
       ctx.bezierCurveTo(10, -25, 0, -15, 0, -10);
       
-      // Heart Gradient
-      const hGrad = ctx.createLinearGradient(-30, -30, 30, 30);
-      hGrad.addColorStop(0, '#f9a8d4'); // Pink-300
-      hGrad.addColorStop(1, '#f43f5e'); // Rose-500
-      ctx.fillStyle = hGrad;
+      // Heart Fill (Pure Gold)
+      ctx.fillStyle = '#D4AF37';
       ctx.fill();
       
-      // Heart Outline (Gold)
+      // Heart Outline (Darker Gold)
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = '#fbbf24';
+      ctx.strokeStyle = '#B45309';
       ctx.stroke();
       ctx.restore();
 
@@ -1644,7 +1641,14 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                 ) : donationViewMode === 'grid' ? (
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
-                            <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col" onClick={() => setSelectedDonation(d)}>
+                            <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col relative group" onClick={() => setSelectedDonation(d)}>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); shareDonation(d, currentTournament?.name || 'Penalty Pro Arena'); }}
+                                    className="absolute top-2 left-2 p-1.5 bg-white/90 text-indigo-600 rounded-full shadow-md z-10 opacity-0 group-hover:opacity-100 transition-all hover:scale-110"
+                                    title="แชร์ใบอนุโมทนา"
+                                >
+                                    <Share2 className="w-4 h-4" />
+                                </button>
                                 <div className="h-32 bg-slate-100 relative overflow-hidden flex items-center justify-center">
                                     {d.slipUrl ? <img src={d.slipUrl} className="w-full h-full object-cover"/> : <div className="text-slate-300 flex flex-col items-center"><Image className="w-8 h-8 mb-1"/><span className="text-xs">No Slip</span></div>}
                                     <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>

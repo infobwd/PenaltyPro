@@ -3,7 +3,8 @@
 
 
 
-import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament } from '../types';
+
+import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation } from '../types';
 
 declare global {
   interface Window {
@@ -163,4 +164,53 @@ export const shareTournament = async (tournament: Tournament, teamCount: number 
         console.error("Share Error", error);
         alert(`แชร์ไม่สำเร็จ: ${error.message}`); 
     }
+};
+
+export const shareDonation = async (donation: Donation, tournamentName: string) => {
+  const liffId = window.liff?.id;
+  if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
+  
+  // Format info
+  const amount = donation.amount.toLocaleString();
+  const dateStr = new Date(donation.timestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+  
+  const flexMessage = {
+    type: "flex",
+    altText: `อนุโมทนาบุญ: คุณ ${donation.donorName}`,
+    contents: {
+      "type": "bubble",
+      "size": "mega",
+      "header": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+          { "type": "text", "text": "THANK YOU", "weight": "bold", "color": "#B45309", "size": "xxs", "align": "center", "letterSpacing": "2px" },
+          { "type": "text", "text": "ใบอนุโมทนาบัตร", "weight": "bold", "size": "xl", "margin": "md", "align": "center", "color": "#1e293b" }
+        ],
+        "backgroundColor": "#fffbeb",
+        "paddingAll": "lg"
+      },
+      "hero": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+           { "type": "text", "text": donation.donorName, "size": "xl", "weight": "bold", "align": "center", "color": "#B45309" },
+           { "type": "text", "text": `ยอดบริจาค ${amount} บาท`, "size": "md", "color": "#4b5563", "align": "center", "margin": "sm" }
+        ],
+        "paddingAll": "xl",
+        "backgroundColor": "#ffffff"
+      },
+      "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+          { "type": "text", "text": `โครงการ: ${tournamentName}`, "size": "xs", "color": "#64748b", "align": "center", "wrap": true },
+          { "type": "text", "text": `วันที่: ${dateStr}`, "size": "xxs", "color": "#94a3b8", "align": "center", "margin": "md" }
+        ]
+      },
+      "styles": { "footer": { "separator": true } }
+    }
+  };
+  
+  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
 };
