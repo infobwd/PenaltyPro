@@ -1,11 +1,9 @@
 
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
-import { shareNews, shareDonation } from '../services/liffService';
+import { shareNews } from '../services/liffService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -330,10 +328,10 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       ctx.beginPath(); ctx.arc(width, 0, 100, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(0, height, 100, 0, Math.PI * 2); ctx.fill();
 
-      // 4. Central Icon: Vector Heart (Gold)
+      // 4. Central Icon: Vector Heart (Gold/Pink Gradient)
       const centerX = width / 2;
       const heartY = 180;
-      const heartSize = 2.5; // Reduced size as requested
+      const heartSize = 4;
       
       ctx.save();
       ctx.translate(centerX, heartY);
@@ -348,16 +346,16 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       ctx.bezierCurveTo(55, 10, 55, -25, 25, -25);
       ctx.bezierCurveTo(10, -25, 0, -15, 0, -10);
       
-      // Heart Gradient (Gold)
+      // Heart Gradient
       const hGrad = ctx.createLinearGradient(-30, -30, 30, 30);
-      hGrad.addColorStop(0, '#FDB931'); // Light Gold
-      hGrad.addColorStop(1, '#d4af37'); // Dark Gold
+      hGrad.addColorStop(0, '#f9a8d4'); // Pink-300
+      hGrad.addColorStop(1, '#f43f5e'); // Rose-500
       ctx.fillStyle = hGrad;
       ctx.fill();
       
-      // Heart Outline (Darker Gold)
+      // Heart Outline (Gold)
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = '#b45309';
+      ctx.strokeStyle = '#fbbf24';
       ctx.stroke();
       ctx.restore();
 
@@ -431,10 +429,10 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           } catch (e) {}
       }
 
-      // ID (Bottom Left) - Enlarged
+      // ID (Bottom Left)
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#64748b'; // Slate-500 for better visibility
-      ctx.font = 'bold 16px monospace'; // Larger font
+      ctx.fillStyle = '#cbd5e1'; // Slate-300
+      ctx.font = '10px monospace';
       ctx.fillText(`ID: ${donation.id}`, 40, height - 20);
 
       // Download
@@ -1360,7 +1358,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                     <div className="p-4 bg-slate-50 min-h-[400px]">
                         {viewMode === 'list' ? (
                             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
-                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div><div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button><button onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-red-200"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
+                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button><button onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-red-200"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -1648,18 +1646,6 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                         {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
                             <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col" onClick={() => setSelectedDonation(d)}>
                                 <div className="h-32 bg-slate-100 relative overflow-hidden flex items-center justify-center">
-                                    {/* SHARE BUTTON ON CARD */}
-                                    <button 
-                                        onClick={(e) => { 
-                                            e.stopPropagation(); 
-                                            shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName); 
-                                        }} 
-                                        className="absolute top-2 left-2 p-1.5 bg-white/80 hover:bg-green-500 text-slate-500 hover:text-white rounded-full shadow-sm z-10 transition backdrop-blur-sm border border-slate-100"
-                                        title="แชร์แจ้งผู้บริจาค"
-                                    >
-                                        <Share2 className="w-4 h-4" />
-                                    </button>
-
                                     {d.slipUrl ? <img src={d.slipUrl} className="w-full h-full object-cover"/> : <div className="text-slate-300 flex flex-col items-center"><Image className="w-8 h-8 mb-1"/><span className="text-xs">No Slip</span></div>}
                                     <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>
                                         {d.status}
@@ -1695,7 +1681,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
-                                    <tr key={d.id} className="hover:bg-slate-50 group">
+                                    <tr key={d.id} className="hover:bg-slate-50">
                                         <td className="p-3 text-slate-500">{new Date(d.timestamp).toLocaleDateString('th-TH')}</td>
                                         <td className="p-3 font-bold text-slate-700">{d.donorName}</td>
                                         <td className="p-3 font-mono text-indigo-600 font-bold">{d.amount.toLocaleString()}</td>
@@ -1708,10 +1694,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                             {d.isEdonation ? <span className="flex items-center gap-1 text-blue-600"><FileCheck className="w-3 h-3"/> e-Donation</span> : 'ทั่วไป'}
                                         </td>
                                         <td className="p-3 text-right">
-                                            <div className="flex justify-end gap-1">
-                                                <button onClick={() => shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName)} className="text-slate-400 hover:text-green-600 p-1 rounded border hover:bg-green-50 opacity-50 group-hover:opacity-100 transition"><Share2 className="w-4 h-4"/></button>
-                                                <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
-                                            </div>
+                                            <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
                                         </td>
                                     </tr>
                                 ))}

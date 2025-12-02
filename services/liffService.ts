@@ -3,7 +3,7 @@
 
 
 
-import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation } from '../types';
+import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament } from '../types';
 
 declare global {
   interface Window {
@@ -162,57 +162,5 @@ export const shareTournament = async (tournament: Tournament, teamCount: number 
     } catch (error: any) { 
         console.error("Share Error", error);
         alert(`แชร์ไม่สำเร็จ: ${error.message}`); 
-    }
-};
-
-export const shareDonation = async (donation: Donation, tournamentName: string) => {
-    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-    
-    const isVerified = donation.status === 'Verified';
-    const headerColor = isVerified ? "#166534" : "#ea580c"; // Green or Orange
-    const statusText = isVerified ? "ได้รับเงินเรียบร้อยแล้ว" : "รอการตรวจสอบ";
-    const amountStr = donation.amount.toLocaleString();
-    
-    const flexMessage = {
-      type: "flex",
-      altText: `อนุโมทนาบุญ: ${donation.donorName} - ${amountStr} บาท`,
-      contents: {
-        type: "bubble",
-        header: {
-          type: "box",
-          layout: "vertical",
-          contents: [
-            { type: "text", text: "อนุโมทนาบุญ / Thank You", weight: "bold", color: "#FFFFFF", align: "center", size: "sm" }
-          ],
-          backgroundColor: headerColor,
-          paddingAll: "lg"
-        },
-        body: {
-          type: "box",
-          layout: "vertical",
-          contents: [
-            { type: "text", text: donation.donorName, weight: "bold", size: "xl", align: "center", wrap: true, color: "#1e293b" },
-            { type: "text", text: `ยอดเงินบริจาค: ${amountStr} บาท`, size: "md", color: "#d97706", align: "center", margin: "md", weight: "bold" },
-            { type: "separator", margin: "lg", color: "#e2e8f0" },
-            { type: "text", text: `โครงการ: ${truncate(tournamentName, 40)}`, size: "xs", color: "#64748b", align: "center", margin: "lg", wrap: true }
-          ],
-          paddingAll: "xl"
-        },
-        footer: {
-          type: "box",
-          layout: "vertical",
-          contents: [
-            { type: "text", text: statusText, size: "xxs", color: "#94a3b8", align: "center" }
-          ],
-          paddingAll: "md",
-          backgroundColor: "#f8fafc"
-        }
-      }
-    };
-
-    try {
-        await window.liff.shareTargetPicker([flexMessage]);
-    } catch (error: any) {
-        alert(`แชร์ไม่สำเร็จ: ${error.message}`);
     }
 };
