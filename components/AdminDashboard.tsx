@@ -22,13 +22,34 @@ interface AdminDashboardProps {
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 const MAX_DOC_SIZE = 3 * 1024 * 1024;   // 3MB
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, donations = [], isLoading }) => {
+const AdminSkeleton = () => (
+  <div className="animate-in fade-in duration-300 w-full py-8">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {[1,2,3].map(i => <div key={i} className="h-32 bg-white rounded-xl border border-slate-200 shadow-sm animate-pulse relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-r from-slate-100 via-white to-slate-100 -translate-x-full animate-[shimmer_1.5s_infinite]"></div></div>)}
+    </div>
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex justify-between">
+            <div className="h-8 bg-slate-200 rounded w-1/4 animate-pulse"></div>
+            <div className="h-8 bg-slate-200 rounded w-1/6 animate-pulse"></div>
+        </div>
+        <div className="p-6 space-y-4">
+            {[1,2,3,4,5,6].map(i => (
+                <div key={i} className="h-20 bg-slate-50 rounded-xl border border-slate-100 animate-pulse relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-r from-slate-50 via-white to-slate-50 -translate-x-full animate-[shimmer_1.5s_infinite]"></div>
+                </div>
+            ))}
+        </div>
+    </div>
+  </div>
+);
+
+export default function AdminDashboard({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, donations = [], isLoading }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>('teams');
   const [localTeams, setLocalTeams] = useState<Team[]>(initialTeams);
   const [localPlayers, setLocalPlayers] = useState<Player[]>(initialPlayers);
   const [localNews, setLocalNews] = useState<NewsItem[]>(news);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
   
   // User Management State
   const [userList, setUserList] = useState<UserProfile[]>([]);
@@ -50,7 +71,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   // Draw Logic State
   const [isDrawModalOpen, setIsDrawModalOpen] = useState(false);
   const [drawGroupCount, setDrawGroupCount] = useState(4);
-  const [teamsPerGroup, setTeamsPerGroup] = useState(4); // New State: Teams per group
+  const [teamsPerGroup, setTeamsPerGroup] = useState(4);
   const [isDrawing, setIsDrawing] = useState(false);
   
   // LIVE DRAW STATES
@@ -63,7 +84,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const [drawnCount, setDrawnCount] = useState(0);
   const [removeConfirmModal, setRemoveConfirmModal] = useState<{ isOpen: boolean, team: Team | null, group: string | null }>({ isOpen: false, team: null, group: null });
   const [resetConfirmModal, setResetConfirmModal] = useState(false);
-  const [latestReveal, setLatestReveal] = useState<Team | null>(null); // New: For Big Reveal Animation
+  const [latestReveal, setLatestReveal] = useState<Team | null>(null); 
 
   // Confetti Canvas Ref
   const confettiCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -76,7 +97,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [isEditingTeam, setIsEditingTeam] = useState(false);
-  const [modalTab, setModalTab] = useState<'info' | 'players' | 'docs'>('info'); // Added Modal Tab State
+  const [modalTab, setModalTab] = useState<'info' | 'players' | 'docs'>('info'); 
   const [editForm, setEditForm] = useState<{ 
       team: Team, 
       players: Player[], 
@@ -133,20 +154,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   };
 
   const handleLocalRefresh = async () => {
-      setIsRefreshing(true);
+      setIsReloading(true);
       try {
-          const data = await fetchDatabase();
-          if (data) {
-              setLocalTeams(data.teams);
-              setLocalPlayers(data.players);
-              setDonationList(data.donations);
-              setLocalNews(data.news);
-          }
+          await onRefresh();
+          notify("รีเฟรชข้อมูล", "โหลดข้อมูลล่าสุดเรียบร้อย", "info");
       } catch(e) {
           console.error(e);
           notify("ผิดพลาด", "รีเฟรชข้อมูลไม่สำเร็จ", "error");
       } finally {
-          setIsRefreshing(false);
+          setIsReloading(false);
+      }
+  };
+
+  // Helper for reload sequence
+  const executeWithReload = async (action: () => Promise<void>, successMsg: string) => {
+      setIsReloading(true);
+      try {
+          await action();
+          await onRefresh(); // Sync from backend
+          notify("สำเร็จ", successMsg, "success");
+      } catch (error: any) {
+          console.error(error);
+          notify("ผิดพลาด", error.message || "เกิดข้อผิดพลาดในการบันทึก", "error");
+      } finally {
+          setIsReloading(false);
       }
   };
 
@@ -167,78 +198,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           return;
       }
       
-      setIsLoadingUsers(true);
-      let success = false;
-      
-      if (editingUser) {
-          // Update
-          success = await updateUserDetails({ userId: editingUser.userId, ...userForm });
-      } else {
-          // Create
-          if (!userForm.password) {
-              notify("ข้อมูลไม่ครบ", "กรุณากรอกรหัสผ่านสำหรับผู้ใช้ใหม่", "warning");
-              setIsLoadingUsers(false);
-              return;
-          }
-          success = await createUser(userForm);
-      }
+      const targetUserId = editingUser ? editingUser.userId : `U_${Date.now()}`;
+      setIsUserModalOpen(false);
 
-      if (success) {
-          notify("สำเร็จ", editingUser ? "แก้ไขข้อมูลผู้ใช้เรียบร้อย" : "สร้างผู้ใช้ใหม่เรียบร้อย", "success");
-          setIsUserModalOpen(false);
-          loadUsers();
-      } else {
-          notify("ผิดพลาด", "ดำเนินการไม่สำเร็จ อาจมีชื่อผู้ใช้ซ้ำ", "error");
-      }
-      setIsLoadingUsers(false);
+      executeWithReload(async () => {
+          let success = false;
+          if (editingUser) {
+              success = await updateUserDetails({ userId: editingUser.userId, ...userForm });
+          } else {
+              if (!userForm.password) throw new Error("กรุณากรอกรหัสผ่าน");
+              success = await createUser(userForm);
+          }
+          if (!success) throw new Error("Backend operation failed");
+          // Also reload user list explicitly
+          await loadUsers();
+      }, editingUser ? "แก้ไขข้อมูลผู้ใช้เรียบร้อย" : "สร้างผู้ใช้ใหม่เรียบร้อย");
   };
 
   const handleDeleteUser = async (userId: string) => {
       if (!confirm("ยืนยันการลบผู้ใช้งานนี้?")) return;
-      setIsLoadingUsers(true);
-      const success = await deleteUser(userId);
-      if (success) {
-          notify("สำเร็จ", "ลบผู้ใช้เรียบร้อย", "success");
-          loadUsers();
-      } else {
-          notify("ผิดพลาด", "ลบไม่สำเร็จ", "error");
-      }
-      setIsLoadingUsers(false);
+      executeWithReload(async () => {
+          const success = await deleteUser(userId);
+          if (!success) throw new Error("Failed to delete");
+          await loadUsers();
+      }, "ลบผู้ใช้เรียบร้อย");
   };
 
   const handleVerifyDonation = async (donationId: string, status: 'Verified' | 'Rejected') => {
-      setIsVerifyingDonation(true);
-      const success = await verifyDonation(donationId, status);
-      if (success) {
-          notify("สำเร็จ", `สถานะบริจาค: ${status}`, "success");
-          setDonationList(prev => prev.map(d => d.id === donationId ? { ...d, status } : d));
-          // If modal open, update selectedDonation too
-          if (selectedDonation && selectedDonation.id === donationId) {
-              setSelectedDonation(prev => prev ? { ...prev, status } : null);
-          }
-          setTimeout(() => handleLocalRefresh(), 1000);
-      } else {
-          notify("ผิดพลาด", "บันทึกไม่สำเร็จ", "error");
-      }
-      setIsVerifyingDonation(false);
+      executeWithReload(async () => {
+          await verifyDonation(donationId, status);
+      }, `อัปเดตสถานะเป็น ${status} เรียบร้อย`);
   };
 
   const handleUpdateDonationAnonymous = async (isAnon: boolean) => {
       if (!selectedDonation) return;
-      setIsVerifyingDonation(true);
-      // Optimistic update
-      setSelectedDonation(prev => prev ? { ...prev, isAnonymous: isAnon } : null);
+      // Optimistic update for UI responsiveness in modal
+      setSelectedDonation({...selectedDonation, isAnonymous: isAnon});
       
-      const success = await updateDonationDetails(selectedDonation.id, { isAnonymous: isAnon });
-      if (success) {
-          setDonationList(prev => prev.map(d => d.id === selectedDonation.id ? { ...d, isAnonymous: isAnon } : d));
-          notify("สำเร็จ", "อัปเดตสถานะการแสดงชื่อเรียบร้อย", "success");
-      } else {
-          notify("ผิดพลาด", "อัปเดตไม่สำเร็จ", "error");
-          // Revert optimistic update
-          setSelectedDonation(prev => prev ? { ...prev, isAnonymous: !isAnon } : null);
-      }
-      setIsVerifyingDonation(false);
+      executeWithReload(async () => {
+          await updateDonationDetails(selectedDonation.id, { isAnonymous: isAnon });
+      }, "อัปเดตสถานะการแสดงชื่อเรียบร้อย");
   };
 
   const handleTaxFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -252,155 +251,77 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           notify("แจ้งเตือน", "กรุณาเลือกไฟล์ก่อนบันทึก", "warning");
           return;
       }
-      
-      setIsVerifyingDonation(true);
+      setIsVerifyingDonation(true); // Loading inside modal
       try {
           const base64 = await fileToBase64(adminTaxFile);
-          // Don't wait for result if no-cors, or assume true.
           await updateDonationDetails(selectedDonation.id, { taxFile: base64 });
-          
-          notify("กำลังบันทึก", "ระบบกำลังอัปโหลดไฟล์...", "info");
           setAdminTaxFile(null);
-
-          // Delay refresh to allow backend processing
-          setTimeout(async () => {
-              const data = await fetchDatabase();
-              if (data) {
-                  setDonationList(data.donations);
-                  const updated = data.donations.find(d => d.id === selectedDonation.id);
-                  if (updated) {
-                      setSelectedDonation(updated);
-                      notify("สำเร็จ", "อัปโหลดไฟล์ e-Donation เรียบร้อย", "success");
-                  }
-              }
-              setIsVerifyingDonation(false);
-          }, 3000); // 3 seconds delay for file upload
-
+          // Reload everything
+          await onRefresh();
+          notify("สำเร็จ", "อัปโหลดไฟล์เรียบร้อย", "success");
       } catch (error) {
-          console.error(error);
           notify("ผิดพลาด", "เกิดข้อผิดพลาดในการอัปโหลด", "error");
+      } finally {
           setIsVerifyingDonation(false);
       }
   };
 
-  // CERTIFICATE GENERATION - Minimalist Portrait Kanit
+  // ... (Certificate Generation Code) ...
   const handlePrintCertificate = async (donation: Donation) => {
       if (!certificateCanvasRef.current) return;
       const canvas = certificateCanvasRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-
-      // Portrait A4 Ratio (Approx)
       const width = 800;
       const height = 1131; 
       canvas.width = width;
       canvas.height = height;
-
-      // 1. Background
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, width, height);
-      
-      // 2. Minimalist Elegant Border
       ctx.lineWidth = 1;
-      ctx.strokeStyle = '#e2e8f0'; // Slate-200
+      ctx.strokeStyle = '#e2e8f0'; 
       ctx.strokeRect(40, 40, width - 80, height - 80);
-      
-      // Inner accent border (Gold)
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#d4af37'; 
       ctx.strokeRect(50, 50, width - 100, height - 100);
-
-      // 3. Header Text (Kanit)
-      ctx.fillStyle = '#1e293b'; // Slate-800
+      ctx.fillStyle = '#1e293b'; 
       ctx.textAlign = 'center';
-      
-      // Logo if available
       if (settings.competitionLogo) {
           try {
               const logoImg = new window.Image();
               logoImg.crossOrigin = "Anonymous";
               logoImg.src = settings.competitionLogo;
-              await new Promise((resolve) => {
-                  logoImg.onload = resolve;
-                  logoImg.onerror = resolve; 
-              });
+              await new Promise((resolve) => { logoImg.onload = resolve; logoImg.onerror = resolve; });
               const logoSize = 100;
               ctx.drawImage(logoImg, width / 2 - logoSize / 2, 100, logoSize, logoSize);
           } catch(e) {}
       } else {
-          // Fallback Icon
           ctx.fillStyle = '#d4af37';
           ctx.font = '50px Kanit';
           ctx.fillText('★', width / 2, 150);
       }
-
-      ctx.fillStyle = '#1e3a8a'; // Dark Blue
-      ctx.font = 'bold 50px "Kanit", sans-serif'; // Kanit Header
-      ctx.fillText('ใบประกาศเกียรติคุณ', width / 2, 260);
-      
-      ctx.fillStyle = '#64748b'; // Slate-500
-      ctx.font = '300 24px "Kanit", sans-serif'; // Kanit Light
-      ctx.fillText('ขอมอบให้ไว้เพื่อแสดงว่า', width / 2, 320);
-
-      // 4. Donor Name (Sarabun - Distinct)
-      ctx.fillStyle = '#1e293b'; // Slate-800
-      ctx.font = 'bold 70px "Sarabun", sans-serif'; // Keep Sarabun for Name
-      ctx.fillText(donation.donorName, width / 2, 450);
-
-      // 5. Body Text (Kanit)
-      ctx.fillStyle = '#334155';
-      ctx.font = '24px "Kanit", sans-serif';
-      ctx.fillText(`ได้ร่วมบริจาคเงินสนับสนุน`, width / 2, 550);
-      ctx.font = 'bold 30px "Kanit", sans-serif';
-      ctx.fillStyle = '#d4af37';
-      ctx.fillText(`"${settings.competitionName}"`, width / 2, 600);
-      
-      ctx.fillStyle = '#334155';
-      ctx.font = '24px "Kanit", sans-serif';
-      ctx.fillText(`จำนวนเงิน ${donation.amount.toLocaleString()} บาท`, width / 2, 680);
-
-      // 6. Footer / Date (Kanit)
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = 'italic 20px "Kanit", sans-serif';
+      ctx.fillStyle = '#1e3a8a'; ctx.font = 'bold 50px "Kanit", sans-serif'; ctx.fillText('ใบประกาศเกียรติคุณ', width / 2, 260);
+      ctx.fillStyle = '#64748b'; ctx.font = '300 24px "Kanit", sans-serif'; ctx.fillText('ขอมอบให้ไว้เพื่อแสดงว่า', width / 2, 320);
+      ctx.fillStyle = '#1e293b'; ctx.font = 'bold 70px "Sarabun", sans-serif'; ctx.fillText(donation.donorName, width / 2, 450);
+      ctx.fillStyle = '#334155'; ctx.font = '24px "Kanit", sans-serif'; ctx.fillText(`ได้ร่วมบริจาคเงินสนับสนุน`, width / 2, 550);
+      ctx.font = 'bold 30px "Kanit", sans-serif'; ctx.fillStyle = '#d4af37'; ctx.fillText(`"${settings.competitionName}"`, width / 2, 600);
+      ctx.fillStyle = '#334155'; ctx.font = '24px "Kanit", sans-serif'; ctx.fillText(`จำนวนเงิน ${donation.amount.toLocaleString()} บาท`, width / 2, 680);
+      ctx.fillStyle = '#94a3b8'; ctx.font = 'italic 20px "Kanit", sans-serif';
       const dateStr = new Date(donation.timestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
       ctx.fillText(`ให้ไว้ ณ วันที่ ${dateStr}`, width / 2, 850);
-
-      // 7. Signature Line
-      ctx.beginPath();
-      ctx.moveTo(width / 2 - 120, 950);
-      ctx.lineTo(width / 2 + 120, 950);
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      
-      ctx.font = '20px "Kanit", sans-serif';
-      ctx.fillStyle = '#64748b';
-      ctx.fillText('ผู้อำนวยการ / ผู้จัดโครงการ', width / 2, 990);
-
-      // 8. QR Code (If Tax File URL exists)
+      ctx.beginPath(); ctx.moveTo(width / 2 - 120, 950); ctx.lineTo(width / 2 + 120, 950); ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.font = '20px "Kanit", sans-serif'; ctx.fillStyle = '#64748b'; ctx.fillText('ผู้อำนวยการ / ผู้จัดโครงการ', width / 2, 990);
       if (donation.taxFileUrl) {
           try {
               const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(donation.taxFileUrl)}`;
               const qrImg = new window.Image();
               qrImg.crossOrigin = "Anonymous";
               qrImg.src = qrUrl;
-              await new Promise((resolve) => {
-                  qrImg.onload = resolve;
-                  qrImg.onerror = resolve; 
-              });
-              // Draw at bottom right corner inside border
+              await new Promise((resolve) => { qrImg.onload = resolve; qrImg.onerror = resolve; });
               ctx.drawImage(qrImg, width - 160, height - 160, 100, 100);
-              
-              ctx.font = '12px "Kanit", sans-serif';
-              ctx.textAlign = 'center';
-              ctx.fillStyle = '#94a3b8';
-              ctx.fillText('Scan E-Donation', width - 110, height - 45);
-          } catch (e) {
-              console.error("QR Gen Error", e);
-          }
+              ctx.font = '12px "Kanit", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#94a3b8'; ctx.fillText('Scan E-Donation', width - 110, height - 45);
+          } catch (e) {}
       }
-
-      // Download
       const link = document.createElement('a');
       link.download = `Certificate_${donation.donorName.replace(/\s/g,'_')}.jpg`;
       link.href = canvas.toDataURL('image/jpeg', 0.95);
@@ -436,11 +357,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                 pColor = selectedTeam.color; 
             }
         } catch (e) { pColor = selectedTeam.color || '#2563EB'; }
+        
         setEditPrimaryColor(pColor);
         setEditSecondaryColor(sColor);
         setEditForm({ team: { ...selectedTeam }, players: JSON.parse(JSON.stringify(teamPlayers)), newLogo: null, newSlip: null, newDoc: null, logoPreview: selectedTeam.logoUrl || null, slipPreview: selectedTeam.slipUrl || null });
-        setIsEditingTeam(false); // Default to view mode
-        setModalTab('info'); // Reset tab
+        setIsEditingTeam(false); 
+        setModalTab('info'); 
     }
   }, [selectedTeam]);
 
@@ -455,7 +377,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       const currentTeam = editForm?.team || localTeams.find(t => t.id === teamId); 
       if (!currentTeam) return; 
       if (status === 'Rejected') { setRejectReasonInput(''); setRejectModal({ isOpen: true, teamId }); return; } 
-      await performStatusUpdate(teamId, status, currentTeam.group, '');
+      
+      executeWithReload(async () => {
+          await updateTeamStatus(teamId, status, currentTeam.group, '');
+      }, status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย");
   };
 
   const confirmReject = async () => {
@@ -464,26 +389,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       const currentTeam = editForm?.team || localTeams.find(t => t.id === rejectModal.teamId);
       if (!currentTeam) return;
       setRejectModal({ isOpen: false, teamId: null });
-      await performStatusUpdate(currentTeam.id, 'Rejected', currentTeam.group, rejectReasonInput);
-  };
-
-  const performStatusUpdate = async (teamId: string, status: 'Approved' | 'Rejected', group?: string, reason?: string) => {
-      // Optimistic Update
-      const updatedTeam = { ...localTeams.find(t => t.id === teamId)!, status, rejectReason: reason || '' }; 
-      setLocalTeams(prev => prev.map(t => t.id === teamId ? updatedTeam : t)); 
-      if (editForm) setEditForm({ ...editForm, team: updatedTeam }); 
       
-      try { 
-          await updateTeamStatus(teamId, status, group, reason); 
-          notify("สำเร็จ", status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย", "success"); 
-          // Delay reload to ensure server processing
-          setTimeout(() => {
-              handleLocalRefresh();
-          }, 1500);
-      } catch (e) { 
-          console.error(e); 
-          notify("ผิดพลาด", "บันทึกสถานะไม่สำเร็จ", "error"); 
-      }
+      executeWithReload(async () => {
+          await updateTeamStatus(currentTeam.id, 'Rejected', currentTeam.group, rejectReasonInput);
+      }, "บันทึกการไม่อนุมัติเรียบร้อย");
   };
 
   // ... [Draw Logic methods] ...
@@ -503,7 +412,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const confirmResetDraw = () => { const allTeams: Team[] = []; Object.values(liveGroups).forEach(groupTeams => { allTeams.push(...groupTeams); }); setPoolTeams(prev => { const existingIds = new Set(prev.map(t => t.id)); const uniqueReturning = allTeams.filter(t => !existingIds.has(t.id)); return [...prev, ...uniqueReturning]; }); const groups: Record<string, Team[]> = {}; Object.keys(liveGroups).forEach(g => groups[g] = []); setLiveGroups(groups); setDrawnCount(0); setLiveDrawStep('idle'); setCurrentSpinName("..."); setCurrentSpinGroup(""); setResetConfirmModal(false); notify("Reset", "รีเซ็ตข้อมูลเรียบร้อย", "info"); };
   const startLiveDrawSequence = async (isFastMode: boolean = false) => { const targetGroup = getNextTargetGroup(); if (!targetGroup) { notify("เต็มแล้ว", "ทุกกลุ่มมีจำนวนทีมครบตามที่กำหนด", "warning"); setLiveDrawStep('finished'); return false; } if (poolTeams.length === 0) { notify("หมดทีม", "ไม่มีทีมในโถแล้ว", "warning"); setLiveDrawStep('finished'); return false; } setLiveDrawStep('spinning'); setCurrentSpinGroup(targetGroup); let currentPool = [...poolTeams]; for (let i = currentPool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const temp = currentPool[i]; currentPool[i] = currentPool[j]; currentPool[j] = temp; } const spinDuration = isFastMode ? 300 : 1000; const interval = 50; const steps = spinDuration / interval; for (let s = 0; s < steps; s++) { const randomTeam = currentPool[Math.floor(Math.random() * currentPool.length)]; setCurrentSpinName(randomTeam.name); await new Promise(r => setTimeout(r, interval)); } const pickedTeam = currentPool.shift(); if (!pickedTeam) { setLiveDrawStep('finished'); return false; } setCurrentSpinName(pickedTeam.name); if (!isFastMode) { setLatestReveal(pickedTeam); fireLocalConfetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); await new Promise(r => setTimeout(r, 2000)); setLatestReveal(null); } setLiveGroups(prev => ({ ...prev, [targetGroup]: [...prev[targetGroup], pickedTeam] })); setDrawnCount(prev => prev + 1); setPoolTeams([...currentPool]); const nextTarget = getNextTargetGroup(); if (currentPool.length === 0 || !nextTarget) { if (!isFastMode) { setLiveDrawStep('finished'); setCurrentSpinName("เสร็จสิ้น!"); setCurrentSpinGroup("-"); fireLocalConfetti({ particleCount: 200, spread: 100, origin: { y: 0.5 } }); } } else { setLiveDrawStep('idle'); } return true; };
   const drawRoundBatch = async () => { if (isDrawing || liveDrawStep === 'spinning') return; setIsDrawing(true); let localPool = [...poolTeams]; const groupNames = Object.keys(liveGroups).sort(); for (const groupName of groupNames) { if (localPool.length === 0) break; if (liveGroups[groupName].length >= teamsPerGroup) continue; setLiveDrawStep('spinning'); setCurrentSpinGroup(groupName); const steps = 6; for (let s = 0; s < steps; s++) { const randomIdx = Math.floor(Math.random() * localPool.length); setCurrentSpinName(localPool[randomIdx].name); await new Promise(r => setTimeout(r, 50)); } const winnerIdx = Math.floor(Math.random() * localPool.length); const winner = localPool[winnerIdx]; localPool.splice(winnerIdx, 1); setCurrentSpinName(winner.name); setLiveGroups(prev => ({ ...prev, [groupName]: [...prev[groupName], winner] })); setPoolTeams(prev => prev.filter(t => t.id !== winner.id)); setDrawnCount(prev => prev + 1); await new Promise(r => setTimeout(r, 300)); } setLiveDrawStep('idle'); setIsDrawing(false); setCurrentSpinGroup(""); if (localPool.length === 0) { setLiveDrawStep('finished'); setCurrentSpinName("เสร็จสิ้น!"); setCurrentSpinGroup("-"); fireLocalConfetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, colors: ['#f43f5e', '#8b5cf6', '#10b981'] }); } };
-  const handleSaveDrawResults = async () => { setIsDrawing(true); const updates: { teamId: string, group: string }[] = []; Object.entries(liveGroups).forEach(([groupName, teams]) => { (teams as Team[]).forEach(t => { updates.push({ teamId: t.id, group: groupName }); }); }); try { setLocalTeams(prev => prev.map(t => { const update = updates.find(u => u.teamId === t.id); return update ? { ...t, group: update.group } : t; })); const promises = updates.map(u => updateTeamStatus(u.teamId, 'Approved', u.group, '')); await Promise.all(promises); notify("บันทึกเสร็จสิ้น", "อัปเดตกลุ่มการแข่งขันเรียบร้อยแล้ว", "success"); setIsLiveDrawActive(false); } catch (e) { notify("ผิดพลาด", "บันทึกผลไม่สำเร็จบางรายการ", "error"); } finally { setIsDrawing(false); } };
+  
+  const handleSaveDrawResults = async () => { 
+      setIsDrawing(true); 
+      const updates: { teamId: string, group: string }[] = []; 
+      
+      if (liveGroups) {
+          Object.entries(liveGroups).forEach(([groupName, teams]) => { 
+              (teams as Team[]).forEach(t => { updates.push({ teamId: t.id, group: groupName }); }); 
+          }); 
+      }
+      
+      executeWithReload(async () => {
+          const promises = updates.map(u => updateTeamStatus(u.teamId, 'Approved', u.group, '')); 
+          await Promise.all(promises); 
+          setIsLiveDrawActive(false);
+      }, "อัปเดตกลุ่มการแข่งขันเรียบร้อยแล้ว");
+      
+      setIsDrawing(false); 
+  };
 
   const handleSettingsLogoChange = async (file: File) => {
       if (!file || !validateFile(file, 'image')) return;
@@ -515,7 +442,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       try { const preview = URL.createObjectURL(file); setObjectiveImagePreview(preview); const base64 = await fileToBase64(file); setConfigForm(prev => ({ ...prev, objectiveImageUrl: base64 })); } catch (e) { console.error("Obj Img Error", e); }
   };
 
-  const handleSaveConfig = async () => { setIsSavingSettings(true); await saveSettings(configForm); await handleLocalRefresh(); setIsSavingSettings(false); notify("สำเร็จ", "บันทึกการตั้งค่าเรียบร้อย", "success"); };
+  const handleSaveConfig = async () => { 
+      setIsSavingSettings(true); 
+      executeWithReload(async () => {
+          await saveSettings(configForm);
+      }, "บันทึกการตั้งค่าเรียบร้อย");
+      setIsSavingSettings(false); 
+  };
+
   const handleEditFieldChange = (field: keyof Team, value: string) => { if (editForm) setEditForm({ ...editForm, team: { ...editForm.team, [field]: value } }); };
   const handleColorChange = (type: 'primary' | 'secondary', color: string) => {
       if (!editForm) return;
@@ -548,37 +482,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   };
   const handleAddPlayer = () => { if (!editForm) return; const newPlayer: Player = { id: `TEMP_${Date.now()}_${Math.floor(Math.random()*1000)}`, teamId: editForm.team.id, name: '', number: '', position: 'Player', photoUrl: '', birthDate: '' }; setEditForm({ ...editForm, players: [...editForm.players, newPlayer] }); };
   const removePlayer = (index: number) => { if (!editForm) return; const updatedPlayers = editForm.players.filter((_, i) => i !== index); setEditForm({ ...editForm, players: updatedPlayers }); };
-  const removePlayerPhoto = (index: number) => {
-      if (editForm) {
-          const updatedPlayers = [...editForm.players];
-          updatedPlayers[index] = { ...updatedPlayers[index], photoUrl: '' }; // Clear photo URL
-          setEditForm({ ...editForm, players: updatedPlayers });
-      }
-  };
 
   const handleSaveTeamChanges = async (updatedTeam: Team, updatedPlayers: Player[]) => {
-      setIsSavingTeam(true);
-      try {
-          const combinedColors = JSON.stringify([editPrimaryColor, editSecondaryColor]);
-          
+      // Close modal immediately to show the skeleton on main page
+      setIsEditingTeam(false); 
+      setEditForm(null); 
+      setSelectedTeam(null); // Deselect team
+
+      executeWithReload(async () => {
           await updateTeamData(updatedTeam, updatedPlayers);
-          
           if (updatedTeam.status !== selectedTeam?.status) {
               await updateTeamStatus(updatedTeam.id, updatedTeam.status as any, updatedTeam.group, '');
           }
-
-          setLocalTeams(prev => prev.map(t => t.id === updatedTeam.id ? updatedTeam : t));
-          setLocalPlayers(prev => { const others = prev.filter(p => p.teamId !== updatedTeam.id); return [...others, ...updatedPlayers]; });
-          setSelectedTeam(updatedTeam); 
-          setIsEditingTeam(false); 
-          setEditForm(null); // Close modal
-          notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success");
-          
-          // Delay reload to ensure server processing
-          setTimeout(() => {
-              handleLocalRefresh();
-          }, 2000);
-      } catch (error) { console.error(error); notify("ผิดพลาด", "เกิดข้อผิดพลาดในการบันทึก", "error"); } finally { setIsSavingTeam(false); }
+      }, "อัปเดตข้อมูลและรีโหลดเรียบร้อย");
   };
   
   const handleEditNews = (item: NewsItem) => { 
@@ -600,22 +516,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       if(!newsForm.title || !newsForm.content) { notify("ข้อมูลไม่ครบ", "กรุณาระบุหัวข้อและเนื้อหาข่าว", "warning"); return; } 
       if (newsForm.imageFile && !validateFile(newsForm.imageFile, 'image')) return;
       if (newsForm.docFile && !validateFile(newsForm.docFile, 'doc')) return;
+      
       setIsSavingNews(true); 
-      try { 
-          const imageBase64 = newsForm.imageFile ? await fileToBase64(newsForm.imageFile) : undefined; const docBase64 = newsForm.docFile ? await fileToBase64(newsForm.docFile) : undefined; 
+      executeWithReload(async () => {
+          // Async file processing first
+          const imageBase64 = newsForm.imageFile ? await fileToBase64(newsForm.imageFile) : undefined; 
+          const docBase64 = newsForm.docFile ? await fileToBase64(newsForm.docFile) : undefined; 
+          
           const newsData: Partial<NewsItem> = { 
               id: newsForm.id || Date.now().toString(), 
               title: newsForm.title, 
               content: newsForm.content, 
               timestamp: Date.now(), 
-              tournamentId: newsForm.tournamentId 
+              tournamentId: newsForm.tournamentId,
+              imageUrl: imageBase64 || newsForm.imagePreview || undefined,
+              documentUrl: docBase64
           }; 
-          if (imageBase64) newsData.imageUrl = imageBase64; if (docBase64) newsData.documentUrl = docBase64; 
-          const action = isEditingNews ? 'edit' : 'add'; await manageNews(action, newsData); 
+          
+          const action = isEditingNews ? 'edit' : 'add'; 
+          await manageNews(action, newsData); 
           setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' }); 
-          setIsEditingNews(false); notify("สำเร็จ", isEditingNews ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย", "success"); 
-          await handleLocalRefresh(); 
-      } catch (e) { notify("ผิดพลาด", "เกิดข้อผิดพลาด: " + e, "error"); } finally { setIsSavingNews(false); } 
+          setIsEditingNews(false); 
+      }, isEditingNews ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย");
+      setIsSavingNews(false);
   };
   
   const triggerDeleteNews = (id: string) => { 
@@ -625,22 +548,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const confirmDeleteNews = async () => {
       if (!newsToDelete) return;
       setIsDeletingNews(true);
-      try { 
+      executeWithReload(async () => {
           await manageNews('delete', { id: newsToDelete }); 
-          await handleLocalRefresh(); 
-          notify("สำเร็จ", "ลบข่าวเรียบร้อย", "success"); 
-      } catch (e) { 
-          notify("ผิดพลาด", "ลบข่าวไม่สำเร็จ", "error"); 
-      } finally {
-          setIsDeletingNews(false);
-          setNewsToDelete(null);
-      }
+          setNewsToDelete(null); 
+      }, "ลบข่าวเรียบร้อย");
+      setIsDeletingNews(false);
   };
 
   const handleSort = (key: string) => { let direction: 'asc' | 'desc' = 'asc'; if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') { direction = 'desc'; } setSortConfig({ key, direction }); };
   const sortedTeams = [...localTeams].sort((a: any, b: any) => { if (!sortConfig) return 0; if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1; if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1; return 0; });
   
-  // Filter Teams Logic with Status Support
   const filteredTeams = sortedTeams.filter(t => {
       const matchSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.province?.toLowerCase().includes(searchTerm.toLowerCase()) || t.district?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchStatus = filterStatus === 'All' || t.status === filterStatus;
@@ -648,8 +565,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   });
 
   const downloadCSV = () => { try { const headers = "ID,ชื่อทีม,ตัวย่อ,สถานะ,กลุ่ม,อำเภอ,จังหวัด,ผู้อำนวยการ,ผู้จัดการ,เบอร์โทร,ผู้ฝึกสอน,เบอร์โทรโค้ช"; const rows = filteredTeams.map(t => `"${t.id}","${t.name}","${t.shortName}","${t.status}","${t.group || ''}","${t.district}","${t.province}","${t.directorName || ''}","${t.managerName}","'${t.managerPhone || ''}","${t.coachName}","'${t.coachPhone || ''}"` ); const csvContent = [headers, ...rows].join("\n"); const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "teams_data.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); } catch (e) { console.error("CSV Download Error:", e); notify("ผิดพลาด", "ดาวน์โหลด CSV ไม่สำเร็จ", "error"); } };
-  const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); notify("คัดลอกแล้ว", text, "info"); };
-
+  
   const handleNewsImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
           const file = e.target.files[0];
@@ -673,6 +589,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
               <div className="relative max-w-4xl max-h-[90vh]">
                   <img src={previewImage} className="max-w-full max-h-[90vh] rounded shadow-lg" />
                   <button className="absolute -top-4 -right-4 bg-white rounded-full p-2 text-slate-800" onClick={() => setPreviewImage(null)}><X className="w-6 h-6"/></button>
+              </div>
+          </div>
+      )}
+      
+      {/* CONFIRM REMOVE TEAM FROM LIVE DRAW */}
+      {removeConfirmModal.isOpen && (
+          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
+                  <div className="flex items-center gap-3 text-red-600 mb-4 border-b pb-2">
+                      <Trash2 className="w-6 h-6" />
+                      <h3 className="font-bold text-lg">นำทีมออก?</h3>
+                  </div>
+                  <p className="text-slate-600 mb-2 text-sm">คุณต้องการนำทีม <span className="font-bold text-slate-900">{removeConfirmModal.team?.name}</span> ออกจากกลุ่ม <span className="font-bold text-indigo-600">{removeConfirmModal.group}</span></p>
+                  <p className="text-xs text-slate-400 mb-6 bg-slate-50 p-2 rounded border">ทีมจะถูกส่งกลับไปยังโถจับฉลาก เพื่อสุ่มใหม่</p>
+                  <div className="flex gap-3">
+                      <button onClick={() => setRemoveConfirmModal({ isOpen: false, team: null, group: null })} className="flex-1 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold transition text-sm">ยกเลิก</button>
+                      <button onClick={confirmRemoveTeam} className="flex-1 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 font-bold shadow-md transition text-sm">ยืนยันลบ</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* CONFIRM RESET LIVE DRAW */}
+      {resetConfirmModal && (
+          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
+                  <div className="flex items-center gap-3 text-orange-600 mb-4 border-b pb-2">
+                      <RotateCcw className="w-6 h-6" />
+                      <h3 className="font-bold text-lg">รีเซ็ตการจับฉลาก?</h3>
+                  </div>
+                  <p className="text-slate-600 mb-6 text-sm">ผลการจับฉลากทั้งหมดจะถูกล้าง และทุกทีมจะกลับเข้าสู่โถจับฉลาก คุณแน่ใจหรือไม่?</p>
+                  <div className="flex gap-3">
+                      <button onClick={() => setResetConfirmModal(false)} className="flex-1 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold transition text-sm">ยกเลิก</button>
+                      <button onClick={confirmResetDraw} className="flex-1 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-bold shadow-md transition text-sm">ยืนยันรีเซ็ต</button>
+                  </div>
               </div>
           </div>
       )}
@@ -772,26 +723,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                       </button>
                       <button onClick={() => setIsDrawModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-slate-600 text-sm font-medium">ยกเลิก</button>
                   </div>
-              </div>
-          </div>
-      )}
-
-      {/* CONFIRM REMOVE TEAM & RESET MODALS */}
-      {removeConfirmModal.isOpen && removeConfirmModal.team && (
-          <div className="fixed inset-0 z-[2100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200 border border-red-100">
-                  <div className="flex flex-col items-center text-center gap-4">
-                      <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-2"><Trash2 className="w-8 h-8 text-red-500" /></div>
-                      <div><h3 className="text-lg font-bold text-slate-800">ยืนยันการลบทีม</h3><p className="text-sm text-slate-500 mt-1">ต้องการนำทีม <span className="font-bold text-slate-800">{removeConfirmModal.team.name}</span> <br/>ออกจาก <span className="font-bold text-indigo-600">กลุ่ม {removeConfirmModal.group}</span> ใช่หรือไม่?</p><p className="text-xs text-slate-400 mt-2 bg-slate-50 p-2 rounded">ทีมจะถูกย้ายกลับไปที่ "โถจับฉลาก" เพื่อสุ่มใหม่</p></div>
-                      <div className="grid grid-cols-2 gap-3 w-full mt-2"><button onClick={() => setRemoveConfirmModal({ isOpen: false, team: null, group: null })} className="py-2.5 px-4 bg-white border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition">ยกเลิก</button><button onClick={confirmRemoveTeam} className="py-2.5 px-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-lg shadow-red-200 transition">ลบออก</button></div>
-                  </div>
-              </div>
-          </div>
-      )}
-      {resetConfirmModal && (
-          <div className="fixed inset-0 z-[2200] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200 border-2 border-red-100">
-                  <div className="flex flex-col items-center text-center gap-4"><div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-2 animate-pulse"><RotateCcw className="w-10 h-10 text-red-600" /></div><div><h3 className="text-xl font-black text-slate-800">รีเซ็ตการจับฉลากทั้งหมด?</h3><p className="text-sm text-slate-500 mt-2">การดำเนินการนี้จะ <span className="text-red-600 font-bold">ล้างข้อมูลกลุ่มทั้งหมด</span><br/>และนำทุกทีมกลับเข้าสู่โถจับฉลากใหม่</p></div><div className="flex gap-3 w-full mt-4"><button onClick={() => setResetConfirmModal(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition">ยกเลิก</button><button onClick={confirmResetDraw} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition flex items-center justify-center gap-2"><RotateCcw className="w-4 h-4"/> รีเซ็ตเดี๋ยวนี้</button></div></div>
               </div>
           </div>
       )}
@@ -1157,7 +1088,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       )}
 
       {/* Main Content Area */}
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto relative">
+        {/* RELOADING SKELETON OVERLAY */}
+        {isReloading && (
+            <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm rounded-xl p-4 flex items-start justify-center h-full min-h-screen">
+                <AdminSkeleton />
+            </div>
+        )}
+
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
                 <h1 className="text-3xl font-bold text-slate-800">ระบบจัดการการแข่งขัน</h1>
@@ -1191,7 +1129,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                             <div className="relative flex-1 md:w-64"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" /><input type="text" placeholder="ค้นหาทีม / จังหวัด..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" /></div>
                             <button onClick={downloadCSV} className="flex items-center gap-2 text-sm px-3 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-indigo-700 font-medium"><Download className="w-4 h-4" /> CSV</button>
                             <button onClick={handleLocalRefresh} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 flex items-center gap-1">
-                                {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรช
+                                {isReloading ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรช
                             </button>
                         </div>
                     </div>
@@ -1264,187 +1202,63 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                     <div><label className="block text-sm font-bold text-slate-700 mb-2">รูปภาพโครงการ</label><div className="flex items-center gap-4">{objectiveImagePreview && <img src={objectiveImagePreview} className="w-16 h-16 object-cover border rounded-lg"/>}<input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleObjectiveImageChange(e.target.files[0])} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
                     <h3 className="font-bold text-lg border-b pb-2 pt-4">ระบบ</h3>
                     <div><label className="block text-sm font-bold text-slate-700 mb-1">Admin PIN</label><input type="text" value={configForm.adminPin} onChange={e => setConfigForm({...configForm, adminPin: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">LIFF ID</label><input type="text" value={configForm.liffId} onChange={e => setConfigForm({...configForm, liffId: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Is optional" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">PWA Start URL</label><input type="text" value={configForm.pwaStartUrl} onChange={e => setConfigForm({...configForm, pwaStartUrl: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="/PenaltyPro/" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">PWA Scope</label><input type="text" value={configForm.pwaScope} onChange={e => setConfigForm({...configForm, pwaScope: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="/PenaltyPro/" /></div>
-                    <div className="pt-4"><button onClick={handleSaveConfig} disabled={isSavingSettings} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 flex items-center justify-center gap-2">{isSavingSettings ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5"/>} บันทึกการตั้งค่า</button></div>
+                    <div><label className="block text-sm font-bold text-slate-700 mb-1">LIFF ID</label><input type="text" value={configForm.liffId} onChange={e => setConfigForm({...configForm, liffId: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                    <div className="pt-6 border-t"><button onClick={handleSaveConfig} disabled={isSavingSettings} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2">{isSavingSettings ? <Loader2 className="w-5 h-5 animate-spin"/> : 'บันทึกการตั้งค่า'}</button></div>
                 </div>
             </div>
         )}
 
-      {/* DONATIONS TAB */}
-      {activeTab === 'donations' && (
-            <div className="animate-in fade-in duration-300">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-slate-800">รายการแจ้งโอนเงินบริจาค</h2>
-                    <div className="flex gap-2">
-                        <button onClick={handleLocalRefresh} className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition flex items-center gap-1 text-xs font-bold" title="รีเฟรช">
-                            {isRefreshing ? <Loader2 className="w-3 h-3 animate-spin"/> : <RefreshCw className="w-3 h-3"/>}
-                        </button>
-                        <div className="flex bg-slate-100 rounded-lg p-1">
-                            <button onClick={() => setDonationViewMode('grid')} className={`p-1.5 rounded transition ${donationViewMode === 'grid' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
-                            <button onClick={() => setDonationViewMode('list')} className={`p-1.5 rounded transition ${donationViewMode === 'list' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
-                        </div>
-                    </div>
+        {/* --- NEWS TAB --- */}
+        {activeTab === 'news' && (
+            <div className="animate-in fade-in duration-300 max-w-4xl mx-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
+                    <button onClick={() => { setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: currentTournament ? currentTournament.id : 'global' }); setIsEditingNews(true); setTimeout(() => document.getElementById('news-form-anchor')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"><Plus className="w-4 h-4"/> เพิ่มข่าว</button>
                 </div>
-                
-                {donationViewMode === 'grid' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {donationList.map(d => {
-                            const donorProfile = userList.find(u => u.lineUserId === d.lineUserId);
-                            return (
-                                <div key={d.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-indigo-300 transition cursor-pointer flex flex-col justify-between h-full" onClick={() => setSelectedDonation(d)}>
-                                    <div>
-                                        <div className="flex justify-between items-start mb-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{d.status}</span>
-                                            <span className="text-xs text-slate-400">{new Date(d.timestamp).toLocaleDateString('th-TH')}</span>
-                                        </div>
-                                        <div className="flex items-center gap-3 mb-2">
-                                            {donorProfile?.pictureUrl ? (
-                                                <img src={donorProfile.pictureUrl} className="w-10 h-10 rounded-full border border-slate-100 object-cover" />
-                                            ) : (
-                                                <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold"><User className="w-5 h-5"/></div>
-                                            )}
-                                            <div>
-                                                <div className="font-bold text-slate-800 flex items-center gap-1 line-clamp-1">
-                                                    {d.donorName}
-                                                    {d.isAnonymous && <span className="text-[10px] bg-slate-200 text-slate-500 px-1 rounded shrink-0">Anon</span>}
-                                                </div>
-                                                <div className="text-sm text-indigo-600 font-bold">{d.amount.toLocaleString()} บาท</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {d.isEdonation && <div className="text-[10px] text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit flex items-center gap-1 mt-2"><FileCheck className="w-3 h-3"/> e-Donation Requested</div>}
-                                </div>
-                            );
-                        })}
-                    </div>
-                ) : (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 text-slate-500">
-                                <tr>
-                                    <th className="p-3">วันที่</th>
-                                    <th className="p-3">ผู้บริจาค</th>
-                                    <th className="p-3">ยอดเงิน</th>
-                                    <th className="p-3">สถานะ</th>
-                                    <th className="p-3 text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {donationList.map(d => (
-                                    <tr key={d.id} className="hover:bg-slate-50">
-                                        <td className="p-3 text-xs text-slate-500">{new Date(d.timestamp).toLocaleDateString('th-TH')}</td>
-                                        <td className="p-3 font-bold text-slate-700">
-                                            {d.donorName}
-                                            {d.isEdonation && <span className="text-[10px] text-blue-500 ml-1">(e-Donation)</span>}
-                                        </td>
-                                        <td className="p-3 font-mono text-indigo-600">{d.amount.toLocaleString()}</td>
-                                        <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] font-bold ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{d.status}</span></td>
-                                        <td className="p-3 text-right">
-                                            <button onClick={() => setSelectedDonation(d)} className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded text-slate-600">ตรวจสอบ</button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+
+                {isEditingNews && (
+                    <div id="news-form-anchor" className="bg-white p-6 rounded-xl shadow-lg border border-indigo-100 mb-8 animate-in slide-in-from-top-4">
+                        <div className="flex justify-between items-center mb-4 border-b pb-2">
+                            <h3 className="font-bold text-lg text-indigo-900">{newsForm.id ? 'แก้ไขข่าว' : 'เพิ่มข่าวใหม่'}</h3>
+                            <button onClick={() => setIsEditingNews(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label><input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหา</label><textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg h-32" /></div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className="block text-sm font-bold text-slate-700 mb-1">รูปภาพประกอบ</label><div className="flex items-center gap-4">{newsForm.imagePreview && <img src={newsForm.imagePreview} className="w-20 h-20 object-cover rounded-lg border"/>}<input type="file" accept="image/*" onChange={handleNewsImageChange} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
+                                <div><label className="block text-sm font-bold text-slate-700 mb-1">เอกสารแนบ (PDF)</label><div className="flex items-center gap-4">{newsForm.docFile && <div className="text-xs bg-indigo-50 px-2 py-1 rounded text-indigo-700 font-bold">{newsForm.docFile.name}</div>}<input type="file" accept=".pdf,.doc,.docx" onChange={handleNewsDocChange} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
+                            </div>
+                            <div className="flex justify-end gap-2 pt-4">
+                                <button onClick={() => setIsEditingNews(false)} className="px-4 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold text-sm">ยกเลิก</button>
+                                <button onClick={handleSaveNews} disabled={isSavingNews} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold text-sm flex items-center gap-2">
+                                    {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : 'บันทึก'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
-                {donationList.length === 0 && <div className="col-span-full text-center py-10 text-slate-400">ยังไม่มีรายการบริจาค</div>}
-            </div>
-      )}
 
-      {/* --- NEWS TAB --- */}
-        {activeTab === 'news' && (
-            <div className="animate-in fade-in duration-300">
-                <div className="flex justify-end mb-4">
-                    <button onClick={handleLocalRefresh} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg text-sm text-slate-600 transition">
-                        {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรชข่าวสาร
-                    </button>
-                </div>
-
-                {/* News Form with Tournament Selection and File Upload */}
-                <div id="news-form-anchor" className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-8">
-                    <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
-                        {isEditingNews ? <Edit3 className="w-5 h-5 text-orange-500"/> : <Plus className="w-5 h-5 text-green-500"/>}
-                        {isEditingNews ? 'แก้ไขข่าวสาร' : 'สร้างข่าวสารใหม่'}
-                    </h3>
-                    <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label>
-                                <input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg text-sm" placeholder="เช่น กำหนดการแข่งขัน..." />
+                <div className="space-y-4">
+                    {localNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : localNews.sort((a,b) => b.timestamp - a.timestamp).map(item => (
+                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
+                            <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0">
+                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
                             </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">ประกาศสำหรับ</label>
-                                <select 
-                                    value={newsForm.tournamentId} 
-                                    onChange={e => setNewsForm({...newsForm, tournamentId: e.target.value})} 
-                                    className="w-full p-2 border rounded-lg text-sm bg-white"
-                                >
-                                    <option value="global">ทุกรายการ (Global)</option>
-                                    {currentTournament && <option value={currentTournament.id}>{currentTournament.name}</option>}
-                                </select>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหาข่าว</label>
-                            <textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg text-sm h-32" placeholder="รายละเอียด..." />
-                        </div>
-                        
-                        {/* News File Inputs */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">รูปภาพปก</label>
-                                <div className="flex items-center gap-4">
-                                    {newsForm.imagePreview ? <img src={newsForm.imagePreview} className="w-16 h-16 object-cover rounded-lg border"/> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400"><Image className="w-6 h-6"/></div>}
-                                    <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-100 transition">
-                                        เลือกรูปภาพ
-                                        <input type="file" accept="image/*" className="hidden" onChange={handleNewsImageChange} />
-                                    </label>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">เอกสารแนบ (PDF)</label>
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${newsForm.docFile || newsForm.title ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
-                                        <FileText className="w-6 h-6"/>
-                                    </div>
-                                    <div className="flex-1">
-                                        <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-100 transition inline-block mb-1">
-                                            เลือกไฟล์เอกสาร
-                                            <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleNewsDocChange} />
-                                        </label>
-                                        <p className="text-xs text-slate-500 truncate">{newsForm.docFile ? newsForm.docFile.name : (isEditingNews && 'เอกสารเดิม (ถ้ามี)')}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end gap-3 pt-4">
-                            {isEditingNews && <button onClick={() => { setIsEditingNews(false); setNewsForm({id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global'}); }} className="px-4 py-2 border rounded-lg text-slate-500 hover:bg-slate-50">ยกเลิก</button>}
-                            <button onClick={handleSaveNews} disabled={isSavingNews} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold flex items-center gap-2">
-                                {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} บันทึก
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                {/* News List */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {localNews.map(item => (
-                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative group">
-                            <div className="absolute top-2 right-2 flex gap-1 z-10">
-                                <button onClick={() => handleEditNews(item)} className="p-1.5 bg-white text-orange-500 rounded shadow hover:bg-orange-50 transition"><Edit3 className="w-4 h-4"/></button>
-                                <button onClick={() => triggerDeleteNews(item.id)} className="p-1.5 bg-white text-red-500 rounded shadow hover:bg-red-50 transition"><Trash2 className="w-4 h-4"/></button>
-                            </div>
-                            {item.imageUrl && <div className="h-40 bg-slate-100"><img src={item.imageUrl} className="w-full h-full object-cover"/></div>}
-                            <div className="p-4">
+                            <div className="flex-1">
                                 <div className="flex justify-between items-start mb-2">
-                                    <h4 className="font-bold text-slate-800 text-sm mb-1 line-clamp-1">{item.title}</h4>
-                                    <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">{new Date(item.timestamp).toLocaleDateString('th-TH')}</span>
+                                    <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
+                                        <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
+                                    </div>
                                 </div>
-                                <p className="text-xs text-slate-600 line-clamp-3">{item.content}</p>
+                                <p className="text-slate-600 text-sm line-clamp-2 mb-2">{item.content}</p>
+                                <div className="flex items-center gap-4 text-xs text-slate-400">
+                                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
+                                    {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
+                                    {item.tournamentId === 'global' ? <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">Global</span> : <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Specific</span>}
+                                </div>
                             </div>
                         </div>
                     ))}
@@ -1452,73 +1266,95 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
             </div>
         )}
 
-      {/* --- USERS TAB --- */}
-      {activeTab === 'users' && (
-        <div className="animate-in fade-in duration-300">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-slate-800">จัดการผู้ใช้งาน</h2>
-                <div className="flex gap-2">
-                    <button onClick={loadUsers} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-200 transition font-bold text-sm">
-                        <RefreshCw className="w-4 h-4"/> รีเฟรช
-                    </button>
-                    <button onClick={() => handleOpenUserModal(null)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition font-bold text-sm">
-                        <UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้
-                    </button>
+        {/* --- USERS TAB --- */}
+        {activeTab === 'users' && (
+            <div className="animate-in fade-in duration-300">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="font-bold text-xl text-slate-800">จัดการผู้ใช้งาน ({userList.length})</h2>
+                    <button onClick={() => handleOpenUserModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"><UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
+                </div>
+                
+                {isLoadingUsers ? <div className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600 mb-2"/><p className="text-slate-500">กำลังโหลดข้อมูลผู้ใช้...</p></div> : (
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 text-slate-500 font-medium border-b">
+                                <tr>
+                                    <th className="p-4">User</th>
+                                    <th className="p-4">Role</th>
+                                    <th className="p-4">Phone</th>
+                                    <th className="p-4">Login Type</th>
+                                    <th className="p-4 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {userList.map(u => (
+                                    <tr key={u.userId} className="hover:bg-slate-50">
+                                        <td className="p-4">
+                                            <div className="flex items-center gap-3">
+                                                {u.pictureUrl ? <img src={u.pictureUrl} className="w-8 h-8 rounded-full object-cover border border-slate-200"/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">{u.displayName?.substring(0,1) || 'U'}</div>}
+                                                <div>
+                                                    <div className="font-bold text-slate-800">{u.displayName}</div>
+                                                    <div className="text-xs text-slate-400">@{u.username}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : u.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span></td>
+                                        <td className="p-4 text-slate-600">{u.phoneNumber || '-'}</td>
+                                        <td className="p-4"><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{u.lineUserId ? 'LINE' : 'Standard'}</span></td>
+                                        <td className="p-4 text-right flex justify-end gap-2">
+                                            <button onClick={() => handleOpenUserModal(u)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-100 transition"><Edit3 className="w-4 h-4"/></button>
+                                            <button onClick={() => handleDeleteUser(u.userId)} className="p-2 text-red-600 hover:bg-red-50 rounded border border-red-100 transition"><Trash2 className="w-4 h-4"/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* --- DONATIONS TAB --- */}
+        {activeTab === 'donations' && (
+            <div className="animate-in fade-in duration-300">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 className="font-bold text-xl text-slate-800">รายการบริจาค</h2>
+                        <p className="text-slate-500 text-sm">ยอดรวมที่ยืนยันแล้ว: <span className="font-bold text-green-600 text-lg">{donationList.filter(d => d.status === 'Verified' && (!currentTournament || d.tournamentId === currentTournament.id)).reduce((sum, d) => sum + d.amount, 0).toLocaleString()} บาท</span></p>
+                    </div>
+                    <div className="flex bg-white rounded-lg p-1 border shadow-sm">
+                        <button onClick={() => setDonationViewMode('grid')} className={`p-2 rounded ${donationViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
+                        <button onClick={() => setDonationViewMode('list')} className={`p-2 rounded ${donationViewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
+                    </div>
+                </div>
+
+                <div className={donationViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-2"}>
+                    {donationList.filter(d => !currentTournament || d.tournamentId === currentTournament.id).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
+                        <div key={d.id} className={`bg-white rounded-xl shadow-sm border p-4 transition hover:shadow-md cursor-pointer relative overflow-hidden ${d.status === 'Verified' ? 'border-green-200' : d.status === 'Rejected' ? 'border-red-200' : 'border-orange-200'}`} onClick={() => setSelectedDonation(d)}>
+                            <div className={`absolute top-0 left-0 w-1 h-full ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}></div>
+                            <div className="flex justify-between items-start mb-2 pl-2">
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>
+                                        <DollarSign className="w-5 h-5"/>
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-slate-800">{d.donorName} {d.isAnonymous && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded ml-1">Anon</span>}</div>
+                                        <div className="text-xs text-slate-400">{new Date(d.timestamp).toLocaleString()}</div>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="font-black text-lg text-slate-700">{d.amount.toLocaleString()}</div>
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{d.status}</span>
+                                </div>
+                            </div>
+                            {d.isEdonation && <div className="mt-2 pl-2 flex items-center gap-1 text-xs text-blue-600 font-bold bg-blue-50 w-fit px-2 py-1 rounded"><FileCheck className="w-3 h-3"/> e-Donation Request</div>}
+                        </div>
+                    ))}
+                    {donationList.length === 0 && <div className="col-span-full text-center py-12 text-slate-400">ไม่มีรายการบริจาค</div>}
                 </div>
             </div>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                            <th className="p-4">User</th>
-                            <th className="p-4">Role</th>
-                            <th className="p-4">Phone</th>
-                            <th className="p-4">ใช้งานล่าสุด</th>
-                            <th className="p-4 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {userList.map(u => (
-                            <tr key={u.userId} className="hover:bg-slate-50">
-                                <td className="p-4">
-                                    <div className="flex items-center gap-3">
-                                        {u.pictureUrl ? <img src={u.pictureUrl} className="w-8 h-8 rounded-full object-cover"/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center"><User className="w-4 h-4"/></div>}
-                                        <div>
-                                            <div className="font-bold text-slate-800 flex items-center gap-1">
-                                                {u.displayName}
-                                                {u.lineUserId && (
-                                                    <span className="bg-[#06C755] text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 ml-1">
-                                                        <MessageCircle className="w-3 h-3 fill-white" /> LINE
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-slate-500">{u.username}</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="p-4"><span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold uppercase">{u.role}</span></td>
-                                <td className="p-4 text-slate-600">{u.phoneNumber || '-'}</td>
-                                <td className="p-4 text-slate-600 text-xs">
-                                    {u.lastLogin ? new Date(u.lastLogin).toLocaleString('th-TH', { 
-                                        day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' 
-                                    }) : '-'}
-                                </td>
-                                <td className="p-4 text-right flex justify-end gap-2">
-                                    <button onClick={() => handleOpenUserModal(u)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded"><Edit3 className="w-4 h-4"/></button>
-                                    <button onClick={() => handleDeleteUser(u.userId)} className="p-2 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                {userList.length === 0 && <div className="p-8 text-center text-slate-400">ไม่พบข้อมูลผู้ใช้</div>}
-            </div>
-        </div>
-      )}
-
+        )}
       </div>
     </div>
   );
-};
-
-export default AdminDashboard;
+}
