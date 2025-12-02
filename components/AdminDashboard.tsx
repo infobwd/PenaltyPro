@@ -1,9 +1,11 @@
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
-import { shareNews } from '../services/liffService';
+import { shareNews, shareDonation } from '../services/liffService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -73,6 +75,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   const [isVerifyingDonation, setIsVerifyingDonation] = useState(false);
   const [donationViewMode, setDonationViewMode] = useState<'grid' | 'list'>('grid');
   const [adminTaxFile, setAdminTaxFile] = useState<File | null>(null);
+  const [isGeneratingCert, setIsGeneratingCert] = useState(false); // Certificate Loading State
 
   // Teams Filter State
   const [filterStatus, setFilterStatus] = useState<string>('All');
@@ -282,48 +285,139 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   // ... (Certificate Generation Code) ...
   const handlePrintCertificate = async (donation: Donation) => {
       if (!certificateCanvasRef.current) return;
+      setIsGeneratingCert(true);
+      
+      // Delay to allow React to render loading state
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       const canvas = certificateCanvasRef.current;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) {
+          setIsGeneratingCert(false);
+          return;
+      }
+
       const width = 800;
-      const height = 1131; 
+      const height = 1131; // A4 Ratio approx
       canvas.width = width;
       canvas.height = height;
-      ctx.fillStyle = '#FFFFFF';
+
+      // 1. Background
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, '#fffbfb'); // Warm white
+      gradient.addColorStop(1, '#fff0f0'); // Very soft pink
+      ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, width, height);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = '#e2e8f0'; 
-      ctx.strokeRect(40, 40, width - 80, height - 80);
-      ctx.lineWidth = 2;
+
+      // 2. Borders
+      // Outer Line (Gold)
+      ctx.lineWidth = 4;
       ctx.strokeStyle = '#d4af37'; 
-      ctx.strokeRect(50, 50, width - 100, height - 100);
-      ctx.fillStyle = '#1e293b'; 
+      ctx.strokeRect(20, 20, width - 40, height - 40);
+      
+      // Inner Line (Dashed Pink)
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#f472b6'; // Pink-400
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(35, 35, width - 70, height - 70);
+      ctx.setLineDash([]); // Reset
+
+      // 3. Decorations (Corner Circles)
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.1)'; // Amber-400 transparent
+      ctx.beginPath(); ctx.arc(0, 0, 150, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(width, height, 150, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.1)'; // Pink-400 transparent
+      ctx.beginPath(); ctx.arc(width, 0, 100, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, height, 100, 0, Math.PI * 2); ctx.fill();
+
+      // 4. Central Icon: Vector Heart (Gold)
+      const centerX = width / 2;
+      const heartY = 180;
+      const heartSize = 2.5; // Reduced size as requested
+      
+      ctx.save();
+      ctx.translate(centerX, heartY);
+      ctx.scale(heartSize, heartSize);
+      ctx.beginPath();
+      // Heart Path
+      ctx.moveTo(0, -10);
+      ctx.bezierCurveTo(0, -15, -10, -25, -25, -25);
+      ctx.bezierCurveTo(-55, -25, -55, 10, -55, 10);
+      ctx.bezierCurveTo(-55, 30, -35, 52, 0, 70);
+      ctx.bezierCurveTo(35, 52, 55, 30, 55, 10);
+      ctx.bezierCurveTo(55, 10, 55, -25, 25, -25);
+      ctx.bezierCurveTo(10, -25, 0, -15, 0, -10);
+      
+      // Heart Gradient (Gold)
+      const hGrad = ctx.createLinearGradient(-30, -30, 30, 30);
+      hGrad.addColorStop(0, '#FDB931'); // Light Gold
+      hGrad.addColorStop(1, '#d4af37'); // Dark Gold
+      ctx.fillStyle = hGrad;
+      ctx.fill();
+      
+      // Heart Outline (Darker Gold)
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#b45309';
+      ctx.stroke();
+      ctx.restore();
+
+      // 5. Text Content
       ctx.textAlign = 'center';
-      if (settings.competitionLogo) {
-          try {
-              const logoImg = new window.Image();
-              logoImg.crossOrigin = "Anonymous";
-              logoImg.src = settings.competitionLogo;
-              await new Promise((resolve) => { logoImg.onload = resolve; logoImg.onerror = resolve; });
-              const logoSize = 100;
-              ctx.drawImage(logoImg, width / 2 - logoSize / 2, 100, logoSize, logoSize);
-          } catch(e) {}
-      } else {
-          ctx.fillStyle = '#d4af37';
-          ctx.font = '50px Kanit';
-          ctx.fillText('★', width / 2, 150);
-      }
-      ctx.fillStyle = '#1e3a8a'; ctx.font = 'bold 50px "Kanit", sans-serif'; ctx.fillText('ใบประกาศเกียรติคุณ', width / 2, 260);
-      ctx.fillStyle = '#64748b'; ctx.font = '300 24px "Kanit", sans-serif'; ctx.fillText('ขอมอบให้ไว้เพื่อแสดงว่า', width / 2, 320);
-      ctx.fillStyle = '#1e293b'; ctx.font = 'bold 70px "Sarabun", sans-serif'; ctx.fillText(donation.donorName, width / 2, 450);
-      ctx.fillStyle = '#334155'; ctx.font = '24px "Kanit", sans-serif'; ctx.fillText(`ได้ร่วมบริจาคเงินสนับสนุน`, width / 2, 550);
-      ctx.font = 'bold 30px "Kanit", sans-serif'; ctx.fillStyle = '#d4af37'; ctx.fillText(`"${settings.competitionName}"`, width / 2, 600);
-      ctx.fillStyle = '#334155'; ctx.font = '24px "Kanit", sans-serif'; ctx.fillText(`จำนวนเงิน ${donation.amount.toLocaleString()} บาท`, width / 2, 680);
-      ctx.fillStyle = '#94a3b8'; ctx.font = 'italic 20px "Kanit", sans-serif';
+      
+      // Header
+      ctx.fillStyle = '#b45309'; // Amber-700 (Gold-ish dark)
+      ctx.font = 'bold 50px "Kanit", sans-serif'; 
+      ctx.fillText('ใบประกาศเกียรติคุณ', width / 2, 330);
+      
+      ctx.fillStyle = '#64748b'; // Slate-500
+      ctx.font = '300 24px "Kanit", sans-serif'; 
+      ctx.fillText('ขอมอบให้ไว้เพื่อแสดงว่า', width / 2, 380);
+
+      // Donor Name
+      ctx.fillStyle = '#be185d'; // Pink-700
+      ctx.font = 'bold 65px "Sarabun", sans-serif'; 
+      ctx.fillText(donation.donorName, width / 2, 480);
+
+      // Body
+      ctx.fillStyle = '#334155'; 
+      ctx.font = '24px "Kanit", sans-serif'; 
+      ctx.fillText(`ได้ร่วมบริจาคเงินสนับสนุน`, width / 2, 560);
+      
+      // Competition Name
+      ctx.font = 'bold 32px "Kanit", sans-serif'; 
+      ctx.fillStyle = '#d97706'; // Amber-600
+      const compName = currentTournament ? currentTournament.name : settings.competitionName;
+      ctx.fillText(`"${compName}"`, width / 2, 610);
+
+      // Amount
+      ctx.fillStyle = '#334155'; 
+      ctx.font = '24px "Kanit", sans-serif'; 
+      ctx.fillText(`จำนวนเงิน ${donation.amount.toLocaleString()} บาท`, width / 2, 680);
+
+      // Blessing (Detailed)
+      ctx.fillStyle = '#475569'; // Slate-600
+      ctx.font = 'italic 18px "Sarabun", sans-serif';
+      const blessingLine1 = "ขออำนาจคุณพระศรีรัตนตรัยและสิ่งศักดิ์สิทธิ์";
+      const blessingLine2 = "จงดลบันดาลให้ท่านและครอบครัว ประสบแต่ความสุขความเจริญ";
+      const blessingLine3 = "สุขภาพแข็งแรง สมปรารถนาทุกประการ";
+      
+      ctx.fillText(blessingLine1, width / 2, 750);
+      ctx.fillText(blessingLine2, width / 2, 780);
+      ctx.fillText(blessingLine3, width / 2, 810);
+
+      // Date
+      ctx.fillStyle = '#94a3b8'; // Slate-400
+      ctx.font = '20px "Kanit", sans-serif';
       const dateStr = new Date(donation.timestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
-      ctx.fillText(`ให้ไว้ ณ วันที่ ${dateStr}`, width / 2, 850);
-      ctx.beginPath(); ctx.moveTo(width / 2 - 120, 950); ctx.lineTo(width / 2 + 120, 950); ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1; ctx.stroke();
-      ctx.font = '20px "Kanit", sans-serif'; ctx.fillStyle = '#64748b'; ctx.fillText('ผู้อำนวยการ / ผู้จัดโครงการ', width / 2, 990);
+      ctx.fillText(`ให้ไว้ ณ วันที่ ${dateStr}`, width / 2, 890);
+
+      // Signature Line
+      ctx.beginPath(); ctx.moveTo(width / 2 - 120, 980); ctx.lineTo(width / 2 + 120, 980); 
+      ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.font = '20px "Kanit", sans-serif'; ctx.fillStyle = '#64748b'; 
+      ctx.fillText('ผู้อำนวยการ / ผู้จัดโครงการ', width / 2, 1020);
+
+      // QR Code (Bottom Right) if exists
       if (donation.taxFileUrl) {
           try {
               const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(donation.taxFileUrl)}`;
@@ -331,14 +425,25 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
               qrImg.crossOrigin = "Anonymous";
               qrImg.src = qrUrl;
               await new Promise((resolve) => { qrImg.onload = resolve; qrImg.onerror = resolve; });
-              ctx.drawImage(qrImg, width - 160, height - 160, 100, 100);
-              ctx.font = '12px "Kanit", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#94a3b8'; ctx.fillText('Scan E-Donation', width - 110, height - 45);
+              ctx.drawImage(qrImg, width - 130, height - 130, 90, 90);
+              ctx.font = '10px "Kanit", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#94a3b8'; 
+              ctx.fillText('Scan e-Donation', width - 85, height - 30);
           } catch (e) {}
       }
+
+      // ID (Bottom Left) - Enlarged
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#64748b'; // Slate-500 for better visibility
+      ctx.font = 'bold 16px monospace'; // Larger font
+      ctx.fillText(`ID: ${donation.id}`, 40, height - 20);
+
+      // Download
       const link = document.createElement('a');
       link.download = `Certificate_${donation.donorName.replace(/\s/g,'_')}.jpg`;
       link.href = canvas.toDataURL('image/jpeg', 0.95);
       link.click();
+      
+      setIsGeneratingCert(false);
   };
 
   useEffect(() => {
@@ -1152,8 +1257,13 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                       </div>
                       
                       {selectedDonation.status === 'Verified' && (
-                          <button onClick={() => handlePrintCertificate(selectedDonation)} className="w-full py-2.5 mb-4 bg-gradient-to-r from-amber-200 to-yellow-400 hover:from-amber-300 hover:to-yellow-500 text-yellow-900 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition">
-                              <Printer className="w-4 h-4" /> พิมพ์ใบประกาศเกียรติคุณ (Portrait)
+                          <button 
+                              onClick={() => handlePrintCertificate(selectedDonation)} 
+                              disabled={isGeneratingCert}
+                              className={`w-full py-2.5 mb-4 bg-gradient-to-r from-amber-200 to-yellow-400 hover:from-amber-300 hover:to-yellow-500 text-yellow-900 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition ${isGeneratingCert ? 'opacity-70 cursor-not-allowed' : ''}`}
+                          >
+                              {isGeneratingCert ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                              {isGeneratingCert ? 'กำลังสร้างใบประกาศ...' : 'พิมพ์ใบประกาศเกียรติคุณ (Portrait)'}
                           </button>
                       )}
 
@@ -1250,7 +1360,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                     <div className="p-4 bg-slate-50 min-h-[400px]">
                         {viewMode === 'list' ? (
                             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
-                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button><button onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-red-200"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
+                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div><div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button><button onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-red-200"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -1538,6 +1648,18 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                         {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
                             <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col" onClick={() => setSelectedDonation(d)}>
                                 <div className="h-32 bg-slate-100 relative overflow-hidden flex items-center justify-center">
+                                    {/* SHARE BUTTON ON CARD */}
+                                    <button 
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName); 
+                                        }} 
+                                        className="absolute top-2 left-2 p-1.5 bg-white/80 hover:bg-green-500 text-slate-500 hover:text-white rounded-full shadow-sm z-10 transition backdrop-blur-sm border border-slate-100"
+                                        title="แชร์แจ้งผู้บริจาค"
+                                    >
+                                        <Share2 className="w-4 h-4" />
+                                    </button>
+
                                     {d.slipUrl ? <img src={d.slipUrl} className="w-full h-full object-cover"/> : <div className="text-slate-300 flex flex-col items-center"><Image className="w-8 h-8 mb-1"/><span className="text-xs">No Slip</span></div>}
                                     <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>
                                         {d.status}
@@ -1573,7 +1695,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
-                                    <tr key={d.id} className="hover:bg-slate-50">
+                                    <tr key={d.id} className="hover:bg-slate-50 group">
                                         <td className="p-3 text-slate-500">{new Date(d.timestamp).toLocaleDateString('th-TH')}</td>
                                         <td className="p-3 font-bold text-slate-700">{d.donorName}</td>
                                         <td className="p-3 font-mono text-indigo-600 font-bold">{d.amount.toLocaleString()}</td>
@@ -1586,7 +1708,10 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                             {d.isEdonation ? <span className="flex items-center gap-1 text-blue-600"><FileCheck className="w-3 h-3"/> e-Donation</span> : 'ทั่วไป'}
                                         </td>
                                         <td className="p-3 text-right">
-                                            <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
+                                            <div className="flex justify-end gap-1">
+                                                <button onClick={() => shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName)} className="text-slate-400 hover:text-green-600 p-1 rounded border hover:bg-green-50 opacity-50 group-hover:opacity-100 transition"><Share2 className="w-4 h-4"/></button>
+                                                <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
