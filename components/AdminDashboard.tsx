@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2 } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
 import { shareNews } from '../services/liffService';
 import confetti from 'canvas-confetti';
@@ -107,6 +107,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
   // View States
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [newsViewMode, setNewsViewMode] = useState<'grid' | 'list'>('grid'); // News View Toggle
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -270,19 +271,12 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           notify("แจ้งเตือน", "กรุณาเลือกไฟล์ก่อนบันทึก", "warning");
           return;
       }
-      setIsVerifyingDonation(true); // Loading inside modal
-      try {
+      // Note: We use executeWithReload to show the global loader properly above the modal
+      executeWithReload(async () => {
           const base64 = await fileToBase64(adminTaxFile);
           await updateDonationDetails(selectedDonation.id, { taxFile: base64 });
           setAdminTaxFile(null);
-          // Reload everything
-          await onRefresh();
-          notify("สำเร็จ", "อัปโหลดไฟล์เรียบร้อย", "success");
-      } catch (error) {
-          notify("ผิดพลาด", "เกิดข้อผิดพลาดในการอัปโหลด", "error");
-      } finally {
-          setIsVerifyingDonation(false);
-      }
+      }, "อัปโหลดไฟล์เรียบร้อย", "กำลังอัปโหลดเอกสาร...");
   };
 
   // ... (Certificate Generation Code) ...
@@ -631,6 +625,20 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8 pb-24">
+      {/* GLOBAL LOADING OVERLAY - Z-Index Higher than Modals */}
+      {reloadMessage && (
+          <div className="fixed inset-0 z-[2200] bg-white/90 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-300">
+              <div className="relative flex flex-col items-center justify-center p-8 bg-white rounded-2xl shadow-2xl border border-slate-100">
+                  <div className="relative w-16 h-16 mb-4">
+                      <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                      <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+                  </div>
+                  <h3 className="text-xl font-bold text-slate-800 animate-pulse">{reloadMessage}</h3>
+                  <p className="text-sm text-slate-400 mt-2">กรุณารอสักครู่...</p>
+              </div>
+          </div>
+      )}
+
       {/* Modals and Overlays */}
       {previewImage && (
           <div className="fixed inset-0 z-[1400] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
@@ -841,26 +849,10 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
                             <div className="border-t pt-4">
                                 <h4 className="font-bold text-sm text-slate-700 mb-3">อัตลักษณ์ทีม</h4>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">สีหลัก</label>
-                                        <div className="flex items-center gap-2">
-                                            <input type="color" value={editPrimaryColor} onChange={e => handleColorChange('primary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">สีรอง</label>
-                                        <div className="flex items-center gap-2">
-                                            <input type="color" value={editSecondaryColor} onChange={e => handleColorChange('secondary', e.target.value)} className="h-10 w-full p-0 border-0 rounded cursor-pointer" />
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-4 flex items-center gap-4">
-                                    {editForm.logoPreview ? <img src={editForm.logoPreview} className="w-16 h-16 object-contain border rounded-lg p-1"/> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">No Logo</div>}
-                                    <label className="cursor-pointer bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition">
-                                        เปลี่ยนโลโก้
-                                        <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('logo', e.target.files[0])} />
-                                    </label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div><label className="block text-sm font-medium text-slate-700 mb-1">สีหลัก</label><div className="flex items-center gap-3"><input type="color" value={editPrimaryColor} onChange={e => handleColorChange('primary', e.target.value)} className="w-12 h-12 rounded-lg cursor-pointer border-0 p-0" /><span className="text-sm text-slate-500 font-mono">{editPrimaryColor}</span></div></div>
+                                    <div><label className="block text-sm font-medium text-slate-700 mb-1">สีรอง</label><div className="flex items-center gap-3"><input type="color" value={editSecondaryColor} onChange={e => handleColorChange('secondary', e.target.value)} className="w-12 h-12 rounded-lg cursor-pointer border-0 p-0" /><span className="text-sm text-slate-500 font-mono">{editSecondaryColor}</span></div></div>
+                                    <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1">ตราสโมสร</label><div className="flex items-center gap-4">{editForm.logoPreview ? <img src={editForm.logoPreview} className="w-16 h-16 object-contain border rounded-lg p-1"/> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">No Logo</div>}<label className="cursor-pointer bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition">เปลี่ยนโลโก้<input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFileChange('logo', e.target.files[0])} /></label></div></div>
                                 </div>
                             </div>
 
@@ -1176,8 +1168,9 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                       <div className="mt-4 pt-4 border-t border-slate-200">
                           <label className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดไฟล์ e-Donation / ลดหย่อนภาษี (Admin)</label>
                           <div className="flex gap-2">
-                              <label className={`flex-1 cursor-pointer bg-white border text-xs font-bold text-center flex items-center justify-center gap-2 transition p-2 rounded-lg ${adminTaxFile ? 'border-indigo-500 text-indigo-600 bg-indigo-50' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}>
-                                  <Upload className="w-3 h-3"/> {adminTaxFile ? adminTaxFile.name : 'เลือกไฟล์'}
+                              <label className={`flex-1 cursor-pointer bg-white border text-xs font-bold text-center flex items-center justify-center gap-2 transition p-2 rounded-lg ${adminTaxFile ? 'border-indigo-500 text-indigo-600 bg-indigo-50' : selectedDonation.taxFileUrl ? 'border-green-300 bg-green-50 text-green-700' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}>
+                                  {selectedDonation.taxFileUrl && !adminTaxFile ? <CheckCircle2 className="w-3 h-3"/> : <Upload className="w-3 h-3"/>}
+                                  {adminTaxFile ? adminTaxFile.name : (selectedDonation.taxFileUrl ? "มีไฟล์ในระบบแล้ว (คลิกเพื่อเปลี่ยน)" : 'เลือกไฟล์')}
                                   <input type="file" onChange={handleTaxFileSelect} className="hidden" accept="image/*,.pdf" />
                               </label>
                               {adminTaxFile && (
@@ -1215,21 +1208,6 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
       {/* Main Content Area */}
       <div className="max-w-7xl mx-auto relative">
-        {/* RELOADING SKELETON OVERLAY with MESSAGE */}
-        {reloadMessage && (
-            <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm rounded-xl p-4 flex items-center justify-center h-full min-h-screen animate-in fade-in duration-300">
-                <AdminSkeleton />
-                <div className="absolute flex flex-col items-center justify-center z-10 bg-white p-8 rounded-2xl shadow-2xl border border-slate-100">
-                    <div className="relative w-16 h-16 mb-4">
-                        <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
-                        <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-800 animate-pulse">{reloadMessage}</h3>
-                    <p className="text-sm text-slate-400 mt-2">กรุณารอสักครู่...</p>
-                </div>
-            </div>
-        )}
-
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
                 <h1 className="text-3xl font-bold text-slate-800">ระบบจัดการการแข่งขัน</h1>
@@ -1350,29 +1328,27 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
         {/* --- NEWS TAB --- */}
         {activeTab === 'news' && (
             <div className="animate-in fade-in duration-300 max-w-4xl mx-auto">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
-                    <div className="flex gap-2 items-center">
-                        <div className="relative">
+                <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    <div className="flex items-center gap-3">
+                        <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
+                        {/* News View Toggle */}
+                        <div className="flex bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
+                            <button onClick={() => setNewsViewMode('grid')} className={`p-1.5 rounded transition ${newsViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid View"><Grid className="w-4 h-4"/></button>
+                            <button onClick={() => setNewsViewMode('list')} className={`p-1.5 rounded transition ${newsViewMode === 'list' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List View"><List className="w-4 h-4"/></button>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 items-center w-full md:w-auto">
+                        <div className="relative flex-1 md:flex-none">
                             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                            <input type="text" placeholder="ค้นหาข่าว..." value={newsSearch} onChange={e => setNewsSearch(e.target.value)} className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
+                            <input type="text" placeholder="ค้นหาข่าว..." value={newsSearch} onChange={e => setNewsSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
                         </div>
                         <button 
                             onClick={() => { 
-                                // Default to current tournament if available, otherwise global
                                 const defaultTournamentId = currentTournament ? currentTournament.id : 'global';
-                                setNewsForm({ 
-                                    id: null, 
-                                    title: '', 
-                                    content: '', 
-                                    imageFile: null, 
-                                    imagePreview: null, 
-                                    docFile: null, 
-                                    tournamentId: defaultTournamentId 
-                                }); 
+                                setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: defaultTournamentId }); 
                                 setIsNewsModalOpen(true); 
                             }} 
-                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"
+                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm shadow-sm"
                         >
                             <Plus className="w-4 h-4"/> เพิ่มข่าว
                         </button>
@@ -1380,52 +1356,92 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                 </div>
 
                 <div className="space-y-4">
-                    {filteredNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : filteredNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
-                        // Find Target Name for Display with explicit string conversion
-                        const isGlobal = !item.tournamentId || item.tournamentId === 'global';
-                        
-                        let badgeLabel = 'Unknown';
-                        let badgeColor = 'bg-gray-500';
+                    {filteredNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : 
+                    newsViewMode === 'grid' ? (
+                        filteredNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
+                            const isGlobal = !item.tournamentId || item.tournamentId === 'global';
+                            let badgeLabel = 'Unknown';
+                            let badgeColor = 'bg-gray-500';
 
-                        if (isGlobal) {
-                            badgeLabel = 'Global (สาธารณะ)';
-                            badgeColor = 'bg-green-500';
-                        } else if (currentTournament && String(item.tournamentId) === String(currentTournament.id)) {
-                            badgeLabel = currentTournament.name;
-                            badgeColor = 'bg-blue-600';
-                        } else {
-                            // Fallback for ID matching against the full list if available, or just show Other
-                            const found = tournaments.find(t => String(t.id) === String(item.tournamentId));
-                            badgeLabel = found ? found.name : 'รายการอื่น';
-                            badgeColor = 'bg-orange-500';
-                        }
-                        
-                        return (
-                            <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
-                                <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0 relative">
-                                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
-                                    <div className={`absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm max-w-[140px] truncate text-white ${badgeColor}`}>
-                                        {badgeLabel}
-                                    </div>
-                                </div>
-                                <div className="flex-1">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
-                                        <div className="flex items-center gap-1">
-                                            <button onClick={() => shareNews(item)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"><Share2 className="w-4 h-4"/></button>
-                                            <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
-                                            <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
+                            if (isGlobal) { badgeLabel = 'Global'; badgeColor = 'bg-green-500'; } 
+                            else if (currentTournament && String(item.tournamentId) === String(currentTournament.id)) { badgeLabel = currentTournament.name; badgeColor = 'bg-blue-600'; } 
+                            else { const found = tournaments.find(t => String(t.id) === String(item.tournamentId)); badgeLabel = found ? found.name : 'รายการอื่น'; badgeColor = 'bg-orange-500'; }
+                            
+                            return (
+                                <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
+                                    <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0 relative">
+                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
+                                        <div className={`absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm max-w-[140px] truncate text-white ${badgeColor}`}>
+                                            {badgeLabel}
                                         </div>
                                     </div>
-                                    <p className="text-slate-600 text-sm line-clamp-2 mb-2">{item.content}</p>
-                                    <div className="flex items-center gap-4 text-xs text-slate-400">
-                                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
-                                        {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
+                                    <div className="flex-1">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
+                                            <div className="flex items-center gap-1">
+                                                <button onClick={() => shareNews(item)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"><Share2 className="w-4 h-4"/></button>
+                                                <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
+                                                <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
+                                            </div>
+                                        </div>
+                                        <p className="text-slate-600 text-sm line-clamp-2 mb-2">{item.content}</p>
+                                        <div className="flex items-center gap-4 text-xs text-slate-400">
+                                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
+                                            {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 text-slate-500 border-b">
+                                    <tr>
+                                        <th className="p-3 font-bold w-12 text-center">รูป</th>
+                                        <th className="p-3 font-bold">หัวข้อข่าว</th>
+                                        <th className="p-3 font-bold w-32">Target</th>
+                                        <th className="p-3 font-bold w-24">วันที่</th>
+                                        <th className="p-3 font-bold text-right w-32">จัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {filteredNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
+                                        const isGlobal = !item.tournamentId || item.tournamentId === 'global';
+                                        let badgeLabel = 'Unknown';
+                                        let badgeColor = 'bg-gray-100 text-gray-600';
+
+                                        if (isGlobal) { badgeLabel = 'Global'; badgeColor = 'bg-green-100 text-green-700'; } 
+                                        else if (currentTournament && String(item.tournamentId) === String(currentTournament.id)) { badgeLabel = 'Current'; badgeColor = 'bg-blue-100 text-blue-700'; } 
+                                        else { const found = tournaments.find(t => String(t.id) === String(item.tournamentId)); badgeLabel = found ? (found.name.length > 10 ? found.name.substring(0,10)+'...' : found.name) : 'Other'; badgeColor = 'bg-orange-100 text-orange-700'; }
+
+                                        return (
+                                            <tr key={item.id} className="hover:bg-slate-50 transition group">
+                                                <td className="p-3 text-center">
+                                                    {item.imageUrl ? <img src={item.imageUrl} className="w-10 h-10 rounded object-cover mx-auto border border-slate-200" /> : <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center mx-auto text-slate-400"><Image className="w-5 h-5"/></div>}
+                                                </td>
+                                                <td className="p-3">
+                                                    <div className="font-bold text-slate-800 line-clamp-1">{item.title}</div>
+                                                    <div className="text-xs text-slate-500 line-clamp-1">{item.content}</div>
+                                                </td>
+                                                <td className="p-3">
+                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${badgeColor}`}>{badgeLabel}</span>
+                                                </td>
+                                                <td className="p-3 text-slate-500 text-xs">{new Date(item.timestamp).toLocaleDateString('th-TH', {day: 'numeric', month:'short'})}</td>
+                                                <td className="p-3 text-right">
+                                                    <div className="flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition">
+                                                        <button onClick={() => shareNews(item)} className="p-1.5 hover:bg-green-50 text-slate-400 hover:text-green-600 rounded"><Share2 className="w-4 h-4"/></button>
+                                                        <button onClick={() => handleEditNews(item)} className="p-1.5 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
+                                                        <button onClick={() => triggerDeleteNews(item.id)} className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             </div>
         )}
