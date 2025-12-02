@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Team, Player } from '../types';
-import { X, Save, Loader2, User, Plus, Trash2, Camera, FileText, Image as ImageIcon, CreditCard, ExternalLink, Shield, MapPin, Phone } from 'lucide-react';
+import { X, Save, Loader2, User, Plus, Trash2, Camera, FileText, Image as ImageIcon, CreditCard, ExternalLink, Shield, MapPin, Phone, Check, AlertTriangle } from 'lucide-react';
 import { fileToBase64 } from '../services/sheetService';
 
 interface TeamEditModalProps {
@@ -10,12 +10,13 @@ interface TeamEditModalProps {
   team: Team;
   currentPlayers: Player[];
   onSave: (updatedTeam: Team, updatedPlayers: Player[]) => Promise<void>;
+  isAdmin?: boolean;
 }
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 const MAX_DOC_SIZE = 3 * 1024 * 1024;   // 3MB
 
-const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, currentPlayers, onSave }) => {
+const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, currentPlayers, onSave, isAdmin = false }) => {
   const [formData, setFormData] = useState<Team>(team);
   const [players, setPlayers] = useState<Player[]>([]);
   const [activeTab, setActiveTab] = useState<'info' | 'players' | 'docs'>('info');
@@ -135,7 +136,7 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
       }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideStatus?: 'Approved' | 'Rejected') => {
       setIsSaving(true);
       try {
           let logoUrl = formData.logoUrl;
@@ -153,7 +154,9 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
               color: combinedColors,
               logoUrl,
               slipUrl,
-              docUrl
+              docUrl,
+              // If overrideStatus provided (from footer buttons), use it, else keep form data
+              status: overrideStatus || formData.status
           };
 
           await onSave(finalTeamData, players);
@@ -200,16 +203,22 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
                             <input type="text" value={formData.shortName} onChange={e => setFormData({...formData, shortName: e.target.value})} className="w-full p-3 border rounded-lg text-sm" />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">สถานะ (Admin Only)</label>
-                            <select
-                                value={formData.status}
-                                onChange={e => setFormData({...formData, status: e.target.value as any})}
-                                className={`w-full p-3 border rounded-lg text-sm font-bold ${formData.status === 'Approved' ? 'text-green-600 bg-green-50 border-green-200' : formData.status === 'Rejected' ? 'text-red-600 bg-red-50 border-red-200' : 'text-yellow-600 bg-yellow-50 border-yellow-200'}`}
-                            >
-                                <option value="Pending">Pending (รออนุมัติ)</option>
-                                <option value="Approved">Approved (อนุมัติ)</option>
-                                <option value="Rejected">Rejected (ปฏิเสธ)</option>
-                            </select>
+                            <label className="block text-xs font-bold text-slate-500 mb-1">สถานะ {isAdmin ? '(Admin Only)' : ''}</label>
+                            {isAdmin ? (
+                                <select
+                                    value={formData.status}
+                                    onChange={e => setFormData({...formData, status: e.target.value as any})}
+                                    className={`w-full p-3 border rounded-lg text-sm font-bold ${formData.status === 'Approved' ? 'text-green-600 bg-green-50 border-green-200' : formData.status === 'Rejected' ? 'text-red-600 bg-red-50 border-red-200' : 'text-yellow-600 bg-yellow-50 border-yellow-200'}`}
+                                >
+                                    <option value="Pending">Pending (รออนุมัติ)</option>
+                                    <option value="Approved">Approved (อนุมัติ)</option>
+                                    <option value="Rejected">Rejected (ปฏิเสธ)</option>
+                                </select>
+                            ) : (
+                                <div className={`w-full p-3 border rounded-lg text-sm font-bold bg-slate-100 ${formData.status === 'Approved' ? 'text-green-600' : formData.status === 'Rejected' ? 'text-red-600' : 'text-yellow-600'}`}>
+                                    {formData.status}
+                                </div>
+                            )}
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1">อำเภอ</label>
@@ -332,13 +341,25 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
                     </div>
                 </div>
             )}
-
         </div>
 
         {/* Footer */}
         <div className="p-4 border-t bg-white flex gap-3 shrink-0">
-            <button onClick={onClose} className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition">ยกเลิก</button>
-            <button onClick={handleSave} disabled={isSaving} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
+            <button onClick={onClose} className="py-3 px-4 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition">ยกเลิก</button>
+            
+            {/* Quick Status Buttons if Pending and Admin */}
+            {isAdmin && formData.status === 'Pending' && (
+                <>
+                    <button onClick={() => handleSave('Approved')} disabled={isSaving} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-70">
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Check className="w-4 h-4"/> อนุมัติทันที</>}
+                    </button>
+                    <button onClick={() => handleSave('Rejected')} disabled={isSaving} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-70">
+                        {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <><AlertTriangle className="w-4 h-4"/> ไม่อนุมัติ</>}
+                    </button>
+                </>
+            )}
+
+            <button onClick={() => handleSave()} disabled={isSaving} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
                 {isSaving ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Save className="w-5 h-5"/> บันทึกข้อมูล</>}
             </button>
         </div>

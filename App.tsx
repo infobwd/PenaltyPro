@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -482,6 +478,7 @@ function App() {
               team={teamToEdit.team}
               currentPlayers={teamToEdit.players}
               onSave={handleSaveTeamEdit}
+              isAdmin={isAdmin}
           />
       )}
       

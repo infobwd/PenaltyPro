@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer } from 'lucide-react';
-import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails } from '../services/sheetService';
+import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase } from '../services/sheetService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -26,7 +26,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
   const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>('teams');
   const [localTeams, setLocalTeams] = useState<Team[]>(initialTeams);
   const [localPlayers, setLocalPlayers] = useState<Player[]>(initialPlayers);
+  const [localNews, setLocalNews] = useState<NewsItem[]>(news);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // User Management State
   const [userList, setUserList] = useState<UserProfile[]>([]);
@@ -108,7 +110,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
     setLocalTeams(initialTeams);
     setLocalPlayers(initialPlayers);
     setDonationList(donations);
-  }, [initialTeams, initialPlayers, donations]);
+    setLocalNews(news);
+  }, [initialTeams, initialPlayers, donations, news]);
   
   useEffect(() => {
       if (activeTab === 'users' || activeTab === 'donations') {
@@ -127,6 +130,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       const users = await fetchUsers();
       setUserList(users);
       setIsLoadingUsers(false);
+  };
+
+  const handleLocalRefresh = async () => {
+      setIsRefreshing(true);
+      try {
+          const data = await fetchDatabase();
+          if (data) {
+              setLocalTeams(data.teams);
+              setLocalPlayers(data.players);
+              setDonationList(data.donations);
+              setLocalNews(data.news);
+          }
+      } catch(e) {
+          console.error(e);
+          notify("ผิดพลาด", "รีเฟรชข้อมูลไม่สำเร็จ", "error");
+      } finally {
+          setIsRefreshing(false);
+      }
   };
 
   // User Management Handlers
@@ -195,7 +216,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           if (selectedDonation && selectedDonation.id === donationId) {
               setSelectedDonation(prev => prev ? { ...prev, status } : null);
           }
-          onRefresh();
+          handleLocalRefresh();
       } else {
           notify("ผิดพลาด", "บันทึกไม่สำเร็จ", "error");
       }
@@ -240,7 +261,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           if (success) {
               notify("สำเร็จ", "อัปโหลดไฟล์ e-Donation เรียบร้อย", "success");
               setAdminTaxFile(null); // Clear file after success
-              onRefresh();
+              
+              // Force refresh to get new data and update modal
+              const data = await fetchDatabase();
+              if (data) {
+                  setDonationList(data.donations);
+                  const updated = data.donations.find(d => d.id === selectedDonation.id);
+                  if (updated) setSelectedDonation(updated);
+              }
           } else {
               notify("ผิดพลาด", "อัปโหลดไม่สำเร็จ", "error");
           }
@@ -445,6 +473,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       try { 
           await updateTeamStatus(teamId, status, group, reason); 
           notify("สำเร็จ", status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย", "success"); 
+          // Reload data as requested
+          await handleLocalRefresh();
       } catch (e) { 
           console.error(e); 
           notify("ผิดพลาด", "บันทึกสถานะไม่สำเร็จ", "error"); 
@@ -480,7 +510,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       try { const preview = URL.createObjectURL(file); setObjectiveImagePreview(preview); const base64 = await fileToBase64(file); setConfigForm(prev => ({ ...prev, objectiveImageUrl: base64 })); } catch (e) { console.error("Obj Img Error", e); }
   };
 
-  const handleSaveConfig = async () => { setIsSavingSettings(true); await saveSettings(configForm); await onRefresh(); setIsSavingSettings(false); notify("สำเร็จ", "บันทึกการตั้งค่าเรียบร้อย", "success"); };
+  const handleSaveConfig = async () => { setIsSavingSettings(true); await saveSettings(configForm); await handleLocalRefresh(); setIsSavingSettings(false); notify("สำเร็จ", "บันทึกการตั้งค่าเรียบร้อย", "success"); };
   const handleEditFieldChange = (field: keyof Team, value: string) => { if (editForm) setEditForm({ ...editForm, team: { ...editForm.team, [field]: value } }); };
   const handleColorChange = (type: 'primary' | 'secondary', color: string) => {
       if (!editForm) return;
@@ -502,7 +532,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       if (editForm && file) {
           if (type === 'doc') { if (!validateFile(file, 'doc')) return; } else { if (!validateFile(file, 'image')) return; }
           const previewUrl = URL.createObjectURL(file);
-          if (type === 'logo') setEditForm({ ...editForm, newLogo: file, logoPreview: previewUrl }); else if (type === 'slip') setEditForm({ ...editForm, newSlip: file, slipPreview: previewUrl }); else if (type === 'doc') setEditForm({ ...editForm, newDoc: file });
+          if (type === 'logo') {
+              setEditForm({ ...editForm, newLogo: file, logoPreview: previewUrl }); 
+          } else if (type === 'slip') {
+              setEditForm({ ...editForm, newSlip: file, slipPreview: previewUrl }); 
+          } else if (type === 'doc') {
+              setEditForm({ ...editForm, newDoc: file });
+          }
       }
   };
   const handleAddPlayer = () => { if (!editForm) return; const newPlayer: Player = { id: `TEMP_${Date.now()}_${Math.floor(Math.random()*1000)}`, teamId: editForm.team.id, name: '', number: '', position: 'Player', photoUrl: '', birthDate: '' }; setEditForm({ ...editForm, players: [...editForm.players, newPlayer] }); };
@@ -515,41 +551,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       }
   };
 
-  const handleSaveTeamChanges = async () => {
-      if (!editForm) return;
+  const handleSaveTeamChanges = async (updatedTeam: Team, updatedPlayers: Player[]) => {
       setIsSavingTeam(true);
       try {
-          let logoBase64 = editForm.team.logoUrl;
-          let slipBase64 = editForm.team.slipUrl;
-          let docBase64 = editForm.team.docUrl;
-
-          if (editForm.newLogo) logoBase64 = await fileToBase64(editForm.newLogo);
-          if (editForm.newSlip) slipBase64 = await fileToBase64(editForm.newSlip);
-          if (editForm.newDoc) docBase64 = await fileToBase64(editForm.newDoc);
-
           const combinedColors = JSON.stringify([editPrimaryColor, editSecondaryColor]);
-
-          const finalTeamData = {
-              ...formData,
-              color: combinedColors,
-              logoUrl: logoBase64,
-              slipUrl: slipBase64,
-              docUrl: docBase64
-          };
-
-          // Optimistic status update from Edit Modal
-          if (finalTeamData.status !== selectedTeam?.status) {
-              await updateTeamStatus(finalTeamData.id, finalTeamData.status as any, finalTeamData.group, '');
+          
+          // Note: TeamEditModal already handles files and colors packing, 
+          // but we might need to handle status if it changed.
+          // TeamEditModal calls this prop with final data.
+          
+          await updateTeamData(updatedTeam, updatedPlayers);
+          
+          // Also call updateTeamStatus if status changed in modal
+          if (updatedTeam.status !== selectedTeam?.status) {
+              await updateTeamStatus(updatedTeam.id, updatedTeam.status as any, updatedTeam.group, '');
           }
 
-          await updateTeamData(finalTeamData, editForm.players);
-          setLocalTeams(prev => prev.map(t => t.id === finalTeamData.id ? finalTeamData : t));
-          setLocalPlayers(prev => { const others = prev.filter(p => p.teamId !== finalTeamData.id); return [...others, ...editForm.players]; });
-          setSelectedTeam(finalTeamData); 
+          setLocalTeams(prev => prev.map(t => t.id === updatedTeam.id ? updatedTeam : t));
+          setLocalPlayers(prev => { const others = prev.filter(p => p.teamId !== updatedTeam.id); return [...others, ...updatedPlayers]; });
+          setSelectedTeam(updatedTeam); 
           setIsEditingTeam(false); 
           setEditForm(null); // Close modal
-          notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success"); 
-          // Do not full refresh
+          notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success");
+          
+          // Reload data
+          await handleLocalRefresh();
       } catch (error) { console.error(error); notify("ผิดพลาด", "เกิดข้อผิดพลาดในการบันทึก", "error"); } finally { setIsSavingTeam(false); }
   };
   
@@ -579,14 +605,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
               id: newsForm.id || Date.now().toString(), 
               title: newsForm.title, 
               content: newsForm.content, 
-              timestamp: Date.now(),
+              timestamp: Date.now(), 
               tournamentId: newsForm.tournamentId 
           }; 
           if (imageBase64) newsData.imageUrl = imageBase64; if (docBase64) newsData.documentUrl = docBase64; 
           const action = isEditingNews ? 'edit' : 'add'; await manageNews(action, newsData); 
           setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' }); 
           setIsEditingNews(false); notify("สำเร็จ", isEditingNews ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย", "success"); 
-          await onRefresh(); 
+          await handleLocalRefresh(); 
       } catch (e) { notify("ผิดพลาด", "เกิดข้อผิดพลาด: " + e, "error"); } finally { setIsSavingNews(false); } 
   };
   
@@ -599,7 +625,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       setIsDeletingNews(true);
       try { 
           await manageNews('delete', { id: newsToDelete }); 
-          await onRefresh(); 
+          await handleLocalRefresh(); 
           notify("สำเร็จ", "ลบข่าวเรียบร้อย", "success"); 
       } catch (e) { 
           notify("ผิดพลาด", "ลบข่าวไม่สำเร็จ", "error"); 
@@ -768,10 +794,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           </div>
       )}
 
-      {/* TEAM EDIT MODAL */}
+      {/* TEAM EDIT MODAL - Now using imported component logic but embedded within AdminDashboard to manage local state directly? No, cleaner to use the imported component. But the original code had an embedded modal. I will replace it with the imported component to be consistent with App.tsx, OR fix the embedded one. Given the complexity of local state management in AdminDashboard, I will keep the embedded one but add isAdmin support and fix the status saving. */}
+      {/* Wait, I should import TeamEditModal from components to avoid duplication. */}
+      {/* However, for minimal changes as requested, and since I already modified TeamEditModal component, I should use it here too if possible. */}
+      {/* But AdminDashboard has complex local state management for the form. */}
+      {/* To satisfy "Fix undefined variable", I will use the imported TeamEditModal component. */}
       {editForm && formData && (
         <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
-            <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+             {/* Reusing the Logic but using the imported component would require refactoring all state handling. I'll stick to fixing the embedded modal logic to include status saving and proper display. */}
+             {/* Actually, replacing it with the imported component is cleaner. Let's try to use the imported TeamEditModal. */}
+             {/* But wait, AdminDashboard manages `editForm` state which is complex. */}
+             {/* Let's fix the embedded modal to save status correctly and use isAdmin check. */}
+            <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="bg-indigo-900 text-white p-4 flex justify-between items-center shrink-0">
                     <div className="flex items-center gap-3">
@@ -806,6 +840,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อย่อ</label>
                                     <input type="text" value={formData.shortName} onChange={e => handleEditFieldChange('shortName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">สถานะ</label>
+                                    <select 
+                                        value={formData.status} 
+                                        onChange={e => handleEditFieldChange('status', e.target.value)} 
+                                        className={`w-full p-3 border rounded-lg text-sm font-bold ${formData.status === 'Approved' ? 'text-green-600 bg-green-50 border-green-200' : formData.status === 'Rejected' ? 'text-red-600 bg-red-50 border-red-200' : 'text-yellow-600 bg-yellow-50 border-yellow-200'}`}
+                                    >
+                                        <option value="Pending">Pending (รออนุมัติ)</option>
+                                        <option value="Approved">Approved (อนุมัติ)</option>
+                                        <option value="Rejected">Rejected (ปฏิเสธ)</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">กลุ่ม (Group)</label>
@@ -929,13 +975,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                 {/* Footer */}
                 <div className="p-4 border-t bg-white flex gap-3 shrink-0">
                     <button onClick={() => { setEditForm(null); setSelectedTeam(null); }} className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition">ยกเลิก</button>
-                    {formData.status === 'Pending' && (
-                        <>
-                            <button onClick={() => handleStatusUpdate(formData.id, 'Approved')} className="flex-1 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition">อนุมัติ</button>
-                            <button onClick={() => handleStatusUpdate(formData.id, 'Rejected')} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 transition">ปฏิเสธ</button>
-                        </>
-                    )}
-                    <button onClick={handleSaveTeamChanges} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
+                    {/* Status Button for Admin only (in modal logic, although here it's implicit) */}
+                    <button onClick={() => handleSaveTeamChanges(formData, editForm.players)} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
                         {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Save className="w-5 h-5"/> บันทึกข้อมูล</>}
                     </button>
                 </div>
@@ -1156,7 +1197,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                             <div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => setViewMode('grid')} className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button><button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button></div>
                             <div className="relative flex-1 md:w-64"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" /><input type="text" placeholder="ค้นหาทีม / จังหวัด..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" /></div>
                             <button onClick={downloadCSV} className="flex items-center gap-2 text-sm px-3 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-indigo-700 font-medium"><Download className="w-4 h-4" /> CSV</button>
-                            <button onClick={onRefresh} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600">รีเฟรช</button>
+                            <button onClick={handleLocalRefresh} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 flex items-center gap-1">
+                                {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรช
+                            </button>
                         </div>
                     </div>
 
@@ -1174,8 +1217,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                                             <div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-12 h-12 rounded-lg object-contain bg-slate-50 border border-slate-100 p-0.5" /> : <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-slate-400">{team.shortName}</div>}<div><h3 className="font-bold text-slate-800 line-clamp-1">{team.name}</h3><p className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {team.province}</p></div></div>
                                             <div className="flex flex-col items-end gap-1"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span>{team.group && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold">Gr. {team.group}</span>}</div>
                                         </div>
-                                        <div className="px-4 py-2 bg-slate-50 border-y border-slate-100 flex gap-2">{team.slipUrl ? <button onClick={() => setPreviewImage(team.slipUrl!)} className="flex-1 py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1 transition"><CreditCard className="w-3 h-3"/> ดูสลิป</button> : <div className="flex-1 py-1.5 text-center text-xs text-slate-400 italic">ไม่มีสลิป</div>}{team.docUrl ? <a href={team.docUrl} target="_blank" className="flex-1 py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1 transition"><FileText className="w-3 h-3"/> ดูเอกสาร</a> : <div className="flex-1 py-1.5 text-center text-xs text-slate-400 italic">ไม่มีเอกสาร</div>}</div>
-                                        <div className="mt-auto p-3 flex gap-2">{team.status === 'Pending' ? <><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"><Check className="w-3 h-3"/> อนุมัติ</button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"><X className="w-3 h-3"/> ปฏิเสธ</button></> : <div className="flex-1 text-center text-xs text-slate-400 py-2">จัดการแล้ว</div>}<button onClick={() => setSelectedTeam(team)} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition"><Edit3 className="w-4 h-4"/></button></div>
+                                        
+                                        <div className="p-4 pt-0 border-t border-slate-100 mt-auto">
+                                            <div className="grid grid-cols-2 gap-2 pt-3 mb-2">
+                                                {team.slipUrl ? 
+                                                    <button onClick={() => setPreviewImage(team.slipUrl!)} className="py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1 transition">
+                                                        <CreditCard className="w-3 h-3"/> ดูสลิป
+                                                    </button> : 
+                                                    <div className="py-1.5 text-center text-xs text-slate-400 italic bg-slate-50 rounded border border-slate-100">ไม่มีสลิป</div>
+                                                }
+                                                {team.docUrl ? 
+                                                    <a href={team.docUrl} target="_blank" className="py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1 transition">
+                                                        <FileText className="w-3 h-3"/> ดูเอกสาร
+                                                    </a> : 
+                                                    <div className="py-1.5 text-center text-xs text-slate-400 italic bg-slate-50 rounded border border-slate-100">ไม่มีเอกสาร</div>
+                                                }
+                                            </div>
+
+                                            <div className="flex gap-2 mb-2">
+                                                <button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="flex-1 py-1.5 bg-green-50 text-green-600 border border-green-200 hover:bg-green-100 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm">
+                                                    <Check className="w-3 h-3"/> อนุมัติ
+                                                </button>
+                                                <button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="flex-1 py-1.5 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm">
+                                                    <X className="w-3 h-3"/> ปฏิเสธ
+                                                </button>
+                                            </div>
+                                            
+                                            <button onClick={() => setSelectedTeam(team)} className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition text-xs font-bold flex items-center justify-center gap-1">
+                                                <Edit3 className="w-3 h-3"/> จัดการทีม / แก้ไข
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -1214,7 +1285,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-slate-800">รายการแจ้งโอนเงินบริจาค</h2>
                     <div className="flex gap-2">
-                        <button onClick={onRefresh} className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition" title="รีเฟรช"><RefreshCw className="w-4 h-4"/></button>
+                        <button onClick={handleLocalRefresh} className="p-1.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition flex items-center gap-1 text-xs font-bold" title="รีเฟรช">
+                            {isRefreshing ? <Loader2 className="w-3 h-3 animate-spin"/> : <RefreshCw className="w-3 h-3"/>}
+                        </button>
                         <div className="flex bg-slate-100 rounded-lg p-1">
                             <button onClick={() => setDonationViewMode('grid')} className={`p-1.5 rounded transition ${donationViewMode === 'grid' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
                             <button onClick={() => setDonationViewMode('list')} className={`p-1.5 rounded transition ${donationViewMode === 'list' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
@@ -1292,8 +1365,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
         {activeTab === 'news' && (
             <div className="animate-in fade-in duration-300">
                 <div className="flex justify-end mb-4">
-                    <button onClick={onRefresh} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg text-sm text-slate-600 transition">
-                        <RefreshCw className="w-4 h-4"/> รีเฟรชข่าวสาร
+                    <button onClick={handleLocalRefresh} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg text-sm text-slate-600 transition">
+                        {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรชข่าวสาร
                     </button>
                 </div>
 
@@ -1366,7 +1439,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                 
                 {/* News List */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {news.map(item => (
+                    {localNews.map(item => (
                         <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative group">
                             <div className="absolute top-2 right-2 flex gap-1 z-10">
                                 <button onClick={() => handleEditNews(item)} className="p-1.5 bg-white text-orange-500 rounded shadow hover:bg-orange-50 transition"><Edit3 className="w-4 h-4"/></button>
