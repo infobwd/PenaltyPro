@@ -559,11 +559,17 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   
   const confirmDeleteNews = async () => {
       if (!newsToDelete) return;
-      setIsDeletingNews(true);
+      
+      // 1. Close Modal immediately
+      const idToDelete = newsToDelete;
+      setNewsToDelete(null); 
+      setIsDeletingNews(true); // Optional local state, but overlay takes over
+
+      // 2. Execute with global loader
       executeWithReload(async () => {
-          await manageNews('delete', { id: newsToDelete }); 
-          setNewsToDelete(null); 
+          await manageNews('delete', { id: idToDelete }); 
       }, "ลบข่าวเรียบร้อย", "กำลังลบข่าวสาร...");
+      
       setIsDeletingNews(false);
   };
 
@@ -993,14 +999,12 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                               onChange={e => setNewsForm({...newsForm, tournamentId: e.target.value})}
                               className="w-full p-2 border rounded-lg bg-white"
                           >
-                              <option value="global">Global (แสดงทุกรายการ)</option>
-                              {tournaments.length > 0 && <optgroup label="Specific Tournament">
-                                  {tournaments.map(t => (
-                                      <option key={t.id} value={t.id}>{t.name}</option>
-                                  ))}
-                              </optgroup>}
+                              <option value="global">🌐 Global (ทุกรายการ)</option>
+                              {currentTournament && (
+                                  <option value={currentTournament.id}>🏆 รายการปัจจุบัน: {currentTournament.name}</option>
+                              )}
                           </select>
-                          <p className="text-xs text-slate-400 mt-1">เลือก 'Global' เพื่อให้ข่าวนี้แสดงในทุกหน้า หรือเลือกรายการเฉพาะเจาะจง</p>
+                          <p className="text-xs text-slate-400 mt-1">เลือก 'Global' เพื่อให้ข่าวนี้แสดงในหน้าแรกของทุกรายการ หรือเลือกรายการปัจจุบันเพื่อแสดงเฉพาะในรายการนี้</p>
                       </div>
 
                       <div>
@@ -1313,35 +1317,74 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
             <div className="animate-in fade-in duration-300 max-w-4xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
-                    <button onClick={() => { setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: currentTournament ? currentTournament.id : 'global' }); setIsNewsModalOpen(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"><Plus className="w-4 h-4"/> เพิ่มข่าว</button>
+                    <button 
+                        onClick={() => { 
+                            // Default to current tournament if available, otherwise global
+                            const defaultTournamentId = currentTournament ? currentTournament.id : 'global';
+                            setNewsForm({ 
+                                id: null, 
+                                title: '', 
+                                content: '', 
+                                imageFile: null, 
+                                imagePreview: null, 
+                                docFile: null, 
+                                tournamentId: defaultTournamentId 
+                            }); 
+                            setIsNewsModalOpen(true); 
+                        }} 
+                        className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"
+                    >
+                        <Plus className="w-4 h-4"/> เพิ่มข่าว
+                    </button>
                 </div>
 
                 <div className="space-y-4">
-                    {localNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : localNews.sort((a,b) => b.timestamp - a.timestamp).map(item => (
-                        <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
-                            <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0 relative">
-                                {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
-                                <div className={`absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full font-bold ${item.tournamentId === 'global' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'}`}>
-                                    {item.tournamentId === 'global' ? 'Global' : 'Specific'}
-                                </div>
-                            </div>
-                            <div className="flex-1">
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
-                                    <div className="flex items-center gap-1">
-                                        <button onClick={() => shareNews(item)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"><Share2 className="w-4 h-4"/></button>
-                                        <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
-                                        <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
+                    {localNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : localNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
+                        // Find Target Name for Display with explicit string conversion
+                        const isGlobal = !item.tournamentId || item.tournamentId === 'global';
+                        
+                        let badgeLabel = 'Unknown';
+                        let badgeColor = 'bg-gray-500';
+
+                        if (isGlobal) {
+                            badgeLabel = 'Global (สาธารณะ)';
+                            badgeColor = 'bg-green-500';
+                        } else if (currentTournament && String(item.tournamentId) === String(currentTournament.id)) {
+                            badgeLabel = currentTournament.name;
+                            badgeColor = 'bg-blue-600';
+                        } else {
+                            // Fallback for ID matching against the full list if available, or just show Other
+                            const found = tournaments.find(t => String(t.id) === String(item.tournamentId));
+                            badgeLabel = found ? found.name : 'รายการอื่น';
+                            badgeColor = 'bg-orange-500';
+                        }
+                        
+                        return (
+                            <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
+                                <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0 relative">
+                                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
+                                    <div className={`absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm max-w-[140px] truncate text-white ${badgeColor}`}>
+                                        {badgeLabel}
                                     </div>
                                 </div>
-                                <p className="text-slate-600 text-sm line-clamp-2 mb-2">{item.content}</p>
-                                <div className="flex items-center gap-4 text-xs text-slate-400">
-                                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
-                                    {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
+                                        <div className="flex items-center gap-1">
+                                            <button onClick={() => shareNews(item)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"><Share2 className="w-4 h-4"/></button>
+                                            <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
+                                            <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
+                                        </div>
+                                    </div>
+                                    <p className="text-slate-600 text-sm line-clamp-2 mb-2">{item.content}</p>
+                                    <div className="flex items-center gap-4 text-xs text-slate-400">
+                                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
+                                        {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
         )}
@@ -1350,47 +1393,62 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
         {activeTab === 'users' && (
             <div className="animate-in fade-in duration-300">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-bold text-xl text-slate-800">จัดการผู้ใช้งาน ({userList.length})</h2>
-                    <button onClick={() => handleOpenUserModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"><UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
+                    <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><UserCog className="w-6 h-6 text-indigo-600" /> จัดการผู้ใช้งาน ({userList.length})</h2>
+                    <div className="flex gap-2">
+                        <button onClick={() => handleOpenUserModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm shadow-md"><UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
+                        <button onClick={() => loadUsers()} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><RefreshCw className="w-4 h-4"/></button>
+                    </div>
                 </div>
                 
-                {isLoadingUsers ? <div className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600 mb-2"/><p className="text-slate-500">กำลังโหลดข้อมูลผู้ใช้...</p></div> : (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 text-slate-500 font-medium border-b">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-slate-500 text-sm border-b">
                                 <tr>
-                                    <th className="p-4">User</th>
-                                    <th className="p-4">Role</th>
-                                    <th className="p-4">Phone</th>
-                                    <th className="p-4">Login Type</th>
-                                    <th className="p-4 text-right">Action</th>
+                                    <th className="p-4 font-bold w-16">#</th>
+                                    <th className="p-4 font-bold">ผู้ใช้งาน</th>
+                                    <th className="p-4 font-bold">Role</th>
+                                    <th className="p-4 font-bold">เบอร์โทร</th>
+                                    <th className="p-4 font-bold">เข้าสู่ระบบล่าสุด</th>
+                                    <th className="p-4 font-bold text-right">จัดการ</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {userList.map(u => (
-                                    <tr key={u.userId} className="hover:bg-slate-50">
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-3">
-                                                {u.pictureUrl ? <img src={u.pictureUrl} className="w-8 h-8 rounded-full object-cover border border-slate-200"/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">{u.displayName?.substring(0,1) || 'U'}</div>}
-                                                <div>
-                                                    <div className="font-bold text-slate-800">{u.displayName}</div>
-                                                    <div className="text-xs text-slate-400">@{u.username}</div>
+                            <tbody className="divide-y divide-slate-100 text-sm">
+                                {isLoadingUsers ? (
+                                    <tr><td colSpan={6} className="p-8 text-center text-slate-400"><Loader2 className="w-6 h-6 animate-spin mx-auto"/></td></tr>
+                                ) : userList.length === 0 ? (
+                                    <tr><td colSpan={6} className="p-8 text-center text-slate-400 italic">ไม่พบผู้ใช้งาน</td></tr>
+                                ) : (
+                                    userList.map((user, idx) => (
+                                        <tr key={user.userId} className="hover:bg-slate-50 transition">
+                                            <td className="p-4 text-slate-400">{idx + 1}</td>
+                                            <td className="p-4">
+                                                <div className="flex items-center gap-3">
+                                                    {user.pictureUrl ? <img src={user.pictureUrl} className="w-8 h-8 rounded-full bg-slate-200 object-cover border border-slate-100" /> : <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">{user.displayName?.charAt(0) || 'U'}</div>}
+                                                    <div>
+                                                        <div className="font-bold text-slate-800">{user.displayName}</div>
+                                                        <div className="text-xs text-slate-400 font-mono">{user.username || 'Line Login'}</div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </td>
-                                        <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : u.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{u.role}</span></td>
-                                        <td className="p-4 text-slate-600">{u.phoneNumber || '-'}</td>
-                                        <td className="p-4"><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{u.lineUserId ? 'LINE' : 'Standard'}</span></td>
-                                        <td className="p-4 text-right flex justify-end gap-2">
-                                            <button onClick={() => handleOpenUserModal(u)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-100 transition"><Edit3 className="w-4 h-4"/></button>
-                                            <button onClick={() => handleDeleteUser(u.userId)} className="p-2 text-red-600 hover:bg-red-50 rounded border border-red-100 transition"><Trash2 className="w-4 h-4"/></button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td className="p-4">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${user.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span>
+                                            </td>
+                                            <td className="p-4 text-slate-600">{user.phoneNumber || '-'}</td>
+                                            <td className="p-4 text-slate-500 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleDateString('th-TH') + ' ' + new Date(user.lastLogin).toLocaleTimeString('th-TH') : '-'}</td>
+                                            <td className="p-4 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={() => handleOpenUserModal(user)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-200 transition"><Edit3 className="w-4 h-4"/></button>
+                                                    <button onClick={() => handleDeleteUser(user.userId)} className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-red-200 transition"><Trash2 className="w-4 h-4"/></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
                             </tbody>
                         </table>
                     </div>
-                )}
+                </div>
             </div>
         )}
 
@@ -1398,40 +1456,79 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
         {activeTab === 'donations' && (
             <div className="animate-in fade-in duration-300">
                 <div className="flex justify-between items-center mb-6">
-                    <div>
-                        <h2 className="font-bold text-xl text-slate-800">รายการบริจาค</h2>
-                        <p className="text-slate-500 text-sm">ยอดรวมที่ยืนยันแล้ว: <span className="font-bold text-green-600 text-lg">{donationList.filter(d => d.status === 'Verified' && (!currentTournament || d.tournamentId === currentTournament.id)).reduce((sum, d) => sum + d.amount, 0).toLocaleString()} บาท</span></p>
-                    </div>
-                    <div className="flex bg-white rounded-lg p-1 border shadow-sm">
-                        <button onClick={() => setDonationViewMode('grid')} className={`p-2 rounded ${donationViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
-                        <button onClick={() => setDonationViewMode('list')} className={`p-2 rounded ${donationViewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
+                    <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><DollarSign className="w-6 h-6 text-green-600" /> ตรวจสอบยอดบริจาค ({donationList.length})</h2>
+                    <div className="flex gap-2">
+                        <div className="flex bg-white border border-slate-200 rounded-lg p-1">
+                            <button onClick={() => setDonationViewMode('grid')} className={`p-1.5 rounded ${donationViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
+                            <button onClick={() => setDonationViewMode('list')} className={`p-1.5 rounded ${donationViewMode === 'list' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
+                        </div>
+                        <button onClick={handleLocalRefresh} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 transition flex items-center gap-1 text-sm"><RefreshCw className="w-4 h-4"/> รีเฟรช</button>
                     </div>
                 </div>
 
-                <div className={donationViewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-2"}>
-                    {donationList.filter(d => !currentTournament || d.tournamentId === currentTournament.id).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
-                        <div key={d.id} className={`bg-white rounded-xl shadow-sm border p-4 transition hover:shadow-md cursor-pointer relative overflow-hidden ${d.status === 'Verified' ? 'border-green-200' : d.status === 'Rejected' ? 'border-red-200' : 'border-orange-200'}`} onClick={() => setSelectedDonation(d)}>
-                            <div className={`absolute top-0 left-0 w-1 h-full ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}></div>
-                            <div className="flex justify-between items-start mb-2 pl-2">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>
-                                        <DollarSign className="w-5 h-5"/>
-                                    </div>
-                                    <div>
-                                        <div className="font-bold text-slate-800">{d.donorName} {d.isAnonymous && <span className="text-[10px] bg-slate-100 text-slate-500 px-1 rounded ml-1">Anon</span>}</div>
-                                        <div className="text-xs text-slate-400">{new Date(d.timestamp).toLocaleString()}</div>
+                {donationList.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ยังไม่มีรายการบริจาค</div>
+                ) : donationViewMode === 'grid' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {donationList.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
+                            <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col" onClick={() => setSelectedDonation(d)}>
+                                <div className="h-32 bg-slate-100 relative overflow-hidden flex items-center justify-center">
+                                    {d.slipUrl ? <img src={d.slipUrl} className="w-full h-full object-cover"/> : <div className="text-slate-300 flex flex-col items-center"><Image className="w-8 h-8 mb-1"/><span className="text-xs">No Slip</span></div>}
+                                    <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>
+                                        {d.status}
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <div className="font-black text-lg text-slate-700">{d.amount.toLocaleString()}</div>
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{d.status}</span>
+                                <div className="p-3">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <h4 className="font-bold text-slate-800 text-sm truncate pr-2">{d.donorName}</h4>
+                                        <span className="font-mono font-bold text-indigo-600 text-sm">฿{d.amount.toLocaleString()}</span>
+                                    </div>
+                                    <div className="text-xs text-slate-400 mb-2">{new Date(d.timestamp).toLocaleDateString('th-TH')}</div>
+                                    <div className="flex gap-1 mt-auto">
+                                        {d.status === 'Pending' && <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-1 rounded w-full text-center">รอตรวจสอบ</span>}
+                                        {d.status === 'Verified' && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-1 rounded w-full text-center flex items-center justify-center gap-1"><Check className="w-3 h-3"/> ยืนยันแล้ว</span>}
+                                        {d.status === 'Rejected' && <span className="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded w-full text-center">ปฏิเสธ</span>}
+                                    </div>
                                 </div>
                             </div>
-                            {d.isEdonation && <div className="mt-2 pl-2 flex items-center gap-1 text-xs text-blue-600 font-bold bg-blue-50 w-fit px-2 py-1 rounded"><FileCheck className="w-3 h-3"/> e-Donation Request</div>}
-                        </div>
-                    ))}
-                    {donationList.length === 0 && <div className="col-span-full text-center py-12 text-slate-400">ไม่มีรายการบริจาค</div>}
-                </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 text-slate-500 border-b">
+                                <tr>
+                                    <th className="p-3 font-bold">วันที่</th>
+                                    <th className="p-3 font-bold">ผู้บริจาค</th>
+                                    <th className="p-3 font-bold">ยอดเงิน</th>
+                                    <th className="p-3 font-bold">สถานะ</th>
+                                    <th className="p-3 font-bold">ประเภท</th>
+                                    <th className="p-3 font-bold text-right">จัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {donationList.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
+                                    <tr key={d.id} className="hover:bg-slate-50">
+                                        <td className="p-3 text-slate-500">{new Date(d.timestamp).toLocaleDateString('th-TH')}</td>
+                                        <td className="p-3 font-bold text-slate-700">{d.donorName}</td>
+                                        <td className="p-3 font-mono text-indigo-600 font-bold">{d.amount.toLocaleString()}</td>
+                                        <td className="p-3">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                {d.status}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-xs text-slate-500">
+                                            {d.isEdonation ? <span className="flex items-center gap-1 text-blue-600"><FileCheck className="w-3 h-3"/> e-Donation</span> : 'ทั่วไป'}
+                                        </td>
+                                        <td className="p-3 text-right">
+                                            <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
         )}
       </div>

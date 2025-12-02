@@ -243,7 +243,15 @@ function getData() {
   const newsData = read("News");
   const news = [];
   for(let i=1; i<newsData.length; i++) {
-      if(newsData[i][0]) news.push({ id: String(newsData[i][0]), title: newsData[i][1], content: newsData[i][2], imageUrl: toLh3Link(newsData[i][3]), timestamp: Number(newsData[i][4]), documentUrl: newsData[i][5] || '', tournamentId: newsData[i][6] || 'global' });
+      if(newsData[i][0]) news.push({ 
+        id: String(newsData[i][0]), 
+        title: newsData[i][1], 
+        content: newsData[i][2], 
+        imageUrl: toLh3Link(newsData[i][3]), 
+        timestamp: Number(newsData[i][4]), 
+        documentUrl: newsData[i][5] || '', 
+        tournamentId: newsData[i][6] ? String(newsData[i][6]) : 'global' 
+      });
   }
 
   const schoolData = read("Schools");
