@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
@@ -332,8 +329,8 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
       // 4. Central Icon: Vector Heart (Gold)
       const centerX = width / 2;
-      const heartY = 150; // Move up significantly to avoid overlap with text
-      const heartSize = 1.8; // Reduced size (from 2.5) to avoid overlap
+      const heartY = 130; // Move up significantly to avoid overlap with text (Updated)
+      const heartSize = 1.7; // Reduced size (Updated) to avoid overlap
       
       ctx.save();
       ctx.translate(centerX, heartY);
@@ -431,11 +428,11 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           } catch (e) {}
       }
 
-      // ID (Bottom Left) - Enlarged
+      // ID (Bottom Left) - Enlarged and Position Adjusted
       ctx.textAlign = 'left';
       ctx.fillStyle = '#64748b'; // Slate-500 for better visibility
-      ctx.font = 'bold 24px monospace'; // Larger font 24px
-      ctx.fillText(`ID: ${donation.id}`, 40, height - 30);
+      ctx.font = 'bold 24px monospace'; // Large font
+      ctx.fillText(`ID: ${donation.id}`, 40, height - 40); // Move up to ensure visibility
 
       // Download
       const link = document.createElement('a');
@@ -1655,7 +1652,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                             shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName); 
                                         }} 
                                         className="absolute top-2 left-2 p-1.5 bg-white/80 hover:bg-green-500 text-slate-500 hover:text-white rounded-full shadow-sm z-10 transition backdrop-blur-sm border border-slate-100"
-                                        title="แชร์ Flex Message"
+                                        title="แชร์อนุโมทนาบุญ (Flex Message)"
                                     >
                                         <Share2 className="w-4 h-4" />
                                     </button>
@@ -1709,7 +1706,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                         </td>
                                         <td className="p-3 text-right">
                                             <div className="flex justify-end gap-1">
-                                                <button onClick={() => shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName)} className="text-slate-400 hover:text-green-600 p-1 rounded border hover:bg-green-50 transition"><Share2 className="w-4 h-4"/></button>
+                                                <button onClick={() => shareDonation(d, currentTournament ? currentTournament.name : settings.competitionName)} className="text-slate-400 hover:text-green-600 p-1 rounded border hover:bg-green-50 transition" title="แชร์อนุโมทนาบุญ"><Share2 className="w-4 h-4"/></button>
                                                 <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
                                             </div>
                                         </td>
