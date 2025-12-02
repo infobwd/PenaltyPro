@@ -216,7 +216,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           if (selectedDonation && selectedDonation.id === donationId) {
               setSelectedDonation(prev => prev ? { ...prev, status } : null);
           }
-          handleLocalRefresh();
+          setTimeout(() => handleLocalRefresh(), 1000);
       } else {
           notify("ผิดพลาด", "บันทึกไม่สำเร็จ", "error");
       }
@@ -256,26 +256,29 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       setIsVerifyingDonation(true);
       try {
           const base64 = await fileToBase64(adminTaxFile);
-          const success = await updateDonationDetails(selectedDonation.id, { taxFile: base64 });
+          // Don't wait for result if no-cors, or assume true.
+          await updateDonationDetails(selectedDonation.id, { taxFile: base64 });
           
-          if (success) {
-              notify("สำเร็จ", "อัปโหลดไฟล์ e-Donation เรียบร้อย", "success");
-              setAdminTaxFile(null); // Clear file after success
-              
-              // Force refresh to get new data and update modal
+          notify("กำลังบันทึก", "ระบบกำลังอัปโหลดไฟล์...", "info");
+          setAdminTaxFile(null);
+
+          // Delay refresh to allow backend processing
+          setTimeout(async () => {
               const data = await fetchDatabase();
               if (data) {
                   setDonationList(data.donations);
                   const updated = data.donations.find(d => d.id === selectedDonation.id);
-                  if (updated) setSelectedDonation(updated);
+                  if (updated) {
+                      setSelectedDonation(updated);
+                      notify("สำเร็จ", "อัปโหลดไฟล์ e-Donation เรียบร้อย", "success");
+                  }
               }
-          } else {
-              notify("ผิดพลาด", "อัปโหลดไม่สำเร็จ", "error");
-          }
+              setIsVerifyingDonation(false);
+          }, 3000); // 3 seconds delay for file upload
+
       } catch (error) {
           console.error(error);
           notify("ผิดพลาด", "เกิดข้อผิดพลาดในการอัปโหลด", "error");
-      } finally {
           setIsVerifyingDonation(false);
       }
   };
@@ -473,8 +476,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       try { 
           await updateTeamStatus(teamId, status, group, reason); 
           notify("สำเร็จ", status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย", "success"); 
-          // Reload data as requested
-          await handleLocalRefresh();
+          // Delay reload to ensure server processing
+          setTimeout(() => {
+              handleLocalRefresh();
+          }, 1500);
       } catch (e) { 
           console.error(e); 
           notify("ผิดพลาด", "บันทึกสถานะไม่สำเร็จ", "error"); 
@@ -556,13 +561,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
       try {
           const combinedColors = JSON.stringify([editPrimaryColor, editSecondaryColor]);
           
-          // Note: TeamEditModal already handles files and colors packing, 
-          // but we might need to handle status if it changed.
-          // TeamEditModal calls this prop with final data.
-          
           await updateTeamData(updatedTeam, updatedPlayers);
           
-          // Also call updateTeamStatus if status changed in modal
           if (updatedTeam.status !== selectedTeam?.status) {
               await updateTeamStatus(updatedTeam.id, updatedTeam.status as any, updatedTeam.group, '');
           }
@@ -574,8 +574,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           setEditForm(null); // Close modal
           notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success");
           
-          // Reload data
-          await handleLocalRefresh();
+          // Delay reload to ensure server processing
+          setTimeout(() => {
+              handleLocalRefresh();
+          }, 2000);
       } catch (error) { console.error(error); notify("ผิดพลาด", "เกิดข้อผิดพลาดในการบันทึก", "error"); } finally { setIsSavingTeam(false); }
   };
   
@@ -794,17 +796,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           </div>
       )}
 
-      {/* TEAM EDIT MODAL - Now using imported component logic but embedded within AdminDashboard to manage local state directly? No, cleaner to use the imported component. But the original code had an embedded modal. I will replace it with the imported component to be consistent with App.tsx, OR fix the embedded one. Given the complexity of local state management in AdminDashboard, I will keep the embedded one but add isAdmin support and fix the status saving. */}
-      {/* Wait, I should import TeamEditModal from components to avoid duplication. */}
-      {/* However, for minimal changes as requested, and since I already modified TeamEditModal component, I should use it here too if possible. */}
-      {/* But AdminDashboard has complex local state management for the form. */}
-      {/* To satisfy "Fix undefined variable", I will use the imported TeamEditModal component. */}
       {editForm && formData && (
         <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
-             {/* Reusing the Logic but using the imported component would require refactoring all state handling. I'll stick to fixing the embedded modal logic to include status saving and proper display. */}
-             {/* Actually, replacing it with the imported component is cleaner. Let's try to use the imported TeamEditModal. */}
-             {/* But wait, AdminDashboard manages `editForm` state which is complex. */}
-             {/* Let's fix the embedded modal to save status correctly and use isAdmin check. */}
             <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="bg-indigo-900 text-white p-4 flex justify-between items-center shrink-0">
