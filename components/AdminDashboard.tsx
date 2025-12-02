@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2 } from 'lucide-react';
-import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase } from '../services/sheetService';
+import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
 import { shareNews } from '../services/liffService';
 import confetti from 'canvas-confetti';
 
@@ -77,6 +77,12 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   // Teams Filter State
   const [filterStatus, setFilterStatus] = useState<string>('All');
 
+  // Search States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [newsSearch, setNewsSearch] = useState('');
+  const [donationSearch, setDonationSearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+
   // Draw Logic State
   const [isDrawModalOpen, setIsDrawModalOpen] = useState(false);
   const [drawGroupCount, setDrawGroupCount] = useState(4);
@@ -103,7 +109,6 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [isEditingTeam, setIsEditingTeam] = useState(false);
   const [modalTab, setModalTab] = useState<'info' | 'players' | 'docs'>('info'); 
@@ -408,6 +413,13 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           await updateTeamStatus(currentTeam.id, 'Rejected', currentTeam.group, rejectReasonInput);
       }, "บันทึกการไม่อนุมัติเรียบร้อย", "กำลังบันทึกสถานะ...");
   };
+  
+  const handleDeleteTeam = async (teamId: string) => {
+      if (!confirm("คุณแน่ใจหรือไม่ที่จะลบทีมนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+      executeWithReload(async () => {
+          await deleteTeam(teamId);
+      }, "ลบทีมเรียบร้อย", "กำลังลบข้อมูลทีม...");
+  };
 
   // ... [Draw Logic methods] ...
   const prepareLiveDraw = () => {
@@ -596,6 +608,24 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           setNewsForm({ ...newsForm, docFile: e.target.files[0] });
       }
   };
+
+  // Filtered Lists for other tabs
+  const filteredNews = localNews.filter(n => {
+      const matchesContext = !currentTournament || n.tournamentId === 'global' || String(n.tournamentId) === String(currentTournament.id);
+      const matchesSearch = n.title.toLowerCase().includes(newsSearch.toLowerCase()) || n.content.toLowerCase().includes(newsSearch.toLowerCase());
+      return matchesContext && matchesSearch;
+  });
+
+  const filteredDonations = donationList.filter(d => {
+      const matchesContext = !currentTournament || String(d.tournamentId) === String(currentTournament.id);
+      const matchesSearch = d.donorName.toLowerCase().includes(donationSearch.toLowerCase()) || d.phone.includes(donationSearch);
+      return matchesContext && matchesSearch;
+  });
+
+  const filteredUsers = userList.filter(u => {
+      const s = userSearch.toLowerCase();
+      return (u.displayName || '').toLowerCase().includes(s) || (u.username || '').toLowerCase().includes(s) || (u.phoneNumber || '').includes(s);
+  });
 
   const formData = editForm?.team;
 
@@ -1242,7 +1272,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                     <div className="p-4 bg-slate-50 min-h-[400px]">
                         {viewMode === 'list' ? (
                             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
-                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
+                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button><button onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-red-200"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -1278,9 +1308,14 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                                 </button>
                                             </div>
                                             
-                                            <button onClick={() => setSelectedTeam(team)} className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition text-xs font-bold flex items-center justify-center gap-1">
-                                                <Edit3 className="w-3 h-3"/> จัดการทีม / แก้ไข
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => setSelectedTeam(team)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition text-xs font-bold flex items-center justify-center gap-1">
+                                                    <Edit3 className="w-3 h-3"/> จัดการ
+                                                </button>
+                                                <button onClick={() => handleDeleteTeam(team.id)} className="w-10 flex items-center justify-center py-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-lg transition border border-red-100">
+                                                    <Trash2 className="w-4 h-4"/>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
@@ -1317,29 +1352,35 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
             <div className="animate-in fade-in duration-300 max-w-4xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
-                    <button 
-                        onClick={() => { 
-                            // Default to current tournament if available, otherwise global
-                            const defaultTournamentId = currentTournament ? currentTournament.id : 'global';
-                            setNewsForm({ 
-                                id: null, 
-                                title: '', 
-                                content: '', 
-                                imageFile: null, 
-                                imagePreview: null, 
-                                docFile: null, 
-                                tournamentId: defaultTournamentId 
-                            }); 
-                            setIsNewsModalOpen(true); 
-                        }} 
-                        className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"
-                    >
-                        <Plus className="w-4 h-4"/> เพิ่มข่าว
-                    </button>
+                    <div className="flex gap-2 items-center">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input type="text" placeholder="ค้นหาข่าว..." value={newsSearch} onChange={e => setNewsSearch(e.target.value)} className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
+                        </div>
+                        <button 
+                            onClick={() => { 
+                                // Default to current tournament if available, otherwise global
+                                const defaultTournamentId = currentTournament ? currentTournament.id : 'global';
+                                setNewsForm({ 
+                                    id: null, 
+                                    title: '', 
+                                    content: '', 
+                                    imageFile: null, 
+                                    imagePreview: null, 
+                                    docFile: null, 
+                                    tournamentId: defaultTournamentId 
+                                }); 
+                                setIsNewsModalOpen(true); 
+                            }} 
+                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"
+                        >
+                            <Plus className="w-4 h-4"/> เพิ่มข่าว
+                        </button>
+                    </div>
                 </div>
 
                 <div className="space-y-4">
-                    {localNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : localNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
+                    {filteredNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : filteredNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
                         // Find Target Name for Display with explicit string conversion
                         const isGlobal = !item.tournamentId || item.tournamentId === 'global';
                         
@@ -1394,7 +1435,11 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
             <div className="animate-in fade-in duration-300">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><UserCog className="w-6 h-6 text-indigo-600" /> จัดการผู้ใช้งาน ({userList.length})</h2>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input type="text" placeholder="ค้นหาผู้ใช้..." value={userSearch} onChange={e => setUserSearch(e.target.value)} className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
+                        </div>
                         <button onClick={() => handleOpenUserModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm shadow-md"><UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
                         <button onClick={() => loadUsers()} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><RefreshCw className="w-4 h-4"/></button>
                     </div>
@@ -1416,10 +1461,10 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                             <tbody className="divide-y divide-slate-100 text-sm">
                                 {isLoadingUsers ? (
                                     <tr><td colSpan={6} className="p-8 text-center text-slate-400"><Loader2 className="w-6 h-6 animate-spin mx-auto"/></td></tr>
-                                ) : userList.length === 0 ? (
+                                ) : filteredUsers.length === 0 ? (
                                     <tr><td colSpan={6} className="p-8 text-center text-slate-400 italic">ไม่พบผู้ใช้งาน</td></tr>
                                 ) : (
-                                    userList.map((user, idx) => (
+                                    filteredUsers.map((user, idx) => (
                                         <tr key={user.userId} className="hover:bg-slate-50 transition">
                                             <td className="p-4 text-slate-400">{idx + 1}</td>
                                             <td className="p-4">
@@ -1456,8 +1501,12 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
         {activeTab === 'donations' && (
             <div className="animate-in fade-in duration-300">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><DollarSign className="w-6 h-6 text-green-600" /> ตรวจสอบยอดบริจาค ({donationList.length})</h2>
-                    <div className="flex gap-2">
+                    <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><DollarSign className="w-6 h-6 text-green-600" /> ตรวจสอบยอดบริจาค ({filteredDonations.length})</h2>
+                    <div className="flex gap-2 items-center">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                            <input type="text" placeholder="ค้นหาผู้บริจาค/เบอร์..." value={donationSearch} onChange={e => setDonationSearch(e.target.value)} className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
+                        </div>
                         <div className="flex bg-white border border-slate-200 rounded-lg p-1">
                             <button onClick={() => setDonationViewMode('grid')} className={`p-1.5 rounded ${donationViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
                             <button onClick={() => setDonationViewMode('list')} className={`p-1.5 rounded ${donationViewMode === 'list' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
@@ -1466,11 +1515,11 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                     </div>
                 </div>
 
-                {donationList.length === 0 ? (
+                {filteredDonations.length === 0 ? (
                     <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ยังไม่มีรายการบริจาค</div>
                 ) : donationViewMode === 'grid' ? (
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {donationList.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
+                        {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
                             <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col" onClick={() => setSelectedDonation(d)}>
                                 <div className="h-32 bg-slate-100 relative overflow-hidden flex items-center justify-center">
                                     {d.slipUrl ? <img src={d.slipUrl} className="w-full h-full object-cover"/> : <div className="text-slate-300 flex flex-col items-center"><Image className="w-8 h-8 mb-1"/><span className="text-xs">No Slip</span></div>}
@@ -1507,7 +1556,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {donationList.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
+                                {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
                                     <tr key={d.id} className="hover:bg-slate-50">
                                         <td className="p-3 text-slate-500">{new Date(d.timestamp).toLocaleDateString('th-TH')}</td>
                                         <td className="p-3 font-bold text-slate-700">{d.donorName}</td>
