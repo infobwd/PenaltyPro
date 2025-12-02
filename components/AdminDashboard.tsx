@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2 } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase } from '../services/sheetService';
+import { shareNews } from '../services/liffService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -15,6 +16,7 @@ interface AdminDashboardProps {
   showNotification?: (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   initialTeamId?: string | null;
   currentTournament?: Tournament;
+  tournaments?: Tournament[];
   donations?: Donation[];
   isLoading?: boolean;
 }
@@ -43,7 +45,7 @@ const AdminSkeleton = () => (
   </div>
 );
 
-export default function AdminDashboard({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, donations = [], isLoading }: AdminDashboardProps) {
+export default function AdminDashboard({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, tournaments = [], donations = [], isLoading }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>('teams');
   const [localTeams, setLocalTeams] = useState<Team[]>(initialTeams);
   const [localPlayers, setLocalPlayers] = useState<Player[]>(initialPlayers);
@@ -116,7 +118,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   // News Form with Tournament ID
   const [newsForm, setNewsForm] = useState<{ id: string | null, title: string, content: string, imageFile: File | null, imagePreview: string | null, docFile: File | null, tournamentId: string }>({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' });
   const [isSavingNews, setIsSavingNews] = useState(false);
-  const [isEditingNews, setIsEditingNews] = useState(false);
+  const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
   
   // News Delete Confirmation
   const [newsToDelete, setNewsToDelete] = useState<string | null>(null);
@@ -507,9 +509,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           docFile: null,
           tournamentId: item.tournamentId || 'global' 
       }); 
-      setIsEditingNews(true); 
-      const formElement = document.getElementById('news-form-anchor'); 
-      if (formElement) formElement.scrollIntoView({ behavior: 'smooth' }); 
+      setIsNewsModalOpen(true);
   };
 
   const handleSaveNews = async () => { 
@@ -517,7 +517,9 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       if (newsForm.imageFile && !validateFile(newsForm.imageFile, 'image')) return;
       if (newsForm.docFile && !validateFile(newsForm.docFile, 'doc')) return;
       
-      setIsSavingNews(true); 
+      const isEditing = !!newsForm.id;
+      setIsNewsModalOpen(false); // Close first for UX
+      
       executeWithReload(async () => {
           // Async file processing first
           const imageBase64 = newsForm.imageFile ? await fileToBase64(newsForm.imageFile) : undefined; 
@@ -533,12 +535,10 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
               documentUrl: docBase64
           }; 
           
-          const action = isEditingNews ? 'edit' : 'add'; 
+          const action = isEditing ? 'edit' : 'add'; 
           await manageNews(action, newsData); 
           setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' }); 
-          setIsEditingNews(false); 
-      }, isEditingNews ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย");
-      setIsSavingNews(false);
+      }, isEditing ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย");
   };
   
   const triggerDeleteNews = (id: string) => { 
@@ -960,6 +960,86 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           </div>
       )}
 
+      {/* NEWS MANAGEMENT MODAL */}
+      {isNewsModalOpen && (
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 animate-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                      <h3 className="font-bold text-lg text-indigo-900">{newsForm.id ? 'แก้ไขข่าว' : 'เพิ่มข่าวใหม่'}</h3>
+                      <button onClick={() => setIsNewsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                  </div>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label>
+                          <input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg" />
+                      </div>
+                      
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">เป้าหมายการแสดงผล (Target Audience)</label>
+                          <select 
+                              value={newsForm.tournamentId} 
+                              onChange={e => setNewsForm({...newsForm, tournamentId: e.target.value})}
+                              className="w-full p-2 border rounded-lg bg-white"
+                          >
+                              <option value="global">Global (แสดงทุกรายการ)</option>
+                              {tournaments.length > 0 && <optgroup label="Specific Tournament">
+                                  {tournaments.map(t => (
+                                      <option key={t.id} value={t.id}>{t.name}</option>
+                                  ))}
+                              </optgroup>}
+                          </select>
+                          <p className="text-xs text-slate-400 mt-1">เลือก 'Global' เพื่อให้ข่าวนี้แสดงในทุกหน้า หรือเลือกรายการเฉพาะเจาะจง</p>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหา</label>
+                          <textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg h-32" />
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-sm font-bold text-slate-700 mb-1">รูปภาพประกอบ</label>
+                              <div className="flex items-center gap-4">
+                                  {newsForm.imagePreview ? (
+                                      <div className="relative">
+                                          <img src={newsForm.imagePreview} className="w-20 h-20 object-cover rounded-lg border"/>
+                                          <button onClick={() => setNewsForm({...newsForm, imagePreview: null, imageFile: null})} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"><X className="w-3 h-3"/></button>
+                                      </div>
+                                  ) : (
+                                      <div className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 border border-dashed border-slate-300">No Image</div>
+                                  )}
+                                  <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-xs hover:bg-slate-100 transition">
+                                      เลือกรูปภาพ
+                                      <input type="file" accept="image/*" onChange={handleNewsImageChange} className="hidden"/>
+                                  </label>
+                              </div>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-bold text-slate-700 mb-1">เอกสารแนบ (PDF)</label>
+                              <div className="flex items-center gap-4">
+                                  {newsForm.docFile ? (
+                                      <div className="text-xs bg-indigo-50 px-2 py-1 rounded text-indigo-700 font-bold flex items-center gap-1">
+                                          <FileText className="w-3 h-3"/> {newsForm.docFile.name}
+                                      </div>
+                                  ) : <div className="text-xs text-slate-400 italic">ไม่มีไฟล์แนบ</div>}
+                                  <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-xs hover:bg-slate-100 transition">
+                                      เลือกไฟล์ PDF
+                                      <input type="file" accept=".pdf,.doc,.docx" onChange={handleNewsDocChange} className="hidden"/>
+                                  </label>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-6 border-t mt-4">
+                      <button onClick={() => setIsNewsModalOpen(false)} className="px-4 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold text-sm">ยกเลิก</button>
+                      <button onClick={handleSaveNews} disabled={isSavingNews} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200">
+                          {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Save className="w-4 h-4"/> บันทึก</>}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* REJECT MODAL */}
       {rejectModal.isOpen && (
           <div className="fixed inset-0 z-[1300] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -1061,7 +1141,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                       className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-xs hover:bg-green-700 transition flex items-center gap-1 shadow-sm"
                                   >
                                       {isVerifyingDonation ? <Loader2 className="w-3 h-3 animate-spin"/> : <Save className="w-3 h-3"/>}
-                                      บันทึก
+                                      อัปโหลด
                                   </button>
                               )}
                           </div>
@@ -1213,42 +1293,23 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
             <div className="animate-in fade-in duration-300 max-w-4xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
-                    <button onClick={() => { setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: currentTournament ? currentTournament.id : 'global' }); setIsEditingNews(true); setTimeout(() => document.getElementById('news-form-anchor')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"><Plus className="w-4 h-4"/> เพิ่มข่าว</button>
+                    <button onClick={() => { setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: currentTournament ? currentTournament.id : 'global' }); setIsNewsModalOpen(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm"><Plus className="w-4 h-4"/> เพิ่มข่าว</button>
                 </div>
-
-                {isEditingNews && (
-                    <div id="news-form-anchor" className="bg-white p-6 rounded-xl shadow-lg border border-indigo-100 mb-8 animate-in slide-in-from-top-4">
-                        <div className="flex justify-between items-center mb-4 border-b pb-2">
-                            <h3 className="font-bold text-lg text-indigo-900">{newsForm.id ? 'แก้ไขข่าว' : 'เพิ่มข่าวใหม่'}</h3>
-                            <button onClick={() => setIsEditingNews(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
-                        </div>
-                        <div className="space-y-4">
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label><input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหา</label><textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg h-32" /></div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className="block text-sm font-bold text-slate-700 mb-1">รูปภาพประกอบ</label><div className="flex items-center gap-4">{newsForm.imagePreview && <img src={newsForm.imagePreview} className="w-20 h-20 object-cover rounded-lg border"/>}<input type="file" accept="image/*" onChange={handleNewsImageChange} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
-                                <div><label className="block text-sm font-bold text-slate-700 mb-1">เอกสารแนบ (PDF)</label><div className="flex items-center gap-4">{newsForm.docFile && <div className="text-xs bg-indigo-50 px-2 py-1 rounded text-indigo-700 font-bold">{newsForm.docFile.name}</div>}<input type="file" accept=".pdf,.doc,.docx" onChange={handleNewsDocChange} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
-                            </div>
-                            <div className="flex justify-end gap-2 pt-4">
-                                <button onClick={() => setIsEditingNews(false)} className="px-4 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold text-sm">ยกเลิก</button>
-                                <button onClick={handleSaveNews} disabled={isSavingNews} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold text-sm flex items-center gap-2">
-                                    {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : 'บันทึก'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 <div className="space-y-4">
                     {localNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : localNews.sort((a,b) => b.timestamp - a.timestamp).map(item => (
                         <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
-                            <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0">
+                            <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0 relative">
                                 {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
+                                <div className={`absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full font-bold ${item.tournamentId === 'global' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'}`}>
+                                    {item.tournamentId === 'global' ? 'Global' : 'Specific'}
+                                </div>
                             </div>
                             <div className="flex-1">
                                 <div className="flex justify-between items-start mb-2">
                                     <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
                                     <div className="flex items-center gap-1">
+                                        <button onClick={() => shareNews(item)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"><Share2 className="w-4 h-4"/></button>
                                         <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
                                         <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
                                     </div>
@@ -1257,7 +1318,6 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                                 <div className="flex items-center gap-4 text-xs text-slate-400">
                                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
                                     {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
-                                    {item.tournamentId === 'global' ? <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">Global</span> : <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Specific</span>}
                                 </div>
                             </div>
                         </div>
