@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Team, Player } from '../types';
 import { X, Save, Loader2, User, Plus, Trash2, Camera, FileText, Image as ImageIcon, CreditCard, ExternalLink, Shield, MapPin, Phone } from 'lucide-react';
@@ -200,9 +201,15 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1">สถานะ (Admin Only)</label>
-                            <div className={`w-full p-3 border rounded-lg text-sm bg-slate-50 font-bold ${formData.status === 'Approved' ? 'text-green-600' : formData.status === 'Rejected' ? 'text-red-600' : 'text-yellow-600'}`}>
-                                {formData.status}
-                            </div>
+                            <select
+                                value={formData.status}
+                                onChange={e => setFormData({...formData, status: e.target.value as any})}
+                                className={`w-full p-3 border rounded-lg text-sm font-bold ${formData.status === 'Approved' ? 'text-green-600 bg-green-50 border-green-200' : formData.status === 'Rejected' ? 'text-red-600 bg-red-50 border-red-200' : 'text-yellow-600 bg-yellow-50 border-yellow-200'}`}
+                            >
+                                <option value="Pending">Pending (รออนุมัติ)</option>
+                                <option value="Approved">Approved (อนุมัติ)</option>
+                                <option value="Rejected">Rejected (ปฏิเสธ)</option>
+                            </select>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 mb-1">อำเภอ</label>

@@ -1,6 +1,8 @@
 
 
 
+
+
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -522,7 +524,7 @@ function App() {
       {currentView === 'tournament' && <TournamentView key={viewKey} teams={activeTeams} matches={activeMatches} onSelectMatch={handleStartMatchRequest} onBack={() => setCurrentView('home')} isAdmin={isAdmin} onRefresh={loadData} onLoginClick={() => setIsLoginOpen(true)} isLoading={isLoadingData} showNotification={showNotification} tournamentId={currentTournamentId} />}
       {currentView === 'schedule' && ( <ScheduleList key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => setCurrentView('home')} isAdmin={isAdmin} isLoading={isLoadingData} onRefresh={loadData} showNotification={showNotification} onStartMatch={handleStartMatchRequest} config={effectiveSettings} initialMatchId={initialMatchId} currentTournamentId={currentTournamentId} /> )}
       {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} />}
-      {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); setCurrentView('home'); }} onRefresh={loadData} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} donations={donations} /> )}
+      {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); setCurrentView('home'); }} onRefresh={loadData} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} donations={donations} isLoading={isLoadingData} /> )}
 
       {currentView === 'match' && matchState && (
         <div className="min-h-screen bg-slate-900 pb-20">

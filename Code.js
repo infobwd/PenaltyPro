@@ -47,6 +47,7 @@ function doPost(e) {
     else if (action === 'verifyDonation') return verifyDonation(data.donationId, data.status);
     else if (action === 'updateDonationDetails') return updateDonationDetails(data);
     else if (action === 'updateUserRole') return updateUserRole(data.userId, data.role);
+    else if (action === 'deleteTeam') return deleteTeam(data.teamId); // Added handler
     // User CRUD
     else if (action === 'createUser') return createUser(data);
     else if (action === 'updateUserDetails') return updateUserDetails(data);
@@ -415,6 +416,33 @@ function updateTeamData(team, players) {
       }
   }
 
+  return successResponse({ status: 'success' });
+}
+
+function deleteTeam(teamId) {
+  const ss = getSpreadsheet();
+  let teamSheet = ss.getSheetByName("Teams");
+  let playerSheet = ss.getSheetByName("Players");
+  
+  if (!teamSheet) return errorResponse("Team sheet missing");
+
+  const tData = teamSheet.getDataRange().getValues();
+  for (let i = 1; i < tData.length; i++) {
+    if (String(tData[i][0]) === String(teamId)) {
+      teamSheet.deleteRow(i + 1);
+      break;
+    }
+  }
+  
+  if (playerSheet) {
+      const pData = playerSheet.getDataRange().getValues();
+      // Loop backwards to safely delete multiple rows
+      for (let i = pData.length - 1; i >= 1; i--) {
+        if (String(pData[i][1]) === String(teamId)) {
+          playerSheet.deleteRow(i + 1);
+        }
+      }
+  }
   return successResponse({ status: 'success' });
 }
 

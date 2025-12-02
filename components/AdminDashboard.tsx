@@ -16,12 +16,13 @@ interface AdminDashboardProps {
   initialTeamId?: string | null;
   currentTournament?: Tournament;
   donations?: Donation[];
+  isLoading?: boolean;
 }
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 const MAX_DOC_SIZE = 3 * 1024 * 1024;   // 3MB
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, donations = [] }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, donations = [], isLoading }) => {
   const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>('teams');
   const [localTeams, setLocalTeams] = useState<Team[]>(initialTeams);
   const [localPlayers, setLocalPlayers] = useState<Player[]>(initialPlayers);
@@ -536,6 +537,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
               docUrl: docBase64
           };
 
+          // Optimistic status update from Edit Modal
+          if (finalTeamData.status !== selectedTeam?.status) {
+              await updateTeamStatus(finalTeamData.id, finalTeamData.status as any, finalTeamData.group, '');
+          }
+
           await updateTeamData(finalTeamData, editForm.players);
           setLocalTeams(prev => prev.map(t => t.id === finalTeamData.id ? finalTeamData : t));
           setLocalPlayers(prev => { const others = prev.filter(p => p.teamId !== finalTeamData.id); return [...others, ...editForm.players]; });
@@ -543,7 +549,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
           setIsEditingTeam(false); 
           setEditForm(null); // Close modal
           notify("สำเร็จ", "บันทึกผลการแก้ไขแล้ว", "success"); 
-          onRefresh();
+          // Do not full refresh
       } catch (error) { console.error(error); notify("ผิดพลาด", "เกิดข้อผิดพลาดในการบันทึก", "error"); } finally { setIsSavingTeam(false); }
   };
   
@@ -1158,7 +1164,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teams: initialTeams, pl
                     <div className="p-4 bg-slate-50 min-h-[400px]">
                         {viewMode === 'list' ? (
                             <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
-                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right"><button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:underline text-xs">ดูข้อมูล</button></td></tr>))}</tbody></table>
+                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
