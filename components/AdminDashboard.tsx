@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
 import { shareNews, shareDonation } from '../services/liffService';
 import confetti from 'canvas-confetti';
@@ -329,8 +330,8 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
       // 4. Central Icon: Vector Heart (Gold)
       const centerX = width / 2;
-      const heartY = 130; // Move up significantly to avoid overlap with text (Updated)
-      const heartSize = 1.7; // Reduced size (Updated) to avoid overlap
+      const heartY = 110; // Moved UP further to ensure NO overlap
+      const heartSize = 1.5; // Reduced Size for safety
       
       ctx.save();
       ctx.translate(centerX, heartY);
@@ -430,9 +431,9 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
       // ID (Bottom Left) - Enlarged and Position Adjusted
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#64748b'; // Slate-500 for better visibility
-      ctx.font = 'bold 24px monospace'; // Large font
-      ctx.fillText(`ID: ${donation.id}`, 40, height - 40); // Move up to ensure visibility
+      ctx.fillStyle = '#1e293b'; // Slate-800 for max readability
+      ctx.font = 'bold 26px monospace'; // Increased font size
+      ctx.fillText(`ID: ${donation.id}`, 40, height - 50); // Move up to ensure visibility
 
       // Download
       const link = document.createElement('a');
