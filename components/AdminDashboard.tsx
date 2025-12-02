@@ -25,7 +25,7 @@ const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 const MAX_DOC_SIZE = 3 * 1024 * 1024;   // 3MB
 
 const AdminSkeleton = () => (
-  <div className="animate-in fade-in duration-300 w-full py-8">
+  <div className="animate-in fade-in duration-300 w-full py-8 opacity-50 pointer-events-none">
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {[1,2,3].map(i => <div key={i} className="h-32 bg-white rounded-xl border border-slate-200 shadow-sm animate-pulse relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-r from-slate-100 via-white to-slate-100 -translate-x-full animate-[shimmer_1.5s_infinite]"></div></div>)}
     </div>
@@ -46,12 +46,19 @@ const AdminSkeleton = () => (
 );
 
 export default function AdminDashboard({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, tournaments = [], donations = [], isLoading }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>('teams');
+  // Tab Persistence Logic
+  const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>(() => {
+      const savedTab = localStorage.getItem('adminActiveTab');
+      return (savedTab as any) || 'teams';
+  });
+
   const [localTeams, setLocalTeams] = useState<Team[]>(initialTeams);
   const [localPlayers, setLocalPlayers] = useState<Player[]>(initialPlayers);
   const [localNews, setLocalNews] = useState<NewsItem[]>(news);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [isReloading, setIsReloading] = useState(false);
+  
+  // Specific Loading State (String message instead of boolean)
+  const [reloadMessage, setReloadMessage] = useState<string | null>(null);
   
   // User Management State
   const [userList, setUserList] = useState<UserProfile[]>([]);
@@ -129,6 +136,11 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   const [rejectModal, setRejectModal] = useState<{ isOpen: boolean, teamId: string | null }>({ isOpen: false, teamId: null });
   const [rejectReasonInput, setRejectReasonInput] = useState('');
 
+  // Persist Active Tab
+  useEffect(() => {
+      localStorage.setItem('adminActiveTab', activeTab);
+  }, [activeTab]);
+
   useEffect(() => {
     setLocalTeams(initialTeams);
     setLocalPlayers(initialPlayers);
@@ -156,7 +168,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
   };
 
   const handleLocalRefresh = async () => {
-      setIsReloading(true);
+      setReloadMessage("กำลังโหลดข้อมูลล่าสุด...");
       try {
           await onRefresh();
           notify("รีเฟรชข้อมูล", "โหลดข้อมูลล่าสุดเรียบร้อย", "info");
@@ -164,13 +176,13 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           console.error(e);
           notify("ผิดพลาด", "รีเฟรชข้อมูลไม่สำเร็จ", "error");
       } finally {
-          setIsReloading(false);
+          setReloadMessage(null);
       }
   };
 
-  // Helper for reload sequence
-  const executeWithReload = async (action: () => Promise<void>, successMsg: string) => {
-      setIsReloading(true);
+  // Helper for reload sequence with specific message
+  const executeWithReload = async (action: () => Promise<void>, successMsg: string, loadingMsg: string) => {
+      setReloadMessage(loadingMsg);
       try {
           await action();
           await onRefresh(); // Sync from backend
@@ -179,7 +191,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           console.error(error);
           notify("ผิดพลาด", error.message || "เกิดข้อผิดพลาดในการบันทึก", "error");
       } finally {
-          setIsReloading(false);
+          setReloadMessage(null);
       }
   };
 
@@ -214,7 +226,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           if (!success) throw new Error("Backend operation failed");
           // Also reload user list explicitly
           await loadUsers();
-      }, editingUser ? "แก้ไขข้อมูลผู้ใช้เรียบร้อย" : "สร้างผู้ใช้ใหม่เรียบร้อย");
+      }, editingUser ? "แก้ไขข้อมูลผู้ใช้เรียบร้อย" : "สร้างผู้ใช้ใหม่เรียบร้อย", editingUser ? "กำลังแก้ไขผู้ใช้..." : "กำลังสร้างผู้ใช้...");
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -223,13 +235,13 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           const success = await deleteUser(userId);
           if (!success) throw new Error("Failed to delete");
           await loadUsers();
-      }, "ลบผู้ใช้เรียบร้อย");
+      }, "ลบผู้ใช้เรียบร้อย", "กำลังลบผู้ใช้...");
   };
 
   const handleVerifyDonation = async (donationId: string, status: 'Verified' | 'Rejected') => {
       executeWithReload(async () => {
           await verifyDonation(donationId, status);
-      }, `อัปเดตสถานะเป็น ${status} เรียบร้อย`);
+      }, `อัปเดตสถานะเป็น ${status} เรียบร้อย`, "กำลังอัปเดตสถานะการเงิน...");
   };
 
   const handleUpdateDonationAnonymous = async (isAnon: boolean) => {
@@ -239,7 +251,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       
       executeWithReload(async () => {
           await updateDonationDetails(selectedDonation.id, { isAnonymous: isAnon });
-      }, "อัปเดตสถานะการแสดงชื่อเรียบร้อย");
+      }, "อัปเดตสถานะการแสดงชื่อเรียบร้อย", "กำลังอัปเดตข้อมูล...");
   };
 
   const handleTaxFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -382,7 +394,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       
       executeWithReload(async () => {
           await updateTeamStatus(teamId, status, currentTeam.group, '');
-      }, status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย");
+      }, status === 'Approved' ? "อนุมัติทีมเรียบร้อย" : "บันทึกการไม่อนุมัติเรียบร้อย", "กำลังอัปเดตสถานะทีม...");
   };
 
   const confirmReject = async () => {
@@ -394,7 +406,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       
       executeWithReload(async () => {
           await updateTeamStatus(currentTeam.id, 'Rejected', currentTeam.group, rejectReasonInput);
-      }, "บันทึกการไม่อนุมัติเรียบร้อย");
+      }, "บันทึกการไม่อนุมัติเรียบร้อย", "กำลังบันทึกสถานะ...");
   };
 
   // ... [Draw Logic methods] ...
@@ -429,7 +441,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           const promises = updates.map(u => updateTeamStatus(u.teamId, 'Approved', u.group, '')); 
           await Promise.all(promises); 
           setIsLiveDrawActive(false);
-      }, "อัปเดตกลุ่มการแข่งขันเรียบร้อยแล้ว");
+      }, "อัปเดตกลุ่มการแข่งขันเรียบร้อยแล้ว", "กำลังบันทึกผลการจับฉลาก...");
       
       setIsDrawing(false); 
   };
@@ -448,7 +460,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       setIsSavingSettings(true); 
       executeWithReload(async () => {
           await saveSettings(configForm);
-      }, "บันทึกการตั้งค่าเรียบร้อย");
+      }, "บันทึกการตั้งค่าเรียบร้อย", "กำลังบันทึกการตั้งค่า...");
       setIsSavingSettings(false); 
   };
 
@@ -496,7 +508,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           if (updatedTeam.status !== selectedTeam?.status) {
               await updateTeamStatus(updatedTeam.id, updatedTeam.status as any, updatedTeam.group, '');
           }
-      }, "อัปเดตข้อมูลและรีโหลดเรียบร้อย");
+      }, "อัปเดตข้อมูลและรีโหลดเรียบร้อย", "กำลังอัปเดตข้อมูลทีม...");
   };
   
   const handleEditNews = (item: NewsItem) => { 
@@ -538,7 +550,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           const action = isEditing ? 'edit' : 'add'; 
           await manageNews(action, newsData); 
           setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' }); 
-      }, isEditing ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย");
+      }, isEditing ? "แก้ไขข่าวเรียบร้อย" : "เพิ่มข่าวเรียบร้อย", isEditing ? "กำลังแก้ไขข่าว..." : "กำลังเพิ่มข่าว...");
   };
   
   const triggerDeleteNews = (id: string) => { 
@@ -551,7 +563,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       executeWithReload(async () => {
           await manageNews('delete', { id: newsToDelete }); 
           setNewsToDelete(null); 
-      }, "ลบข่าวเรียบร้อย");
+      }, "ลบข่าวเรียบร้อย", "กำลังลบข่าวสาร...");
       setIsDeletingNews(false);
   };
 
@@ -1169,10 +1181,18 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
       {/* Main Content Area */}
       <div className="max-w-7xl mx-auto relative">
-        {/* RELOADING SKELETON OVERLAY */}
-        {isReloading && (
-            <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm rounded-xl p-4 flex items-start justify-center h-full min-h-screen">
+        {/* RELOADING SKELETON OVERLAY with MESSAGE */}
+        {reloadMessage && (
+            <div className="absolute inset-0 z-50 bg-white/90 backdrop-blur-sm rounded-xl p-4 flex items-center justify-center h-full min-h-screen animate-in fade-in duration-300">
                 <AdminSkeleton />
+                <div className="absolute flex flex-col items-center justify-center z-10 bg-white p-8 rounded-2xl shadow-2xl border border-slate-100">
+                    <div className="relative w-16 h-16 mb-4">
+                        <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                        <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 animate-pulse">{reloadMessage}</h3>
+                    <p className="text-sm text-slate-400 mt-2">กรุณารอสักครู่...</p>
+                </div>
             </div>
         )}
 
@@ -1209,7 +1229,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                             <div className="relative flex-1 md:w-64"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" /><input type="text" placeholder="ค้นหาทีม / จังหวัด..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" /></div>
                             <button onClick={downloadCSV} className="flex items-center gap-2 text-sm px-3 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-indigo-700 font-medium"><Download className="w-4 h-4" /> CSV</button>
                             <button onClick={handleLocalRefresh} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 flex items-center gap-1">
-                                {isReloading ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรช
+                                {reloadMessage ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรช
                             </button>
                         </div>
                     </div>
