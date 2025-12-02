@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
@@ -1644,7 +1646,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                             <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col relative group" onClick={() => setSelectedDonation(d)}>
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); shareDonation(d, currentTournament?.name || 'Penalty Pro Arena'); }}
-                                    className="absolute top-2 left-2 p-1.5 bg-white/90 text-indigo-600 rounded-full shadow-md z-10 opacity-0 group-hover:opacity-100 transition-all hover:scale-110"
+                                    className="absolute top-2 left-2 p-1.5 bg-white/90 text-indigo-600 rounded-full shadow-md z-10 transition-all hover:scale-110"
                                     title="แชร์ใบอนุโมทนา"
                                 >
                                     <Share2 className="w-4 h-4" />

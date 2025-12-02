@@ -4,6 +4,7 @@
 
 
 
+
 import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation } from '../types';
 
 declare global {
@@ -99,7 +100,7 @@ export const shareTournament = async (tournament: Tournament, teamCount: number 
     const liffUrl = `https://liff.line.me/${liffId}?tournamentId=${tournament.id}`;
     
     // Simple Alt Text
-    const altText = `เชิญสมัคร: ${tournament.name}`;
+    const altText = `เชิญสมัคร: ${truncate(tournament.name, 100)}`;
 
     // Simple Minimalist Flex Message
     const flexMessage = {
@@ -173,10 +174,12 @@ export const shareDonation = async (donation: Donation, tournamentName: string) 
   // Format info
   const amount = donation.amount.toLocaleString();
   const dateStr = new Date(donation.timestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+  const safeDonorName = truncate(donation.donorName, 50);
+  const safeTournamentName = truncate(tournamentName, 60);
   
   const flexMessage = {
     type: "flex",
-    altText: `อนุโมทนาบุญ: คุณ ${donation.donorName}`,
+    altText: `อนุโมทนาบุญ: คุณ ${safeDonorName}`,
     contents: {
       "type": "bubble",
       "size": "mega",
@@ -194,7 +197,7 @@ export const shareDonation = async (donation: Donation, tournamentName: string) 
         "type": "box",
         "layout": "vertical",
         "contents": [
-           { "type": "text", "text": donation.donorName, "size": "xl", "weight": "bold", "align": "center", "color": "#B45309" },
+           { "type": "text", "text": safeDonorName, "size": "xl", "weight": "bold", "align": "center", "color": "#B45309", "wrap": true },
            { "type": "text", "text": `ยอดบริจาค ${amount} บาท`, "size": "md", "color": "#4b5563", "align": "center", "margin": "sm" }
         ],
         "paddingAll": "xl",
@@ -204,7 +207,7 @@ export const shareDonation = async (donation: Donation, tournamentName: string) 
         "type": "box",
         "layout": "vertical",
         "contents": [
-          { "type": "text", "text": `โครงการ: ${tournamentName}`, "size": "xs", "color": "#64748b", "align": "center", "wrap": true },
+          { "type": "text", "text": `โครงการ: ${safeTournamentName}`, "size": "xs", "color": "#64748b", "align": "center", "wrap": true },
           { "type": "text", "text": `วันที่: ${dateStr}`, "size": "xxs", "color": "#94a3b8", "align": "center", "margin": "md" }
         ]
       },
