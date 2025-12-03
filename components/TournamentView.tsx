@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
 import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus, Download, Image as ImageIcon } from 'lucide-react';
@@ -153,31 +150,44 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
           const originalWidth = element.style.width;
           const originalOverflow = element.style.overflow;
           const originalMinHeight = element.style.minHeight;
+          const originalPadding = element.style.padding;
           
-          // Ensure container expands to fit content completely
+          // Show Export Header & Footer
+          const header = element.querySelector('#bracket-export-header') as HTMLElement;
+          const footer = element.querySelector('#bracket-export-footer') as HTMLElement;
+          if (header) header.style.display = 'block';
+          if (footer) footer.style.display = 'block';
+
+          // Add padding for better look
+          element.style.padding = '40px';
           element.style.width = 'fit-content';
-          element.style.minWidth = `${element.scrollWidth}px`;
+          element.style.minWidth = `${element.scrollWidth + 100}px`;
           element.style.minHeight = `${element.scrollHeight}px`;
           element.style.overflow = 'visible';
+          element.style.backgroundColor = '#f8fafc'; // Ensure background is set
 
           const canvas = await html2canvas(element, {
-              scale: 4, // High Resolution
+              scale: 3, // High Resolution but manageable size
               useCORS: true,
               backgroundColor: '#f8fafc',
               ignoreElements: (el) => el.classList.contains('no-export'),
-              windowWidth: element.scrollWidth, // Ensure capture isn't clipped by viewport
-              windowHeight: element.scrollHeight
+              windowWidth: element.scrollWidth + 100, 
+              windowHeight: element.scrollHeight,
+              logging: false
           });
 
           // Restore styles
           element.style.width = originalWidth;
           element.style.overflow = originalOverflow;
           element.style.minHeight = originalMinHeight;
+          element.style.padding = originalPadding;
+          if (header) header.style.display = 'none';
+          if (footer) footer.style.display = 'none';
 
-          const image = canvas.toDataURL("image/png", 1.0);
+          const image = canvas.toDataURL("image/jpeg", 0.9);
           const link = document.createElement("a");
           link.href = image;
-          link.download = `tournament_bracket_${Date.now()}.png`;
+          link.download = `tournament_bracket_${Date.now()}.jpg`;
           link.click();
           
           if (showNotification) showNotification("สำเร็จ", "ดาวน์โหลดรูปผังการแข่งขันเรียบร้อย", "success");
@@ -459,10 +469,22 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
 
       <div className="flex flex-col lg:flex-row gap-6 flex-1 items-start relative overflow-x-auto">
           
-          <div ref={bracketRef} className="flex-1 w-full pb-10 px-4 pt-4 bg-slate-50 min-h-[600px]">
-             {/* This container div is what gets captured by html2canvas */}
-             <div className="mb-4 text-center hidden" id="bracket-header">
-                 <h2 className="text-2xl font-bold text-slate-800">Tournament Bracket</h2>
+          <div ref={bracketRef} className="flex-1 w-full pb-10 px-4 pt-4 bg-slate-50 min-h-[600px] relative">
+             
+             {/* Hidden Export Header - Visually Appealing */}
+             <div id="bracket-export-header" className="hidden p-8 mb-8 text-center bg-gradient-to-r from-indigo-900 to-slate-900 text-white rounded-3xl shadow-lg border-b-8 border-yellow-400 overflow-hidden relative">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
+                <div className="flex flex-col items-center gap-4 relative z-10">
+                    <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center border-4 border-yellow-400 shadow-xl backdrop-blur-sm">
+                        <Trophy className="w-10 h-10 text-yellow-400 drop-shadow-md" />
+                    </div>
+                    <div>
+                        <h1 className="text-4xl font-black tracking-widest uppercase mb-2 drop-shadow-md font-sans">Official Bracket</h1>
+                        <p className="text-indigo-200 font-medium text-lg flex items-center justify-center gap-2">
+                            <Calendar className="w-5 h-5"/> {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                        </p>
+                    </div>
+                </div>
              </div>
 
              <div className={`flex flex-col gap-8 mx-auto ${isLargeBracket ? 'min-w-[1400px]' : 'min-w-[1100px]'}`}>
@@ -521,6 +543,14 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                      </div>
                  </div>
 
+             </div>
+
+             {/* Hidden Export Footer */}
+             <div id="bracket-export-footer" className="hidden mt-12 text-center">
+                <div className="inline-flex items-center gap-2 px-6 py-3 bg-white rounded-full shadow-md border border-slate-200 text-slate-400 text-sm font-bold tracking-wider">
+                    <img src="https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif" className="w-5 h-5 opacity-50 grayscale" />
+                    <span>POWERED BY PENALTY PRO ARENA</span>
+                </div>
              </div>
           </div>
       </div>
