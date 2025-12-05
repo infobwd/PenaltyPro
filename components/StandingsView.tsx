@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Team, Standing, Match, KickResult, Player, MatchEvent } from '../types'; 
-import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck, Hand, Goal } from 'lucide-react'; 
+import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck, Hand, Goal, Star, ChevronRight } from 'lucide-react'; 
 import PlayerCard from './PlayerCard'; 
 import { shareGroupStandings } from '../services/liffService';
 
@@ -52,6 +52,7 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
   matches.forEach(m => {
     if (!m.winner || m.winner === '') return; 
     const label = m.roundLabel || '';
+    // Process only group matches for the table
     if (!label.toLowerCase().match(/group|กลุ่ม|สาย/)) return;
 
     const teamA = standings[typeof m.teamA === 'object' ? m.teamA.name : m.teamA];
@@ -75,6 +76,10 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
             teamB.won++;
             teamB.points += 3;
             teamA.lost++;
+        } else {
+            // Draw logic if needed (currently winner is forced)
+            teamA.points += 1;
+            teamB.points += 1;
         }
     }
   });
@@ -147,46 +152,49 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
 
       return Object.values(scorerMap).sort((a, b) => {
           if (b.totalGoals !== a.totalGoals) return b.totalGoals - a.totalGoals;
-          return b.regularGoals - a.regularGoals; // Tie-breaker: Regular goals worth more? or just order
+          return b.regularGoals - a.regularGoals;
       }).slice(0, 20); 
   }, [matches, teams]);
 
-  // --- LOGIC: Top Keepers (Golden Glove) ---
+  // --- LOGIC: Top Keepers (Golden Glove & Clean Sheets) ---
   const topKeepers = useMemo(() => {
-      // We don't explicitly store "Keeper Name" in Kicks usually, unless we infer from roster.
-      // But assuming the 'player' field in Kicks is the *Kicker*.
-      // The *Saver* is the goalkeeper of the *Opposing Team*.
-      // Since we don't know the GK name per save easily without complex tracking,
-      // We will aggregate saves by **TEAM**. "Team with most penalty saves".
-      // OR if we want to be fancy, we display "Goalkeeper of [Team Name]".
-      
-      const savesMap: Record<string, { teamName: string, saves: number, teamLogo?: string }> = {};
+      const savesMap: Record<string, { teamName: string, saves: number, cleanSheets: number, teamLogo?: string }> = {};
+
+      // Initialize all approved teams
+      teams.forEach(t => {
+          if(t.status === 'Approved') {
+              savesMap[t.name] = { teamName: t.name, saves: 0, cleanSheets: 0, teamLogo: t.logoUrl };
+          }
+      });
 
       matches.forEach(m => {
+          if (!m.winner) return;
+          const tA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
+          const tB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
+
+          // Clean Sheets Logic (Regular Time)
+          if (savesMap[tA] && m.scoreB === 0) savesMap[tA].cleanSheets += 1;
+          if (savesMap[tB] && m.scoreA === 0) savesMap[tB].cleanSheets += 1;
+
+          // Saves Logic (Penalty Shootouts)
           if (m.kicks) {
               m.kicks.forEach(k => {
                   if (k.result === KickResult.SAVED) {
-                      // Determine the DEFENDING team (The one who saved)
-                      // If kicker is A, saver is B.
-                      const kickerTeam = k.teamId === 'A' || (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === k.teamId ? 'A' : 'B';
-                      const saverTeamSide = kickerTeam === 'A' ? 'B' : 'A';
+                      const kickerTeam = k.teamId === 'A' || tA === k.teamId ? 'A' : 'B';
+                      const saverTeamName = kickerTeam === 'A' ? tB : tA;
                       
-                      const saverTeamName = saverTeamSide === 'A' 
-                          ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)
-                          : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
-                      
-                      const teamObj = teams.find(t => t.name === saverTeamName);
-                      
-                      if (!savesMap[saverTeamName]) {
-                          savesMap[saverTeamName] = { teamName: saverTeamName, saves: 0, teamLogo: teamObj?.logoUrl };
+                      if (savesMap[saverTeamName]) {
+                          savesMap[saverTeamName].saves += 1;
                       }
-                      savesMap[saverTeamName].saves += 1;
                   }
               });
           }
       });
 
-      return Object.values(savesMap).sort((a, b) => b.saves - a.saves).slice(0, 10);
+      return Object.values(savesMap)
+        .filter(k => k.saves > 0 || k.cleanSheets > 0)
+        .sort((a, b) => (b.saves * 2 + b.cleanSheets * 5) - (a.saves * 2 + a.cleanSheets * 5)) // Weighted score
+        .slice(0, 10);
   }, [matches, teams]);
 
   // --- LOGIC: Fair Play ---
@@ -214,15 +222,14 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
           }
       });
 
-      // Filter out teams with 0 points if list is too long, or just show all
       return Object.values(fpMap)
-        .filter(t => true) // Keep all for now
-        .sort((a, b) => a.points - b.points) // Lowest points is better
+        .filter(t => true) 
+        .sort((a, b) => a.points - b.points) 
         .slice(0, 20); 
   }, [matches, teams]);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 pb-24 font-sans">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 pb-24" style={{ fontFamily: "'Kanit', sans-serif" }}>
         <div className="max-w-5xl mx-auto">
             <div className="flex items-center gap-4 mb-6">
                 <button onClick={onBack} className="p-2 bg-white rounded-full shadow-sm hover:bg-slate-100 transition text-slate-600">
@@ -235,28 +242,16 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
 
             {/* Navigation Tabs */}
             <div className="flex overflow-x-auto gap-2 mb-8 pb-2 scrollbar-hide">
-                <button 
-                    onClick={() => setActiveTab('table')}
-                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'table' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
-                >
+                <button onClick={() => setActiveTab('table')} className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'table' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}>
                     <LayoutGrid className="w-4 h-4"/> ตารางคะแนน
                 </button>
-                <button 
-                    onClick={() => setActiveTab('scorers')}
-                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'scorers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
-                >
+                <button onClick={() => setActiveTab('scorers')} className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'scorers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}>
                     <Medal className="w-4 h-4"/> ดาวซัลโว
                 </button>
-                <button 
-                    onClick={() => setActiveTab('keepers')}
-                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'keepers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
-                >
+                <button onClick={() => setActiveTab('keepers')} className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'keepers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}>
                     <Hand className="w-4 h-4"/> จอมหนึบ
                 </button>
-                <button 
-                    onClick={() => setActiveTab('fairplay')}
-                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'fairplay' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
-                >
+                <button onClick={() => setActiveTab('fairplay')} className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'fairplay' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}>
                     <ShieldCheck className="w-4 h-4"/> Fair Play
                 </button>
             </div>
@@ -335,155 +330,207 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                 </div>
             )}
 
-            {/* Content: Top Scorers */}
+            {/* Content: Top Scorers (Enhanced Podium) */}
             {activeTab === 'scorers' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="p-6 bg-gradient-to-r from-yellow-500 to-orange-500 text-white relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
-                        <h2 className="text-xl font-bold flex items-center gap-2 relative z-10"><Medal className="w-6 h-6"/> อันดับดาวซัลโว (Golden Boot)</h2>
-                        <p className="text-white/80 text-sm mt-1 relative z-10">รวมประตูจากเวลาปกติและจุดโทษ</p>
+                <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
+                    <div className="bg-gradient-to-r from-yellow-500 to-amber-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-2xl font-black flex items-center gap-3 relative z-10"><Medal className="w-8 h-8"/> ดาวซัลโว (Golden Boot)</h2>
+                        <p className="text-amber-100 mt-1 relative z-10">สุดยอดนักล่าประตูประจำทัวร์นาเมนต์</p>
                     </div>
+
                     {topScorers.length > 0 ? (
-                        <div className="divide-y divide-slate-100">
-                            {topScorers.map((player, idx) => (
-                                <div key={`${player.name}_${player.teamName}`} className={`flex items-center justify-between p-4 hover:bg-slate-50 transition ${idx < 3 ? 'bg-yellow-50/30' : ''}`}>
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg border-2 ${idx === 0 ? 'bg-yellow-400 text-yellow-900 border-yellow-200 shadow-md' : idx === 1 ? 'bg-slate-300 text-slate-800 border-slate-200' : idx === 2 ? 'bg-orange-300 text-orange-900 border-orange-200' : 'text-slate-400 bg-white border-transparent'}`}>
-                                            {idx + 1}
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-slate-800 text-base flex items-center gap-2">
-                                                {player.name}
-                                                {idx === 0 && <span className="bg-yellow-100 text-yellow-700 text-[9px] px-1.5 py-0.5 rounded font-bold border border-yellow-200">KING</span>}
-                                            </span>
-                                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                                {player.teamLogo && <img src={player.teamLogo} className="w-4 h-4 object-contain" />}
-                                                {player.teamName}
-                                            </div>
-                                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end mb-8">
+                            {/* 2nd Place */}
+                            {topScorers[1] && (
+                                <div className="bg-white rounded-2xl p-4 shadow-md border-b-4 border-slate-300 order-2 md:order-1 flex flex-col items-center">
+                                    <div className="w-8 h-8 bg-slate-200 text-slate-600 rounded-full flex items-center justify-center font-black mb-3">2</div>
+                                    <div className="w-20 h-20 bg-slate-100 rounded-full mb-3 overflow-hidden border-2 border-slate-200">
+                                        {topScorers[1].teamLogo ? <img src={topScorers[1].teamLogo} className="w-full h-full object-contain p-2"/> : <User className="w-full h-full p-4 text-slate-300"/>}
                                     </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="hidden md:flex flex-col items-end text-[10px] text-slate-400 font-medium">
-                                            <span>Reg: {player.regularGoals}</span>
-                                            <span>Pen: {player.penGoals}</span>
-                                        </div>
-                                        <div className="flex flex-col items-center w-12">
-                                            <span className="text-2xl font-black text-indigo-600 leading-none">{player.totalGoals}</span>
-                                            <span className="text-[9px] text-slate-400 uppercase font-bold mt-1">Goals</span>
-                                        </div>
-                                    </div>
+                                    <h3 className="font-bold text-slate-800 text-center">{topScorers[1].name}</h3>
+                                    <p className="text-xs text-slate-500 mb-2">{topScorers[1].teamName}</p>
+                                    <div className="text-3xl font-black text-slate-700">{topScorers[1].totalGoals}</div>
+                                    <p className="text-[10px] text-slate-400">ประตู</p>
                                 </div>
-                            ))}
+                            )}
+                            
+                            {/* 1st Place */}
+                            {topScorers[0] && (
+                                <div className="bg-gradient-to-b from-white to-yellow-50 rounded-2xl p-6 shadow-xl border-b-4 border-yellow-400 order-1 md:order-2 flex flex-col items-center transform md:-translate-y-4 relative">
+                                    <div className="absolute -top-4"><Trophy className="w-8 h-8 text-yellow-500 fill-yellow-500 animate-bounce"/></div>
+                                    <div className="w-24 h-24 bg-yellow-100 rounded-full mb-3 overflow-hidden border-4 border-yellow-400 shadow-inner">
+                                        {topScorers[0].teamLogo ? <img src={topScorers[0].teamLogo} className="w-full h-full object-contain p-2"/> : <User className="w-full h-full p-4 text-yellow-300"/>}
+                                    </div>
+                                    <h3 className="font-black text-xl text-slate-800 text-center">{topScorers[0].name}</h3>
+                                    <p className="text-sm text-slate-500 mb-3">{topScorers[0].teamName}</p>
+                                    <div className="text-5xl font-black text-yellow-500 drop-shadow-sm">{topScorers[0].totalGoals}</div>
+                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Goals</p>
+                                </div>
+                            )}
+
+                            {/* 3rd Place */}
+                            {topScorers[2] && (
+                                <div className="bg-white rounded-2xl p-4 shadow-md border-b-4 border-orange-300 order-3 flex flex-col items-center">
+                                    <div className="w-8 h-8 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center font-black mb-3">3</div>
+                                    <div className="w-20 h-20 bg-orange-50 rounded-full mb-3 overflow-hidden border-2 border-orange-200">
+                                        {topScorers[2].teamLogo ? <img src={topScorers[2].teamLogo} className="w-full h-full object-contain p-2"/> : <User className="w-full h-full p-4 text-orange-200"/>}
+                                    </div>
+                                    <h3 className="font-bold text-slate-800 text-center">{topScorers[2].name}</h3>
+                                    <p className="text-xs text-slate-500 mb-2">{topScorers[2].teamName}</p>
+                                    <div className="text-3xl font-black text-orange-500">{topScorers[2].totalGoals}</div>
+                                    <p className="text-[10px] text-slate-400">ประตู</p>
+                                </div>
+                            )}
                         </div>
                     ) : (
-                        <div className="p-12 text-center text-slate-400">ยังไม่มีการทำประตูเกิดขึ้น</div>
+                        <div className="p-12 text-center text-slate-400 bg-white rounded-xl border-dashed border-2 border-slate-200">ยังไม่มีการทำประตูเกิดขึ้น</div>
+                    )}
+
+                    {/* List for the rest */}
+                    {topScorers.length > 3 && (
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="bg-slate-50 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider">อันดับอื่นๆ</div>
+                            <div className="divide-y divide-slate-100">
+                                {topScorers.slice(3).map((player, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-6 text-center font-bold text-slate-400">{idx + 4}</div>
+                                            <div className="flex flex-col">
+                                                <span className="font-bold text-slate-800">{player.name}</span>
+                                                <div className="flex items-center gap-1 text-xs text-slate-500">
+                                                    {player.teamLogo && <img src={player.teamLogo} className="w-3 h-3 object-contain"/>}
+                                                    {player.teamName}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="text-right text-[10px] text-slate-400">
+                                                <div>Reg: {player.regularGoals}</div>
+                                                <div>Pen: {player.penGoals}</div>
+                                            </div>
+                                            <span className="text-xl font-bold text-indigo-600 w-8 text-center">{player.totalGoals}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     )}
                 </div>
             )}
 
-            {/* Content: Top Keepers (NEW) */}
+            {/* Content: Top Keepers */}
             {activeTab === 'keepers' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="p-6 bg-gradient-to-r from-blue-500 to-cyan-500 text-white relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
-                        <h2 className="text-xl font-bold flex items-center gap-2 relative z-10"><Hand className="w-6 h-6"/> จอมหนึบ (Golden Glove)</h2>
-                        <p className="text-white/80 text-sm mt-1 relative z-10">สถิติการเซฟจุดโทษ (นับรวมเป็นทีม)</p>
+                <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
+                    <div className="bg-gradient-to-r from-blue-600 to-cyan-500 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-2xl font-black flex items-center gap-3 relative z-10"><Hand className="w-8 h-8"/> จอมหนึบ (Golden Glove)</h2>
+                        <p className="text-blue-100 mt-1 relative z-10">ผู้รักษาประตูที่ทำผลงานยอดเยี่ยมที่สุด</p>
                     </div>
-                    {topKeepers.length > 0 ? (
-                        <div className="divide-y divide-slate-100">
-                            {topKeepers.map((keeperTeam, idx) => (
-                                <div key={keeperTeam.teamName} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm text-slate-500 bg-slate-100`}>
-                                            {idx + 1}
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            {keeperTeam.teamLogo ? <img src={keeperTeam.teamLogo} className="w-10 h-10 object-contain rounded-lg bg-slate-50 p-0.5" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">{keeperTeam.teamName.substring(0,1)}</div>}
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-slate-800 text-base">ผู้รักษาประตู {keeperTeam.teamName}</span>
-                                                <span className="text-xs text-slate-400">Team Saves</span>
-                                            </div>
-                                        </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {topKeepers.map((keeperTeam, idx) => (
+                            <div key={idx} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition group">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${idx === 0 ? 'bg-yellow-100 text-yellow-600' : 'bg-slate-100 text-slate-500'}`}>
+                                        {idx + 1}
                                     </div>
-                                    <div className="flex flex-col items-center w-16 bg-slate-50 rounded-lg p-1 border border-slate-100">
-                                        <span className="text-xl font-black text-blue-600">{keeperTeam.saves}</span>
-                                        <span className="text-[9px] text-slate-400 uppercase font-bold">Saves</span>
+                                    <div className="flex items-center gap-3">
+                                        {keeperTeam.teamLogo ? <img src={keeperTeam.teamLogo} className="w-12 h-12 object-contain rounded-xl bg-slate-50 p-1" /> : <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center font-bold text-slate-400">{keeperTeam.teamName.substring(0,1)}</div>}
+                                        <div>
+                                            <h3 className="font-bold text-slate-800">ผู้รักษาประตู</h3>
+                                            <p className="text-xs text-slate-500">{keeperTeam.teamName}</p>
+                                        </div>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-2">
-                            <Hand className="w-12 h-12 opacity-20"/>
-                            <span>ยังไม่มีการเซฟจุดโทษ</span>
-                        </div>
-                    )}
+                                <div className="flex gap-3">
+                                    {keeperTeam.cleanSheets > 0 && (
+                                        <div className="flex flex-col items-center bg-green-50 p-2 rounded-lg border border-green-100">
+                                            <span className="text-lg font-black text-green-600">{keeperTeam.cleanSheets}</span>
+                                            <span className="text-[9px] text-green-500 font-bold uppercase">Clean Sheets</span>
+                                        </div>
+                                    )}
+                                    {keeperTeam.saves > 0 && (
+                                        <div className="flex flex-col items-center bg-blue-50 p-2 rounded-lg border border-blue-100">
+                                            <span className="text-lg font-black text-blue-600">{keeperTeam.saves}</span>
+                                            <span className="text-[9px] text-blue-500 font-bold uppercase">PK Saves</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        {topKeepers.length === 0 && (
+                            <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-xl border-dashed border-2 border-slate-200">ยังไม่มีข้อมูลการเซฟหรือคลีนชีต</div>
+                        )}
+                    </div>
                 </div>
             )}
 
             {/* Content: Fair Play */}
             {activeTab === 'fairplay' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="p-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
-                        <h2 className="text-xl font-bold flex items-center gap-2 relative z-10"><ShieldCheck className="w-6 h-6"/> คะแนน Fair Play</h2>
-                        <p className="text-white/80 text-sm mt-1 relative z-10">คะแนนน้อย = มารยาทดี (เหลือง=1, แดง=3)</p>
+                <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
+                    <div className="bg-gradient-to-r from-emerald-500 to-green-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-2xl font-black flex items-center gap-3 relative z-10"><ShieldCheck className="w-8 h-8"/> คะแนน Fair Play</h2>
+                        <p className="text-green-100 mt-1 relative z-10">ทีมที่มีน้ำใจนักกีฬา (คะแนนน้อย = มารยาทดี)</p>
                     </div>
-                    {fairPlayRankings.length > 0 ? (
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-slate-50 p-3 flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <span>ทีม</span>
+                            <div className="flex gap-4 pr-2">
+                                <span className="w-8 text-center text-yellow-600">Yellow</span>
+                                <span className="w-8 text-center text-red-600">Red</span>
+                                <span className="w-12 text-center text-slate-700">Pts</span>
+                            </div>
+                        </div>
                         <div className="divide-y divide-slate-100">
                             {fairPlayRankings.map((fp, idx) => (
                                 <div key={fp.team.id} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${idx < 3 ? 'text-green-600 bg-green-100' : 'text-slate-400 bg-slate-100'}`}>
+                                        <div className={`w-6 text-center font-bold text-sm ${idx < 3 ? 'text-green-600' : 'text-slate-400'}`}>
                                             {idx + 1}
                                         </div>
                                         <div className="flex items-center gap-3">
-                                            {fp.team.logoUrl ? <img src={fp.team.logoUrl} className="w-10 h-10 object-contain" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">{fp.team.shortName}</div>}
-                                            <span className="font-bold text-slate-800 text-base">{fp.team.name}</span>
+                                            {fp.team.logoUrl ? <img src={fp.team.logoUrl} className="w-8 h-8 object-contain" /> : <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">{fp.team.shortName}</div>}
+                                            <span className="font-bold text-slate-800 text-sm md:text-base">{fp.team.name}</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-4 md:gap-8">
-                                        <div className="flex items-center gap-2 text-sm">
-                                            <div className="flex flex-col items-center w-8">
-                                                <div className="w-3 h-4 bg-yellow-400 rounded-[1px] shadow-sm mb-1"></div>
-                                                <span className="font-bold text-slate-600">{fp.yellow}</span>
-                                            </div>
-                                            <div className="flex flex-col items-center w-8">
-                                                <div className="w-3 h-4 bg-red-500 rounded-[1px] shadow-sm mb-1"></div>
-                                                <span className="font-bold text-slate-600">{fp.red}</span>
-                                            </div>
+                                    <div className="flex gap-4">
+                                        <div className="w-8 flex justify-center">
+                                            {fp.yellow > 0 ? <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold">{fp.yellow}</span> : <span className="text-slate-200">-</span>}
                                         </div>
-                                        <div className="text-center w-12 bg-slate-50 rounded-lg p-1 border border-slate-100">
-                                            <span className="block text-xl font-black text-slate-700">{fp.points}</span>
-                                            <span className="block text-[9px] text-slate-400 uppercase font-bold">Pts</span>
+                                        <div className="w-8 flex justify-center">
+                                            {fp.red > 0 ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">{fp.red}</span> : <span className="text-slate-200">-</span>}
+                                        </div>
+                                        <div className="w-12 text-center font-mono font-black text-slate-700 text-lg">
+                                            {fp.points}
                                         </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
-                    ) : (
-                        <div className="p-12 text-center text-slate-400">ยังไม่มีข้อมูลใบเหลือง/แดง</div>
-                    )}
+                    </div>
                 </div>
             )}
 
             {/* Match History (Always Visible) */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-8">
+            <div className="mt-12 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-8">
                 <div className="p-4 bg-slate-800 text-white font-bold flex items-center gap-2 sticky top-0 z-10">
                     <Calendar className="w-5 h-5" /> ผลการแข่งขันล่าสุด
                 </div>
-                <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto custom-scrollbar">
+                <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto custom-scrollbar">
                     {matches.length === 0 ? (
                          <div className="p-8 text-center text-slate-400">ยังไม่มีบันทึกการแข่งขัน</div>
                     ) : (
                         matches.slice().reverse().map((m, idx) => (
                             <div key={idx} className="p-4 flex flex-col md:flex-row items-center justify-between hover:bg-slate-50 gap-4">
                                 <div className="flex items-center justify-center gap-6 flex-1">
-                                    <div className="text-right flex-1 font-bold text-slate-700">{typeof m.teamA === 'string' ? m.teamA : m.teamA.name}</div>
+                                    <div className="text-right flex-1 font-bold text-slate-700 truncate">{typeof m.teamA === 'string' ? m.teamA : m.teamA.name}</div>
                                     <div className="bg-slate-100 px-4 py-2 rounded-lg font-mono font-bold text-xl text-indigo-600 shadow-inner border border-slate-200">
                                         {m.scoreA} - {m.scoreB}
                                     </div>
-                                    <div className="text-left flex-1 font-bold text-slate-700">{typeof m.teamB === 'string' ? m.teamB : m.teamB.name}</div>
+                                    <div className="text-left flex-1 font-bold text-slate-700 truncate">{typeof m.teamB === 'string' ? m.teamB : m.teamB.name}</div>
                                 </div>
                                 <div className="text-xs text-slate-400 md:w-32 text-center">
                                     {new Date(m.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit'})}
@@ -570,16 +617,17 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
         .sort((a, b) => b.goals - a.goals);
 
     return (
-        <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose} style={{ fontFamily: "'Kanit', sans-serif" }}>
             {cardPlayer && (
                 <PlayerCard player={cardPlayer} team={team} onClose={() => setCardPlayer(null)} />
             )}
 
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
-                <div className="bg-slate-900 p-6 text-white relative shrink-0">
-                    <button onClick={onClose} className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 p-2 rounded-full transition"><X className="w-5 h-5"/></button>
-                    <div className="flex flex-col items-center">
+                <div className="bg-slate-900 p-6 text-white relative shrink-0 overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-slate-900 opacity-50"></div>
+                    <button onClick={onClose} className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 p-2 rounded-full transition z-10"><X className="w-5 h-5"/></button>
+                    <div className="flex flex-col items-center relative z-10">
                         {team.logoUrl ? (
                             <img src={team.logoUrl} className="w-20 h-20 bg-white rounded-2xl p-1 mb-3 shadow-lg object-contain" />
                         ) : (
@@ -588,12 +636,12 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
                             </div>
                         )}
                         <h2 className="text-xl font-bold text-center">{team.name}</h2>
-                        {team.group && <span className="mt-1 px-3 py-1 bg-indigo-600 rounded-full text-xs font-bold shadow-sm">Group {team.group}</span>}
+                        {team.group && <span className="mt-1 px-3 py-1 bg-indigo-600 rounded-full text-xs font-bold shadow-sm border border-indigo-400">Group {team.group}</span>}
                     </div>
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b shrink-0 overflow-x-auto">
+                <div className="flex border-b shrink-0 overflow-x-auto scrollbar-hide">
                     <button onClick={() => setTab('info')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'info' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}><Info className="w-4 h-4"/> ข้อมูล</button>
                     <button onClick={() => setTab('form')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}><History className="w-4 h-4"/> ฟอร์ม</button>
                     <button onClick={() => setTab('stats')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'stats' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4"/> สถิติ</button>
@@ -617,11 +665,11 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
                                     <div><span className="text-slate-400 text-xs block">ผอ.โรงเรียน</span>{team.directorName || '-'}</div>
                                     <div className="flex justify-between">
                                         <div><span className="text-slate-400 text-xs block">ผู้จัดการทีม</span>{team.managerName || '-'}</div>
-                                        {team.managerPhone && <a href={`tel:${team.managerPhone}`} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs flex items-center gap-1 h-fit"><Phone className="w-3 h-3"/> โทร</a>}
+                                        {team.managerPhone && <a href={`tel:${team.managerPhone}`} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs flex items-center gap-1 h-fit hover:bg-indigo-100"><Phone className="w-3 h-3"/> โทร</a>}
                                     </div>
                                     <div className="flex justify-between">
                                         <div><span className="text-slate-400 text-xs block">ผู้ฝึกสอน</span>{team.coachName || '-'}</div>
-                                        {team.coachPhone && <a href={`tel:${team.coachPhone}`} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs flex items-center gap-1 h-fit"><Phone className="w-3 h-3"/> โทร</a>}
+                                        {team.coachPhone && <a href={`tel:${team.coachPhone}`} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs flex items-center gap-1 h-fit hover:bg-indigo-100"><Phone className="w-3 h-3"/> โทร</a>}
                                     </div>
                                 </div>
                             </div>
@@ -638,25 +686,26 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
                                         const myScore = isHome ? m.scoreA : m.scoreB;
                                         const opScore = isHome ? m.scoreB : m.scoreA;
                                         const isWin = (m.winner === 'A' && isHome) || (m.winner === 'B' && !isHome) || (m.winner === team.name);
+                                        const isDraw = !m.winner || m.winner === 'Draw';
                                         
                                         return (
                                             <div key={m.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
                                                 <div className="flex items-center gap-3">
-                                                    <div className={`w-2 h-10 rounded-full ${isWin ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                                    <div className={`w-1.5 h-10 rounded-full ${isWin ? 'bg-green-500' : isDraw ? 'bg-slate-400' : 'bg-red-500'}`}></div>
                                                     <div>
                                                         <div className="text-xs text-slate-400">{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})} • {m.roundLabel?.split(':')[0]}</div>
                                                         <div className="font-bold text-slate-700 text-sm">vs {opponent}</div>
                                                     </div>
                                                 </div>
-                                                <div className={`text-xl font-mono font-black ${isWin ? 'text-green-600' : 'text-slate-400'}`}>
+                                                <div className={`text-xl font-mono font-black ${isWin ? 'text-green-600' : isDraw ? 'text-slate-600' : 'text-red-500'}`}>
                                                     {myScore}-{opScore}
                                                 </div>
                                             </div>
                                         );
                                     })}
                                     {teamMatches.length > formLimit && (
-                                        <button onClick={() => setFormLimit(prev => prev + 5)} className="w-full py-2 text-xs text-slate-500 bg-slate-200 rounded-lg hover:bg-slate-300 font-bold">
-                                            ดูเพิ่มเติม
+                                        <button onClick={() => setFormLimit(prev => prev + 5)} className="w-full py-2 text-xs text-slate-500 bg-slate-200 rounded-lg hover:bg-slate-300 font-bold transition">
+                                            ดูย้อนหลังเพิ่มเติม
                                         </button>
                                     )}
                                 </>
@@ -714,8 +763,8 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
                                                 <User className="w-full h-full p-3 text-slate-400" />
                                             )}
                                         </div>
-                                        <div className="text-center">
-                                            <div className="font-bold text-slate-800 text-sm truncate w-24">{p.name}</div>
+                                        <div className="text-center w-full">
+                                            <div className="font-bold text-slate-800 text-sm truncate w-full">{p.name}</div>
                                             <div className="text-xs text-slate-500">#{p.number}</div>
                                         </div>
                                     </button>
