@@ -1,5 +1,4 @@
-
-import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation } from '../types';
+import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation, TournamentPrize } from '../types';
 
 declare global {
   interface Window {
@@ -186,4 +185,56 @@ export const shareDonation = async (donation: Donation, tournamentName: string) 
   } catch (error: any) { 
       alert(`แชร์ไม่สำเร็จ: ${error.message}`); 
   }
+};
+
+export const sharePrizeSummary = async (tournamentName: string, prizes: TournamentPrize[], teams: Team[]) => {
+    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
+
+    const prizeRows = prizes.map(p => {
+        let winnerName = "-";
+        if (p.winnerTeamId) {
+            const team = teams.find(t => t.id === p.winnerTeamId);
+            if (team) winnerName = team.name;
+        }
+        
+        return {
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                { "type": "text", "text": truncate(p.rankLabel, 15), "size": "xs", "color": "#334155", "flex": 2, "weight": "bold" },
+                { "type": "text", "text": truncate(winnerName, 20), "size": "xs", "color": "#16a34a", "flex": 3, "align": "end", "weight": "bold" },
+                { "type": "text", "text": p.amount ? `${parseInt(p.amount.replace(/,/g, '')).toLocaleString()}` : "", "size": "xxs", "color": "#94a3b8", "flex": 2, "align": "end" }
+            ],
+            "margin": "sm"
+        };
+    });
+
+    const flexMessage = {
+        type: "flex",
+        altText: `สรุปผลการแข่งขัน: ${truncate(tournamentName, 30)}`,
+        contents: {
+            "type": "bubble",
+            "size": "mega",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    { "type": "text", "text": "OFFICIAL RESULTS", "weight": "bold", "color": "#ca8a04", "size": "xxs", "align": "center", "letterSpacing": "1px" },
+                    { "type": "text", "text": truncate(tournamentName, 40), "weight": "bold", "size": "lg", "align": "center", "wrap": true, "margin": "sm", "color": "#1e293b" },
+                    { "type": "separator", "margin": "lg" },
+                    { 
+                        "type": "box", 
+                        "layout": "vertical", 
+                        "margin": "lg", 
+                        "contents": prizeRows.length > 0 ? prizeRows : [{ "type": "text", "text": "ยังไม่มีการประกาศผล", "size": "sm", "color": "#94a3b8", "align": "center" }]
+                    },
+                    { "type": "separator", "margin": "lg" },
+                    { "type": "text", "text": "Penalty Pro Arena", "size": "xxs", "color": "#cbd5e1", "align": "center", "margin": "md" }
+                ],
+                "paddingAll": "xl"
+            }
+        }
+    };
+
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
 };

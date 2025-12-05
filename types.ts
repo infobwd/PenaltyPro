@@ -1,6 +1,3 @@
-
-
-
 export enum KickResult {
   GOAL = 'GOAL',
   SAVED = 'SAVED',
@@ -60,6 +57,7 @@ export interface TournamentPrize {
   rankLabel: string; 
   amount: string; 
   description?: string;
+  winnerTeamId?: string; // ID of the winning team
 }
 
 export interface TournamentConfig {

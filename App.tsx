@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -20,7 +19,7 @@ import DonationDialog from './components/DonationDialog';
 import TeamEditModal from './components/TeamEditModal';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
-import { initializeLiff } from './services/liffService';
+import { initializeLiff, sharePrizeSummary } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -88,7 +87,7 @@ const LoadingScreen = () => {
   );
 };
 
-function App() {
+export default function App() {
   const [currentView, setCurrentView] = useState<string>('home');
   const [viewKey, setViewKey] = useState<number>(0); 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -416,6 +415,10 @@ function App() {
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
   const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(true); setCurrentView('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
   const handleUpdateRegularMatchState = (state: MatchState) => { };
+
+  const handleSharePrizeSummary = () => {
+      sharePrizeSummary(activeTournament?.name || "Tournament Results", prizes, activeTeams);
+  };
 
   if (isLoadingData) {
       return <LoadingScreen />;
@@ -810,24 +813,41 @@ function App() {
 
               {prizes.length > 0 && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-                      <div className="bg-gradient-to-r from-yellow-500 to-amber-500 p-4 text-white">
+                      <div className="bg-gradient-to-r from-yellow-500 to-amber-500 p-4 text-white flex justify-between items-center">
                           <h3 className="font-bold text-lg flex items-center gap-2"><Trophy className="w-6 h-6 text-white" /> รางวัลการแข่งขัน</h3>
+                          <button onClick={() => handleSharePrizeSummary()} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-full backdrop-blur-sm transition flex items-center gap-1 font-bold">
+                              <Share2 className="w-3 h-3" /> แชร์ผล
+                          </button>
                       </div>
                       <div className="p-0">
-                          {prizes.map((prize, idx) => (
-                              <div key={idx} className="flex items-center justify-between p-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition">
-                                  <div className="flex items-center gap-4">
-                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center bg-yellow-100 text-yellow-600 font-bold`}>
-                                          {prize.rankLabel.replace(/[^0-9]/g, '') || (idx + 1)}
+                          {prizes.map((prize, idx) => {
+                              let winnerTeam = null;
+                              if (prize.winnerTeamId) {
+                                  winnerTeam = activeTeams.find(t => t.id === prize.winnerTeamId);
+                              }
+                              
+                              return (
+                                  <div key={idx} className="flex items-center justify-between p-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition">
+                                      <div className="flex items-center gap-4 flex-1">
+                                          <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center bg-yellow-100 text-yellow-600 font-bold shadow-sm`}>
+                                              {prize.rankLabel.replace(/[^0-9]/g, '') || (idx + 1)}
+                                          </div>
+                                          <div className="min-w-0">
+                                              <div className="font-bold text-slate-800 text-sm">{prize.rankLabel}</div>
+                                              {winnerTeam ? (
+                                                  <div className="flex items-center gap-1 mt-1 animate-in fade-in">
+                                                      {winnerTeam.logoUrl && <img src={winnerTeam.logoUrl} className="w-4 h-4 object-contain" />}
+                                                      <span className="text-sm font-bold text-green-600 truncate">{winnerTeam.name}</span>
+                                                  </div>
+                                              ) : (
+                                                  prize.description && <div className="text-xs text-slate-500 truncate">{prize.description}</div>
+                                              )}
+                                          </div>
                                       </div>
-                                      <div>
-                                          <div className="font-bold text-slate-800">{prize.rankLabel}</div>
-                                          {prize.description && <div className="text-xs text-slate-500">{prize.description}</div>}
-                                      </div>
+                                      <div className="font-bold text-indigo-600 text-lg">{prize.amount}</div>
                                   </div>
-                                  <div className="font-bold text-indigo-600 text-lg">{prize.amount}</div>
-                              </div>
-                          ))}
+                              );
+                          })}
                       </div>
                   </div>
               )}
@@ -877,16 +897,12 @@ function App() {
               )}
 
               <div className="pt-2">
-                  <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                          <Megaphone className="w-5 h-5 text-indigo-600" /> ข่าวสารและประกาศ
-                      </h3>
-                  </div>
                   <NewsFeed 
                       news={newsItems} 
                       isLoading={isLoadingData} 
                       initialNewsId={initialNewsId} 
-                      currentTournamentId={currentTournamentId} 
+                      currentTournamentId={currentTournamentId}
+                      onRefresh={() => loadData(true)} 
                   />
               </div>
           </div>
@@ -897,5 +913,3 @@ function App() {
     </div>
   );
 }
-
-export default App;

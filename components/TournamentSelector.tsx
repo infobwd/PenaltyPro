@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Tournament, TournamentConfig, ProjectImage, TournamentPrize, Team, Donation } from '../types';
 import { Trophy, Plus, ArrowRight, Loader2, Calendar, Target, CheckCircle2, Users, Settings, Edit2, X, Save, ArrowLeft, FileCheck, Clock, Shield, AlertTriangle, Heart, Image as ImageIcon, Trash2, Layout, MapPin, CreditCard, Banknote, Star, Share2, DollarSign, Wallet, FileText, Upload } from 'lucide-react';
@@ -79,6 +76,9 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
 
   // FILTER LOGIC: Show only Active or Upcoming tournaments
   const visibleTournaments = tournaments.filter(t => t.status === 'Active' || t.status === 'Upcoming');
+
+  // Available Teams for selection in Prize Winner dropdown (Only for editing tournament)
+  const availableTeamsForEditing = editingTournament ? teams.filter(t => t.tournamentId === editingTournament.id && t.status === 'Approved') : [];
 
   const notify = (title: string, msg: string, type: 'success' | 'error' | 'info' | 'warning') => {
       if (showNotification) showNotification(title, msg, type);
@@ -302,7 +302,7 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                             const config = t.config ? JSON.parse(t.config) : {};
                             const maxTeams = parseInt(String(config.maxTeams || 0));
                             
-                            // Fee Calculation: Use specific fee if exists, else fallback to defaultFee (global), else 0
+                            // Fee Calculation
                             const configFee = config.registrationFee;
                             const feeToUse = (configFee !== undefined && configFee !== null && configFee !== '') ? configFee : defaultFee;
                             const regFee = parseInt(String(feeToUse || 0).replace(/,/g, '')) || 0;
@@ -332,7 +332,6 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                             }, 0);
 
                             // Financials: Net Raised
-                            // Formula: (Approved Teams * Fee) + Verified Donations - Total Prizes
                             const netRaised = totalIncome - totalPrizes;
                             const displayNetRaised = Math.max(0, netRaised); 
 
@@ -340,7 +339,7 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                             const goal = parseInt(String(objective.goal || 0).replace(/,/g, ''));
                             const fundProgress = goal > 0 ? Math.min(100, (displayNetRaised / goal) * 100) : 0;
 
-                            // Image Logic - prioritize 'before' image
+                            // Image Logic
                             const beforeImage = objective.images?.find((img: any) => img.type === 'before')?.url;
 
                             return (
@@ -825,21 +824,36 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                                     <h4 className="font-bold text-sm text-slate-700 flex items-center gap-2"><Star className="w-4 h-4 text-yellow-500"/> ตั้งค่าเงินรางวัล</h4>
                                     <button onClick={addPrize} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-100"><Plus className="w-3 h-3"/> เพิ่มรางวัล</button>
                                 </div>
-                                <div className="space-y-2">
+                                <div className="space-y-4">
                                     {editConfig.prizes && editConfig.prizes.length > 0 ? (
                                         editConfig.prizes.map((prize, idx) => (
-                                            <div key={prize.id || idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-lg border border-slate-200">
-                                                <div className="col-span-3">
-                                                    <input type="text" placeholder="อันดับ (เช่น 1, Top Score)" className="w-full p-2 border rounded text-xs" value={prize.rankLabel} onChange={e => updatePrize(prize.id, 'rankLabel', e.target.value)} />
+                                            <div key={prize.id || idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                                <div className="col-span-12 md:col-span-3">
+                                                    <label className="block text-[10px] text-slate-400 mb-1">อันดับ</label>
+                                                    <input type="text" placeholder="อันดับ" className="w-full p-2 border rounded text-xs" value={prize.rankLabel} onChange={e => updatePrize(prize.id, 'rankLabel', e.target.value)} />
                                                 </div>
-                                                <div className="col-span-3">
-                                                    <input type="text" placeholder="รางวัล (เช่น 5,000)" className="w-full p-2 border rounded text-xs font-bold text-green-700" value={prize.amount} onChange={e => updatePrize(prize.id, 'amount', e.target.value)} />
+                                                <div className="col-span-12 md:col-span-3">
+                                                    <label className="block text-[10px] text-slate-400 mb-1">รางวัล</label>
+                                                    <input type="text" placeholder="จำนวนเงิน" className="w-full p-2 border rounded text-xs font-bold text-green-700" value={prize.amount} onChange={e => updatePrize(prize.id, 'amount', e.target.value)} />
                                                 </div>
-                                                <div className="col-span-5">
-                                                    <input type="text" placeholder="รายละเอียดเพิ่มเติม" className="w-full p-2 border rounded text-xs" value={prize.description || ''} onChange={e => updatePrize(prize.id, 'description', e.target.value)} />
+                                                <div className="col-span-12 md:col-span-6">
+                                                    <label className="block text-[10px] text-slate-400 mb-1">ผู้ชนะ (Winner)</label>
+                                                    <select 
+                                                        className="w-full p-2 border rounded text-xs bg-white"
+                                                        value={prize.winnerTeamId || ''}
+                                                        onChange={e => updatePrize(prize.id, 'winnerTeamId', e.target.value)}
+                                                    >
+                                                        <option value="">-- รอผลการแข่งขัน --</option>
+                                                        {availableTeamsForEditing.map(t => (
+                                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                                        ))}
+                                                    </select>
                                                 </div>
-                                                <div className="col-span-1 flex justify-center">
-                                                    <button onClick={() => removePrize(prize.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button>
+                                                <div className="col-span-12 md:col-span-11">
+                                                    <input type="text" placeholder="รายละเอียดเพิ่มเติม" className="w-full p-2 border rounded text-xs mt-1" value={prize.description || ''} onChange={e => updatePrize(prize.id, 'description', e.target.value)} />
+                                                </div>
+                                                <div className="col-span-12 md:col-span-1 flex justify-center md:justify-end mt-2 md:mt-0">
+                                                    <button onClick={() => removePrize(prize.id)} className="text-red-400 hover:text-red-600 p-1 bg-white rounded border border-red-100 hover:bg-red-50 w-full md:w-auto flex justify-center"><Trash2 className="w-4 h-4"/></button>
                                                 </div>
                                             </div>
                                         ))
