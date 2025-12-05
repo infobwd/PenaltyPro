@@ -305,6 +305,8 @@ export interface ContestEntry {
   likeCount: number;
   likedBy: string[]; // Array of UserIDs
   timestamp: string;
+  commentCount?: number;
+  shareCount?: number;
 }
 
 export interface ContestComment {

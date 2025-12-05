@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Contest, ContestEntry, UserProfile, ContestComment } from '../types';
-import { fetchContests, submitContestEntry, toggleEntryLike, fileToBase64, deleteContestEntry, fetchContestComments, submitContestComment } from '../services/sheetService';
+import { fetchContests, submitContestEntry, toggleEntryLike, fileToBase64, deleteContestEntry, fetchContestComments, submitContestComment, incrementShareCount } from '../services/sheetService';
 import { shareContestEntry } from '../services/liffService';
-import { Camera, Heart, Upload, Loader2, X, Plus, Image as ImageIcon, User, AlertCircle, Check, ArrowLeft, Calendar, Clock, Trophy, Flame, Sparkles, Trash2, Info, Link, ExternalLink, MessageCircle, Send, Calculator, Share2 } from 'lucide-react';
+import { Camera, Heart, Upload, Loader2, X, Plus, Image as ImageIcon, User, AlertCircle, Check, ArrowLeft, Calendar, Clock, Trophy, Flame, Sparkles, Trash2, Info, Link, ExternalLink, MessageCircle, Send, Calculator, Share2, Crown, ChevronDown, Facebook, Instagram, Twitter, Youtube, Globe } from 'lucide-react';
 
 interface ContestGalleryProps {
   user: UserProfile | null;
@@ -49,6 +49,18 @@ const compressImage = async (file: File): Promise<File> => {
         };
         reader.onerror = (error) => reject(error);
     });
+};
+
+// Social Media Detection Helper
+const getSocialInfo = (url: string) => {
+    if (!url) return null;
+    const lower = url.toLowerCase();
+    if (lower.includes('facebook.com') || lower.includes('fb.watch')) return { icon: Facebook, color: 'text-blue-600', bg: 'bg-white', name: 'Facebook' };
+    if (lower.includes('instagram.com')) return { icon: Instagram, color: 'text-pink-600', bg: 'bg-white', name: 'Instagram' };
+    if (lower.includes('twitter.com') || lower.includes('x.com')) return { icon: Twitter, color: 'text-sky-500', bg: 'bg-white', name: 'X' };
+    if (lower.includes('youtube.com') || lower.includes('youtu.be')) return { icon: Youtube, color: 'text-red-600', bg: 'bg-white', name: 'Youtube' };
+    if (lower.includes('tiktok.com')) return { icon: Globe, color: 'text-black', bg: 'bg-white', name: 'TikTok' };
+    return null; // Regular link or uploaded file
 };
 
 const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, showNotification }) => {
@@ -174,6 +186,10 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
               userPic: user.pictureUrl || '',
               message: newComment.message
           });
+          
+          // Optimistically update comment count in list view
+          setAllEntries(prev => prev.map(e => e.id === selectedEntry.id ? { ...e, commentCount: (e.commentCount || 0) + 1 } : e));
+          
       } catch (e) {
           showNotification("ผิดพลาด", "ส่งความคิดเห็นไม่สำเร็จ", "error");
       } finally {
@@ -197,8 +213,10 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
       return filtered.sort((a, b) => {
           if (sortBy === 'popular') {
               if (b.likeCount !== a.likeCount) return b.likeCount - a.likeCount;
+              // Tie-breaker: Earlier timestamp gets better rank
               return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
           } else {
+              // Latest first
               return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
           }
       });
@@ -208,10 +226,11 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
       return processedEntries.slice(0, page * ITEMS_PER_PAGE);
   }, [processedEntries, page]);
 
-  const topThree = useMemo(() => {
-      // Only show podium in "All" view and "Popular" sort
-      if (!activeContest || sortBy !== 'popular' || filterTab !== 'all' || processedEntries.length < 3) return [];
-      return processedEntries.slice(0, 3).filter(e => e.likeCount > 0);
+  const topTen = useMemo(() => {
+      // Only show top list in "All" view and "Popular" sort
+      if (!activeContest || sortBy !== 'popular' || filterTab !== 'all' || processedEntries.length === 0) return [];
+      // Get top 10 that have at least 1 like
+      return processedEntries.slice(0, 10).filter(e => e.likeCount > 0);
   }, [processedEntries, sortBy, activeContest, filterTab]);
 
   const handleSelectContest = (contest: Contest) => {
@@ -341,6 +360,21 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
     }
   };
 
+  const handleShareClick = async (entry: ContestEntry) => {
+      // 1. Share via LIFF
+      shareContestEntry(entry, activeContest?.title || "Contest Entry");
+      
+      // 2. Increment Share Count (Optimistic)
+      const newCount = (entry.shareCount || 0) + 1;
+      setAllEntries(prev => prev.map(e => e.id === entry.id ? { ...e, shareCount: newCount } : e));
+      if (selectedEntry && selectedEntry.id === entry.id) {
+          setSelectedEntry({ ...selectedEntry, shareCount: newCount });
+      }
+      
+      // 3. Backend Update
+      await incrementShareCount(entry.id);
+  };
+
   const requestDelete = (entry: ContestEntry) => {
       setDeleteModal({ isOpen: true, entryId: entry.id });
   };
@@ -363,11 +397,6 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
       }
   };
 
-  const handleShare = () => {
-      if (!selectedEntry || !activeContest) return;
-      shareContestEntry(selectedEntry, activeContest.title);
-  };
-
   const isContestClosed = (c: Contest) => {
       if (c.status === 'Closed') return true;
       if (c.closingDate && new Date() > new Date(c.closingDate)) return true;
@@ -378,18 +407,44 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
   const GalleryImage = ({ src, alt, className }: { src: string, alt?: string, className?: string }) => {
       const [error, setError] = useState(false);
+      const social = getSocialInfo(src);
+      
+      // Fallback for load error or empty src
       if (error || !src) {
           return (
-              <div className={`flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 ${className}`}>
-                  <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
-                  <span className="text-[10px] text-center font-medium">รูปภาพไม่แสดง</span>
-                  <a href={src} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="mt-2 text-[10px] bg-white border border-slate-300 px-2 py-1 rounded-full flex items-center gap-1 hover:text-indigo-600 transition">
-                      <ExternalLink className="w-3 h-3"/> ดูต้นฉบับ
-                  </a>
+              <div className={`flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 ${className} relative overflow-hidden`}>
+                  {social ? (
+                      <div className="flex flex-col items-center gap-2">
+                          <social.icon className={`w-12 h-12 ${social.color}`} />
+                          <span className="text-xs font-bold text-slate-500">เปิดดูใน {social.name}</span>
+                          <a href={src} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="mt-1 text-[10px] bg-white border border-slate-300 px-3 py-1.5 rounded-full flex items-center gap-1 hover:text-indigo-600 transition shadow-sm">
+                              <ExternalLink className="w-3 h-3"/> ไปยังลิงก์
+                          </a>
+                      </div>
+                  ) : (
+                      <>
+                          <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
+                          <span className="text-[10px] text-center font-medium">รูปภาพไม่แสดง</span>
+                          <a href={src} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="mt-2 text-[10px] bg-white border border-slate-300 px-2 py-1 rounded-full flex items-center gap-1 hover:text-indigo-600 transition">
+                              <ExternalLink className="w-3 h-3"/> ดูต้นฉบับ
+                          </a>
+                      </>
+                  )}
               </div>
           );
       }
-      return <img src={src} alt={alt} className={className} loading="lazy" onError={() => setError(true)} />;
+
+      return (
+          <div className="relative w-full h-full group">
+              <img src={src} alt={alt} className={className} loading="lazy" onError={() => setError(true)} />
+              {/* Social Icon Overlay if applicable */}
+              {social && (
+                  <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm p-1.5 rounded-full shadow-md z-10">
+                      <social.icon className={`w-4 h-4 ${social.color}`} />
+                  </div>
+              )}
+          </div>
+      );
   };
 
   if (isLoading && contests.length === 0) {
@@ -573,56 +628,99 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
         </div>
       </div>
 
-      {/* TOP 3 PODIUM (Only on 'All' Tab & 'Popular' Sort) */}
-      {filterTab === 'all' && sortBy === 'popular' && topThree.length > 0 && (
+      {/* TOP 3 PODIUM & LEADERBOARD (Only on 'All' Tab & 'Popular' Sort) */}
+      {filterTab === 'all' && sortBy === 'popular' && topTen.length > 0 && (
           <div className="mb-10 px-4">
-              <h2 className="text-center font-black text-slate-800 mb-6 flex items-center justify-center gap-2 text-xl">
-                  <Trophy className="w-6 h-6 text-yellow-500" /> TOP 3 LEADERS
-              </h2>
-              <div className="flex flex-col md:flex-row items-end justify-center gap-4 md:gap-8 h-auto md:h-64">
+              <div className="text-center mb-24 relative z-20"> {/* Increased margin bottom significantly */}
+                  <h2 className="font-black text-slate-800 flex items-center justify-center gap-2 text-xl">
+                      <Trophy className="w-6 h-6 text-yellow-500" /> LEADERBOARD
+                  </h2>
+                  <div className="inline-flex items-center gap-1.5 mt-2 bg-slate-100 px-3 py-1.5 rounded-full text-[10px] text-slate-500 font-bold border border-slate-200">
+                      <Info className="w-3 h-3 text-indigo-500"/>
+                      <span>กติกา: หากคะแนนเท่ากัน ภาพที่ส่งก่อนจะได้ลำดับที่ดีกว่า</span>
+                  </div>
+              </div>
+
+              {/* Podium 1-3 */}
+              <div className="flex flex-col md:flex-row items-end justify-center gap-4 md:gap-8 h-auto md:h-64 mb-8">
                   {/* 2nd */}
-                  {topThree[1] && (
+                  {topTen[1] && (
                       <div className="order-2 md:order-1 flex flex-col items-center w-full md:w-48 animate-in slide-in-from-bottom-8 duration-700 delay-100">
-                          <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-slate-300 shadow-lg mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topThree[1])}>
-                              <GalleryImage src={topThree[1].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                          <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-slate-300 shadow-lg mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topTen[1])}>
+                              <GalleryImage src={topTen[1].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute top-2 left-2 bg-slate-300 text-slate-700 w-8 h-8 rounded-full flex items-center justify-center font-black text-sm border-2 border-white shadow-sm">2</div>
                               <div className="absolute bottom-0 w-full bg-black/60 backdrop-blur-sm p-2 text-white text-center">
-                                  <p className="text-xs font-bold truncate">{topThree[1].userDisplayName}</p>
-                                  <p className="text-[10px] flex items-center justify-center gap-1"><Heart className="w-3 h-3 fill-pink-500 text-pink-500"/> {topThree[1].likeCount}</p>
+                                  <p className="text-xs font-bold truncate">{topTen[1].userDisplayName}</p>
+                                  <p className="text-[10px] flex items-center justify-center gap-1"><Heart className="w-3 h-3 fill-pink-500 text-pink-500"/> {topTen[1].likeCount}</p>
                               </div>
                           </div>
                           <div className="h-16 w-full bg-slate-200 rounded-t-xl hidden md:block opacity-50"></div>
                       </div>
                   )}
                   {/* 1st */}
-                  {topThree[0] && (
+                  {topTen[0] && (
                       <div className="order-1 md:order-2 flex flex-col items-center w-full md:w-56 animate-in slide-in-from-bottom-8 duration-700 z-10 -mt-8 md:mt-0">
-                          <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-yellow-400 shadow-xl shadow-yellow-200 mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topThree[0])}>
-                              <GalleryImage src={topThree[0].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                          <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-yellow-400 shadow-xl shadow-yellow-200 mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topTen[0])}>
+                              <GalleryImage src={topTen[0].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute top-2 left-2 bg-yellow-400 text-yellow-900 w-10 h-10 rounded-full flex items-center justify-center font-black text-lg border-2 border-white shadow-sm">1</div>
+                              <div className="absolute top-2 right-2 bg-black/50 p-1 rounded-full text-yellow-400"><Crown className="w-4 h-4 fill-yellow-400"/></div>
                               <div className="absolute bottom-0 w-full bg-gradient-to-t from-yellow-900/90 to-transparent p-3 text-white text-center pt-8">
-                                  <p className="text-sm font-bold truncate">{topThree[0].userDisplayName}</p>
-                                  <p className="text-xs flex items-center justify-center gap-1 font-bold"><Heart className="w-3 h-3 fill-white text-white"/> {topThree[0].likeCount}</p>
+                                  <p className="text-sm font-bold truncate">{topTen[0].userDisplayName}</p>
+                                  <p className="text-xs flex items-center justify-center gap-1 font-bold"><Heart className="w-3 h-3 fill-white text-white"/> {topTen[0].likeCount}</p>
                               </div>
                           </div>
                           <div className="h-24 w-full bg-yellow-100 rounded-t-xl hidden md:block opacity-50"></div>
                       </div>
                   )}
                   {/* 3rd */}
-                  {topThree[2] && (
+                  {topTen[2] && (
                       <div className="order-3 flex flex-col items-center w-full md:w-48 animate-in slide-in-from-bottom-8 duration-700 delay-200">
-                          <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-orange-300 shadow-lg mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topThree[2])}>
-                              <GalleryImage src={topThree[2].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                          <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-orange-300 shadow-lg mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topTen[2])}>
+                              <GalleryImage src={topTen[2].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute top-2 left-2 bg-orange-300 text-orange-800 w-8 h-8 rounded-full flex items-center justify-center font-black text-sm border-2 border-white shadow-sm">3</div>
                               <div className="absolute bottom-0 w-full bg-black/60 backdrop-blur-sm p-2 text-white text-center">
-                                  <p className="text-xs font-bold truncate">{topThree[2].userDisplayName}</p>
-                                  <p className="text-xs flex items-center justify-center gap-1"><Heart className="w-3 h-3 fill-pink-500 text-pink-500"/> {topThree[2].likeCount}</p>
+                                  <p className="text-xs font-bold truncate">{topTen[2].userDisplayName}</p>
+                                  <p className="text-xs flex items-center justify-center gap-1"><Heart className="w-3 h-3 fill-pink-500 text-pink-500"/> {topTen[2].likeCount}</p>
                               </div>
                           </div>
                           <div className="h-12 w-full bg-orange-100 rounded-t-xl hidden md:block opacity-50"></div>
                       </div>
                   )}
               </div>
+
+              {/* Ranks 4-10 List */}
+              {topTen.length > 3 && (
+                  <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+                      <div className="bg-slate-50 p-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-center border-b border-slate-200">
+                          Top 4 - 10
+                      </div>
+                      <div className="divide-y divide-slate-50">
+                          {topTen.slice(3, 10).map((entry, index) => (
+                              <div 
+                                  key={entry.id} 
+                                  onClick={() => setSelectedEntry(entry)}
+                                  className="flex items-center gap-4 p-3 hover:bg-slate-50 transition cursor-pointer group"
+                              >
+                                  <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 text-sm shrink-0">
+                                      {index + 4}
+                                  </div>
+                                  <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 border border-slate-200">
+                                      <GalleryImage src={entry.photoUrl} className="w-full h-full object-cover" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                      <div className="font-bold text-sm text-slate-800 truncate">{entry.userDisplayName}</div>
+                                      <div className="text-xs text-slate-400 truncate">{entry.caption || "ไม่มีคำบรรยาย"}</div>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                      <div className="flex items-center gap-1 text-xs font-bold text-pink-500 bg-pink-50 px-2 py-1 rounded-full group-hover:bg-pink-100 transition">
+                                          <Heart className="w-3 h-3 fill-pink-500" /> {entry.likeCount}
+                                      </div>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              )}
           </div>
       )}
 
@@ -673,13 +771,28 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                             <span className="text-[10px] text-slate-400">{new Date(entry.timestamp).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })}</span>
                         </div>
                         
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); handleLike(entry); }}
-                            className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${user && entry.likedBy.includes(user.userId) ? 'bg-pink-50 text-pink-600 border border-pink-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                        >
-                            <Heart className={`w-3.5 h-3.5 transition-transform duration-300 ${user && entry.likedBy.includes(user.userId) ? 'fill-pink-500 scale-110' : ''}`} />
-                            {entry.likeCount > 0 ? `${entry.likeCount}` : 'ถูกใจ'}
-                        </button>
+                        <div className="flex items-center justify-between border-t border-slate-50 pt-2 mt-2">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleLike(entry); }}
+                                className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded transition active:scale-95 ${user && entry.likedBy.includes(user.userId) ? 'text-pink-500 bg-pink-50' : 'text-slate-400 hover:bg-slate-50'}`}
+                            >
+                                <Heart className={`w-3.5 h-3.5 ${user && entry.likedBy.includes(user.userId) ? 'fill-pink-500' : ''}`} />
+                                {entry.likeCount || 0}
+                            </button>
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1 text-[10px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">
+                                    <MessageCircle className="w-3 h-3" />
+                                    {entry.commentCount || 0}
+                                </div>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); handleShareClick(entry); }}
+                                    className="flex items-center gap-1 text-[10px] text-green-600 hover:bg-green-50 px-1.5 py-0.5 rounded transition font-bold"
+                                >
+                                    <Share2 className="w-3 h-3" />
+                                    {entry.shareCount || 0}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             ))}
@@ -819,57 +932,70 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
           </div>
       )}
 
-      {/* View Entry Modal (Lightbox with Comments) */}
+      {/* View Entry Modal (Improved Mobile Layout) */}
       {selectedEntry && (
           <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-md flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-200" onClick={() => setSelectedEntry(null)}>
               <div className="w-full h-full md:max-w-6xl md:h-[90vh] flex flex-col md:flex-row bg-black md:bg-[#1a1a1a] md:rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
                   
-                  <button onClick={() => setSelectedEntry(null)} className="absolute top-4 right-4 md:hidden z-50 bg-black/50 text-white p-2 rounded-full backdrop-blur-md">
+                  <button onClick={() => setSelectedEntry(null)} className="absolute top-4 right-4 z-50 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-white/20 transition">
                       <X className="w-6 h-6" />
                   </button>
 
-                  {/* Left: Image */}
-                  <div className="flex-1 bg-black flex items-center justify-center relative group">
-                      <GalleryImage src={selectedEntry.photoUrl} className="max-w-full max-h-[100vh] md:max-h-[90vh] object-contain" />
+                  {/* Left: Image (Adjusted height for mobile) */}
+                  <div className="h-[50vh] md:h-full md:flex-1 bg-black flex items-center justify-center relative group shrink-0">
+                      <GalleryImage src={selectedEntry.photoUrl} className="w-full h-full object-contain" />
                   </div>
 
-                  {/* Right: Details & Comments */}
-                  <div className="w-full md:w-[400px] bg-white flex flex-col border-l border-slate-800 md:relative absolute bottom-0 rounded-t-3xl md:rounded-none h-[60vh] md:h-full shadow-[0_-10px_40px_rgba(0,0,0,0.5)] md:shadow-none">
-                      
-                      {/* Header Actions */}
-                      <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+                  {/* Right: Details & Comments (Scrollable) */}
+                  <div className="flex-1 md:w-[400px] md:flex-none bg-white flex flex-col border-l border-slate-800 rounded-t-3xl md:rounded-none shadow-[0_-10px_40px_rgba(0,0,0,0.5)] md:shadow-none overflow-hidden relative -mt-4 md:mt-0">
+                      {/* Pull Indicator for Mobile */}
+                      <div className="w-full flex justify-center pt-3 pb-1 md:hidden">
+                          <div className="w-12 h-1.5 bg-slate-200 rounded-full"></div>
+                      </div>
+
+                      {/* Header Actions (Desktop only - mobile is floating) */}
+                      <div className="absolute top-4 right-4 hidden md:flex items-center gap-2 z-10">
                           {user && (user.userId === selectedEntry.userId || user.role === 'admin') && (
                               <button onClick={() => requestDelete(selectedEntry)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full md:bg-transparent md:p-1 transition" title="ลบภาพ">
                                   <Trash2 className="w-5 h-5" />
                               </button>
                           )}
-                          <button onClick={() => setSelectedEntry(null)} className="text-slate-400 hover:text-slate-600 p-1 hidden md:block">
+                          <button onClick={() => setSelectedEntry(null)} className="text-slate-400 hover:text-slate-600 p-1">
                               <X className="w-6 h-6" />
                           </button>
                       </div>
 
                       {/* User Info */}
-                      <div className="p-5 border-b border-slate-100 flex items-center gap-3 bg-white rounded-t-3xl md:rounded-none relative z-0">
-                          {selectedEntry.userPictureUrl ? (
-                              <img src={selectedEntry.userPictureUrl} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100" />
-                          ) : (
-                              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><User className="w-5 h-5 text-slate-400"/></div>
-                          )}
-                          <div>
-                              <div className="font-bold text-slate-800 text-sm">{selectedEntry.userDisplayName}</div>
-                              <div className="text-xs text-slate-400">{new Date(selectedEntry.timestamp).toLocaleString('th-TH')}</div>
+                      <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-3 bg-white relative z-0">
+                          <div className="flex items-center gap-3">
+                              {selectedEntry.userPictureUrl ? (
+                                  <img src={selectedEntry.userPictureUrl} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100" />
+                              ) : (
+                                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><User className="w-5 h-5 text-slate-400"/></div>
+                              )}
+                              <div>
+                                  <div className="font-bold text-slate-800 text-sm">{selectedEntry.userDisplayName}</div>
+                                  <div className="text-xs text-slate-400">{new Date(selectedEntry.timestamp).toLocaleString('th-TH')}</div>
+                              </div>
                           </div>
+                          
+                          {/* Mobile Delete Button */}
+                          {user && (user.userId === selectedEntry.userId || user.role === 'admin') && (
+                              <button onClick={() => requestDelete(selectedEntry)} className="md:hidden text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full transition" title="ลบภาพ">
+                                  <Trash2 className="w-4 h-4" />
+                              </button>
+                          )}
                       </div>
                       
                       {/* Scrollable Content: Caption + Comments */}
                       <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-slate-50">
                           {selectedEntry.caption && (
-                              <div className="bg-white p-3 rounded-xl border border-slate-100 mb-4 shadow-sm">
+                              <div className="bg-white p-4 rounded-xl border border-slate-100 mb-4 shadow-sm">
                                   <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedEntry.caption}</p>
                               </div>
                           )}
 
-                          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          <div className="mb-3 flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
                               <MessageCircle className="w-3 h-3"/> ความคิดเห็น ({comments.length})
                           </div>
 
@@ -877,7 +1003,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                               {isLoadingComments ? (
                                   <div className="flex justify-center py-4"><Loader2 className="w-6 h-6 animate-spin text-slate-300"/></div>
                               ) : comments.length === 0 ? (
-                                  <p className="text-center text-slate-400 text-xs py-4">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความเห็น!</p>
+                                  <p className="text-center text-slate-400 text-xs py-8 bg-white/50 rounded-xl border border-dashed border-slate-200">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความเห็น!</p>
                               ) : (
                                   comments.map((cmt) => (
                                       <div key={cmt.id} className="flex gap-2">
@@ -906,10 +1032,10 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                                   {selectedEntry.likeCount}
                               </button>
                               <button 
-                                  onClick={handleShare}
+                                  onClick={() => handleShareClick(selectedEntry)}
                                   className="flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-sm text-sm bg-[#06C755] hover:bg-[#05b34c] text-white"
                               >
-                                  <Share2 className="w-4 h-4" /> แชร์โหวต
+                                  <Share2 className="w-4 h-4" /> แชร์ ({selectedEntry.shareCount || 0})
                               </button>
                           </div>
 

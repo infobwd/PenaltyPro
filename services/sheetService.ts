@@ -155,6 +155,18 @@ export const submitContestComment = async (data: { entryId: string, userId: stri
     } catch (e) { return null; }
 };
 
+export const incrementShareCount = async (entryId: string): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'incrementShareCount', entryId })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
 // RE-EXPORT all existing functions to maintain file integrity
 export const setStoredScriptUrl = (url: string) => { console.warn("URL is hardcoded in this version. Setting ignored."); };
 
