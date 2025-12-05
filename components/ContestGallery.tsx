@@ -538,7 +538,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                     {user && (user.userId === entry.userId || user.role === 'admin') && (
                         <button 
                             onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry); }}
-                            className="absolute top-2 right-2 bg-red-500/80 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600 hover:scale-110 z-20"
+                            className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg transition hover:bg-red-600 hover:scale-110 z-20 md:opacity-0 md:group-hover:opacity-100"
                             title="ลบภาพ"
                         >
                             <Trash2 className="w-4 h-4" />
@@ -595,16 +595,18 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
               <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 shadow-2xl relative">
                   
                   {isSubmitting && (
-                      <div className="absolute inset-0 z-50 bg-white/95 flex flex-col items-center justify-center p-6 text-center">
-                          <div className="w-20 h-20 relative mb-4">
-                              <svg className="transform -rotate-90 w-20 h-20">
-                                  <circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-100" />
-                                  <circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-indigo-600 transition-all duration-300 ease-in-out" strokeDasharray={`${uploadProgress * 2.26}, 226`} />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center text-sm font-black text-indigo-600">{uploadProgress}%</div>
+                      <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-md flex flex-col items-center justify-center p-8">
+                          <div className="w-24 h-24 mb-6 relative">
+                               <svg className="w-full h-full transform -rotate-90">
+                                   <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-100" />
+                                   <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-indigo-600 transition-all duration-300 ease-out" strokeDasharray={`${uploadProgress * 2.51}, 251.2`} strokeLinecap="round" />
+                               </svg>
+                               <div className="absolute inset-0 flex items-center justify-center text-xl font-black text-indigo-600">
+                                   {Math.round(uploadProgress)}%
+                               </div>
                           </div>
-                          <h4 className="font-bold text-slate-800 text-lg">{uploadStatusText}</h4>
-                          <p className="text-xs text-slate-500 mt-1">กรุณารอสักครู่ ห้ามปิดหน้าต่าง</p>
+                          <h4 className="text-xl font-bold text-slate-800 mb-2 animate-pulse">{uploadStatusText}</h4>
+                          <p className="text-sm text-slate-500">ระบบกำลังประมวลผล กรุณารอสักครู่</p>
                       </div>
                   )}
 
@@ -710,7 +712,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                       
                       <div className="absolute top-4 right-4 flex items-center gap-2">
                           {user && (user.userId === selectedEntry.userId || user.role === 'admin') && (
-                              <button onClick={() => handleDeleteEntry(selectedEntry)} className="text-red-400 hover:text-red-600 p-1 hidden md:block" title="ลบภาพ">
+                              <button onClick={() => handleDeleteEntry(selectedEntry)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full md:bg-transparent md:p-1 transition" title="ลบภาพ">
                                   <Trash2 className="w-5 h-5" />
                               </button>
                           )}
