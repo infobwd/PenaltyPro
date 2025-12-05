@@ -80,13 +80,25 @@ export const fetchContests = async (): Promise<{ contests: Contest[], entries: C
     }
 };
 
-export const submitContestEntry = async (data: { contestId: string, userId: string, userDisplayName: string, userPic: string, photoFile: string, caption: string }): Promise<boolean> => {
+export const submitContestEntry = async (data: { contestId: string, userId: string, userDisplayName: string, userPic: string, photoFile?: string, photoUrl?: string, caption: string }): Promise<boolean> => {
     try {
         await fetch(API_URL, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'submitContestEntry', ...data })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
+export const deleteContestEntry = async (entryId: string, userId: string): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'deleteContestEntry', entryId, userId })
         });
         return true;
     } catch (e) { return false; }

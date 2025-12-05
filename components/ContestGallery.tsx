@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Contest, ContestEntry, UserProfile } from '../types';
-import { fetchContests, submitContestEntry, toggleEntryLike, fileToBase64 } from '../services/sheetService';
-import { Camera, Heart, Upload, Loader2, X, Plus, Image as ImageIcon, User, AlertCircle, Check, ArrowLeft, Calendar, Clock, Trophy, Flame, Sparkles } from 'lucide-react';
+import { fetchContests, submitContestEntry, toggleEntryLike, fileToBase64, deleteContestEntry } from '../services/sheetService';
+import { Camera, Heart, Upload, Loader2, X, Plus, Image as ImageIcon, User, AlertCircle, Check, ArrowLeft, Calendar, Clock, Trophy, Flame, Sparkles, Trash2, Info, Link, ExternalLink } from 'lucide-react';
 
 interface ContestGalleryProps {
   user: UserProfile | null;
@@ -11,6 +11,44 @@ interface ContestGalleryProps {
 }
 
 const ITEMS_PER_PAGE = 20;
+
+// Shared Compression Logic
+const compressImage = async (file: File): Promise<File> => {
+    if (file.type === 'application/pdf') return file; 
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1280; // Optimize for mobile viewing
+                const scaleSize = MAX_WIDTH / img.width;
+                const width = (scaleSize < 1) ? MAX_WIDTH : img.width;
+                const height = (scaleSize < 1) ? img.height * scaleSize : img.height;
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        const newFile = new File([blob], file.name, {
+                            type: 'image/jpeg',
+                            lastModified: Date.now(),
+                        });
+                        resolve(newFile);
+                    } else {
+                        reject(new Error('Canvas is empty'));
+                    }
+                }, 'image/jpeg', 0.7); // 70% Quality
+            };
+        };
+        reader.onerror = (error) => reject(error);
+    });
+};
 
 const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, showNotification }) => {
   const [view, setView] = useState<'list' | 'gallery'>('list');
@@ -22,18 +60,25 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
   
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'popular' | 'latest'>('popular');
+  
+  // Upload State
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'file' | 'link'>('file');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [externalLink, setExternalLink] = useState('');
   const [uploadCaption, setUploadCaption] = useState('');
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatusText, setUploadStatusText] = useState('');
+  
   const [selectedEntry, setSelectedEntry] = useState<ContestEntry | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       const data = await fetchContests();
-      // Sort: Open contests first, then by creation date
       const sortedContests = data.contests.sort((a, b) => {
           if (a.status === 'Open' && b.status !== 'Open') return -1;
           if (a.status !== 'Open' && b.status === 'Open') return 1;
@@ -52,18 +97,15 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
     loadData();
   }, []);
 
-  // Filter and Sort Entries (Memoized for performance)
   const processedEntries = useMemo(() => {
       if (!activeContest) return [];
       const filtered = allEntries.filter(e => e.contestId === activeContest.id);
       
       return filtered.sort((a, b) => {
           if (sortBy === 'popular') {
-              // Primary: Likes, Secondary: Timestamp (Newer wins ties)
               if (b.likeCount !== a.likeCount) return b.likeCount - a.likeCount;
-              return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+              return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
           } else {
-              // Latest
               return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
           }
       });
@@ -75,7 +117,6 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
   const topThree = useMemo(() => {
       if (!activeContest || sortBy !== 'popular' || processedEntries.length < 3) return [];
-      // Only show top 3 if they have at least 1 like
       return processedEntries.slice(0, 3).filter(e => e.likeCount > 0);
   }, [processedEntries, sortBy, activeContest]);
 
@@ -93,8 +134,9 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 5 * 1024 * 1024) {
-        showNotification("ไฟล์ใหญ่เกิน", "ขนาดรูปภาพต้องไม่เกิน 5MB", "error");
+      // Max raw size check before compression attempt (e.g. 20MB limit to prevent browser crash)
+      if (file.size > 20 * 1024 * 1024) {
+        showNotification("ไฟล์ใหญ่เกิน", "ขนาดรูปภาพต้นฉบับต้องไม่เกิน 20MB", "error");
         return;
       }
       setUploadFile(file);
@@ -103,26 +145,70 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
   };
 
   const handleUpload = async () => {
-    if (!user || !activeContest || !uploadFile) return;
+    if (!user || !activeContest) return;
+    
+    if (uploadMode === 'file' && !uploadFile) {
+        showNotification("ข้อมูลไม่ครบ", "กรุณาเลือกรูปภาพ", "error");
+        return;
+    }
+    if (uploadMode === 'link' && !externalLink) {
+        showNotification("ข้อมูลไม่ครบ", "กรุณาวางลิงก์รูปภาพ", "error");
+        return;
+    }
+
     setIsSubmitting(true);
+    setUploadProgress(0);
+    setUploadStatusText("กำลังเตรียมข้อมูล...");
+
     try {
-      const base64 = await fileToBase64(uploadFile);
+      let finalPhotoData = "";
+      
+      if (uploadMode === 'file' && uploadFile) {
+          // 1. Compress
+          setUploadProgress(20);
+          setUploadStatusText("กำลังบีบอัดรูปภาพ...");
+          const compressedFile = await compressImage(uploadFile);
+          
+          // 2. Encode
+          setUploadProgress(50);
+          setUploadStatusText("กำลังเข้ารหัสข้อมูล...");
+          finalPhotoData = await fileToBase64(compressedFile);
+      } else {
+          finalPhotoData = externalLink;
+      }
+
+      // 3. Send
+      setUploadProgress(70);
+      setUploadStatusText("กำลังส่งข้อมูลไปยังเซิร์ฟเวอร์...");
+      
+      // Simulate progress for the fetch duration
+      const progressInterval = setInterval(() => {
+          setUploadProgress(prev => Math.min(prev + 5, 95));
+      }, 500);
+
       const success = await submitContestEntry({
         contestId: activeContest.id,
         userId: user.userId,
         userDisplayName: user.displayName,
         userPic: user.pictureUrl || '',
-        photoFile: base64,
+        photoFile: uploadMode === 'file' ? finalPhotoData : undefined,
+        photoUrl: uploadMode === 'link' ? finalPhotoData : undefined,
         caption: uploadCaption
       });
+
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+      setUploadStatusText("เสร็จสิ้น!");
 
       if (success) {
         showNotification("สำเร็จ", "ส่งภาพประกวดเรียบร้อย", "success");
         setIsUploadOpen(false);
         setUploadFile(null);
         setUploadPreview(null);
+        setExternalLink('');
         setUploadCaption('');
-        loadData(); // Reload to see new entry
+        setUploadMode('file');
+        loadData(); 
       } else {
         showNotification("ผิดพลาด", "ไม่สามารถส่งภาพได้ หรือคุณส่งครบจำนวนแล้ว", "error");
       }
@@ -130,21 +216,21 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
       showNotification("ผิดพลาด", e.message || "เกิดข้อผิดพลาดในการเชื่อมต่อ", "error");
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
   const handleLike = async (entry: ContestEntry) => {
     if (!user) {
+      showNotification("แจ้งเตือน", "กรุณาเข้าสู่ระบบก่อนกดถูกใจ", "info");
       onLoginRequest();
       return;
     }
     
-    // Optimistic Update
     const isLiked = entry.likedBy.includes(user.userId);
     const newCount = isLiked ? entry.likeCount - 1 : entry.likeCount + 1;
     const newLikedBy = isLiked ? entry.likedBy.filter(id => id !== user.userId) : [...entry.likedBy, user.userId];
     
-    // Update local state immediately
     const updatedAll = allEntries.map(e => e.id === entry.id ? { ...e, likeCount: newCount, likedBy: newLikedBy } : e);
     setAllEntries(updatedAll);
     
@@ -156,9 +242,25 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
       await toggleEntryLike(entry.id, user.userId);
     } catch (e) {
       console.error(e);
-      // Fallback: reload data if failed
       loadData();
     }
+  };
+
+  const handleDeleteEntry = async (entry: ContestEntry) => {
+      if (!user) return;
+      if (!confirm("คุณแน่ใจหรือไม่ที่จะลบภาพนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+
+      setAllEntries(prev => prev.filter(e => e.id !== entry.id));
+      if (selectedEntry?.id === entry.id) setSelectedEntry(null);
+
+      try {
+          await deleteContestEntry(entry.id, user.userId);
+          showNotification("สำเร็จ", "ลบภาพเรียบร้อยแล้ว", "success");
+      } catch (e) {
+          console.error(e);
+          showNotification("ผิดพลาด", "ลบภาพไม่สำเร็จ กรุณาลองใหม่", "error");
+          loadData(); 
+      }
   };
 
   const isContestClosed = (c: Contest) => {
@@ -168,6 +270,33 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
   };
 
   const userEntriesCount = (contestId: string) => user ? allEntries.filter(e => e.userId === user.userId && e.contestId === contestId).length : 0;
+
+  // Custom Image Component to handle errors (broken links)
+  const GalleryImage = ({ src, alt, className }: { src: string, alt?: string, className?: string }) => {
+      const [error, setError] = useState(false);
+      
+      if (error || !src) {
+          return (
+              <div className={`flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 ${className}`}>
+                  <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
+                  <span className="text-[10px] text-center font-medium">รูปภาพไม่แสดง</span>
+                  <a href={src} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="mt-2 text-[10px] bg-white border border-slate-300 px-2 py-1 rounded-full flex items-center gap-1 hover:text-indigo-600 transition">
+                      <ExternalLink className="w-3 h-3"/> ดูต้นฉบับ
+                  </a>
+              </div>
+          );
+      }
+
+      return (
+          <img 
+              src={src} 
+              alt={alt} 
+              className={className} 
+              loading="lazy" 
+              onError={() => setError(true)} 
+          />
+      );
+  };
 
   if (isLoading && contests.length === 0) {
     return (
@@ -212,7 +341,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                               >
                                   <div className="h-40 bg-slate-100 relative overflow-hidden">
                                       {topImage ? (
-                                          <img src={topImage} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                                          <img src={topImage} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" onError={(e) => e.currentTarget.style.display = 'none'} />
                                       ) : (
                                           <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-500 opacity-80 flex items-center justify-center">
                                               <ImageIcon className="w-12 h-12 text-white/50" />
@@ -220,7 +349,6 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                                       )}
                                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                                       
-                                      {/* Status Badge */}
                                       <div className="absolute top-3 right-3">
                                           {closed ? (
                                               <span className="bg-black/60 text-white backdrop-blur-md text-[10px] px-3 py-1 rounded-full font-bold flex items-center gap-1 border border-white/20">
@@ -233,7 +361,6 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                                           )}
                                       </div>
                                       
-                                      {/* Title overlay */}
                                       <div className="absolute bottom-3 left-4 right-4 text-white">
                                           <h3 className="font-bold text-lg leading-tight line-clamp-1 shadow-black drop-shadow-md">{c.title}</h3>
                                       </div>
@@ -269,14 +396,12 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
   return (
     <div className="pb-20 max-w-7xl mx-auto p-2 md:p-6 animate-in slide-in-from-right-4 duration-300">
-      {/* Top Navigation */}
       <div className="flex items-center justify-between mb-4">
           <button onClick={() => setView('list')} className="text-slate-500 hover:text-indigo-600 flex items-center gap-2 text-sm font-bold transition bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200">
               <ArrowLeft className="w-4 h-4"/> กิจกรรมทั้งหมด
           </button>
       </div>
 
-      {/* Hero Header */}
       <div className="text-center mb-8 relative bg-gradient-to-r from-violet-600 to-indigo-600 rounded-[2rem] p-8 md:p-10 text-white overflow-hidden shadow-xl ring-4 ring-indigo-50">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-500 opacity-20 rounded-full translate-y-1/2 -translate-x-1/2 blur-3xl"></div>
@@ -318,18 +443,25 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
         )}
       </div>
 
-      {/* Podium Section (Top 3) - Only visible when sorting by Popular */}
+      <div className="mb-6 mx-auto max-w-2xl bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-start gap-3 text-indigo-800 text-sm shadow-sm">
+          <Info className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5"/>
+          <div>
+              <span className="font-bold block mb-0.5">กติกาการตัดสิน</span>
+              <span>ภาพที่มียอดหัวใจสูงสุดเป็นผู้ชนะ หากคะแนนเท่ากัน ตัดสินจากลำดับการส่งภาพ (ส่งก่อนมีสิทธิ์ก่อน)</span>
+          </div>
+      </div>
+
       {sortBy === 'popular' && topThree.length > 0 && (
           <div className="mb-10 px-4">
               <h2 className="text-center font-black text-slate-800 mb-6 flex items-center justify-center gap-2 text-xl">
                   <Trophy className="w-6 h-6 text-yellow-500" /> TOP 3 LEADERS
               </h2>
               <div className="flex flex-col md:flex-row items-end justify-center gap-4 md:gap-8 h-auto md:h-64">
-                  {/* 2nd Place */}
+                  {/* 2nd */}
                   {topThree[1] && (
                       <div className="order-2 md:order-1 flex flex-col items-center w-full md:w-48 animate-in slide-in-from-bottom-8 duration-700 delay-100">
                           <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-slate-300 shadow-lg mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topThree[1])}>
-                              <img src={topThree[1].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                              <GalleryImage src={topThree[1].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute top-2 left-2 bg-slate-300 text-slate-700 w-8 h-8 rounded-full flex items-center justify-center font-black text-sm border-2 border-white shadow-sm">2</div>
                               <div className="absolute bottom-0 w-full bg-black/60 backdrop-blur-sm p-2 text-white text-center">
                                   <p className="text-xs font-bold truncate">{topThree[1].userDisplayName}</p>
@@ -339,11 +471,11 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                           <div className="h-16 w-full bg-slate-200 rounded-t-xl hidden md:block opacity-50"></div>
                       </div>
                   )}
-                  {/* 1st Place */}
+                  {/* 1st */}
                   {topThree[0] && (
                       <div className="order-1 md:order-2 flex flex-col items-center w-full md:w-56 animate-in slide-in-from-bottom-8 duration-700 z-10 -mt-8 md:mt-0">
                           <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-yellow-400 shadow-xl shadow-yellow-200 mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topThree[0])}>
-                              <img src={topThree[0].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                              <GalleryImage src={topThree[0].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute top-2 left-2 bg-yellow-400 text-yellow-900 w-10 h-10 rounded-full flex items-center justify-center font-black text-lg border-2 border-white shadow-sm">1</div>
                               <div className="absolute bottom-0 w-full bg-gradient-to-t from-yellow-900/90 to-transparent p-3 text-white text-center pt-8">
                                   <p className="text-sm font-bold truncate">{topThree[0].userDisplayName}</p>
@@ -353,11 +485,11 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                           <div className="h-24 w-full bg-yellow-100 rounded-t-xl hidden md:block opacity-50"></div>
                       </div>
                   )}
-                  {/* 3rd Place */}
+                  {/* 3rd */}
                   {topThree[2] && (
                       <div className="order-3 flex flex-col items-center w-full md:w-48 animate-in slide-in-from-bottom-8 duration-700 delay-200">
                           <div className="relative w-full aspect-square rounded-2xl overflow-hidden border-4 border-orange-300 shadow-lg mb-2 group cursor-pointer" onClick={() => setSelectedEntry(topThree[2])}>
-                              <img src={topThree[2].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                              <GalleryImage src={topThree[2].photoUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                               <div className="absolute top-2 left-2 bg-orange-300 text-orange-800 w-8 h-8 rounded-full flex items-center justify-center font-black text-sm border-2 border-white shadow-sm">3</div>
                               <div className="absolute bottom-0 w-full bg-black/60 backdrop-blur-sm p-2 text-white text-center">
                                   <p className="text-xs font-bold truncate">{topThree[2].userDisplayName}</p>
@@ -392,7 +524,6 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
         </div>
       </div>
 
-      {/* Masonry Grid */}
       <div className="columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
         {displayedEntries.map((entry) => (
             <div key={entry.id} className="break-inside-avoid bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg transition-all duration-300 group relative">
@@ -400,10 +531,19 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                     className="relative cursor-pointer overflow-hidden"
                     onClick={() => setSelectedEntry(entry)}
                 >
-                    <img src={entry.photoUrl} alt={entry.caption} className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105" loading="lazy" />
+                    <GalleryImage src={entry.photoUrl} alt={entry.caption} className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
                         <p className="text-white text-xs font-medium line-clamp-2">{entry.caption || "ไม่มีคำบรรยาย"}</p>
                     </div>
+                    {user && (user.userId === entry.userId || user.role === 'admin') && (
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry); }}
+                            className="absolute top-2 right-2 bg-red-500/80 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-600 hover:scale-110 z-20"
+                            title="ลบภาพ"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
                 
                 <div className="p-3">
@@ -452,34 +592,84 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
       {/* Upload Modal */}
       {isUploadOpen && (
           <div className="fixed inset-0 z-[1500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 shadow-2xl">
+              <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 shadow-2xl relative">
+                  
+                  {isSubmitting && (
+                      <div className="absolute inset-0 z-50 bg-white/95 flex flex-col items-center justify-center p-6 text-center">
+                          <div className="w-20 h-20 relative mb-4">
+                              <svg className="transform -rotate-90 w-20 h-20">
+                                  <circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-100" />
+                                  <circle cx="40" cy="40" r="36" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-indigo-600 transition-all duration-300 ease-in-out" strokeDasharray={`${uploadProgress * 2.26}, 226`} />
+                              </svg>
+                              <div className="absolute inset-0 flex items-center justify-center text-sm font-black text-indigo-600">{uploadProgress}%</div>
+                          </div>
+                          <h4 className="font-bold text-slate-800 text-lg">{uploadStatusText}</h4>
+                          <p className="text-xs text-slate-500 mt-1">กรุณารอสักครู่ ห้ามปิดหน้าต่าง</p>
+                      </div>
+                  )}
+
                   <div className="p-5 border-b flex justify-between items-center bg-slate-50">
                       <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><Camera className="w-5 h-5 text-indigo-600"/> ส่งภาพเข้าประกวด</h3>
                       <button onClick={() => setIsUploadOpen(false)} className="bg-white p-1 rounded-full hover:bg-slate-200 transition"><X className="w-5 h-5 text-slate-500" /></button>
                   </div>
+                  
+                  <div className="flex border-b border-slate-200">
+                      <button 
+                          onClick={() => setUploadMode('file')}
+                          className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${uploadMode === 'file' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                          <Upload className="w-4 h-4"/> อัปโหลดไฟล์
+                      </button>
+                      <button 
+                          onClick={() => setUploadMode('link')}
+                          className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 ${uploadMode === 'link' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                          <Link className="w-4 h-4"/> แนบลิงก์
+                      </button>
+                  </div>
+
                   <div className="p-6 space-y-5">
-                      <div className="border-2 border-dashed border-slate-300 rounded-2xl p-4 text-center hover:bg-slate-50 transition relative min-h-[240px] flex flex-col items-center justify-center bg-slate-50/50 group">
-                          {uploadPreview ? (
-                              <div className="relative w-full h-full flex items-center justify-center">
-                                  <img src={uploadPreview} className="max-h-60 rounded-lg shadow-sm object-contain" />
-                                  <button onClick={() => {setUploadFile(null); setUploadPreview(null);}} className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-md hover:bg-red-600 transition"><X className="w-4 h-4"/></button>
-                              </div>
-                          ) : (
-                              <label className="cursor-pointer flex flex-col items-center w-full h-full justify-center py-8">
-                                  <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                                      <Upload className="w-8 h-8 text-indigo-400" />
+                      {uploadMode === 'file' ? (
+                          <div className="border-2 border-dashed border-slate-300 rounded-2xl p-4 text-center hover:bg-slate-50 transition relative min-h-[200px] flex flex-col items-center justify-center bg-slate-50/50 group">
+                              {uploadPreview ? (
+                                  <div className="relative w-full h-full flex items-center justify-center">
+                                      <img src={uploadPreview} className="max-h-60 rounded-lg shadow-sm object-contain" />
+                                      <button onClick={() => {setUploadFile(null); setUploadPreview(null);}} className="absolute -top-3 -right-3 bg-red-500 text-white p-1.5 rounded-full shadow-md hover:bg-red-600 transition"><X className="w-4 h-4"/></button>
                                   </div>
-                                  <span className="text-sm font-bold text-slate-600">แตะเพื่อเลือกรูปภาพ</span>
-                                  <span className="text-xs text-slate-400 mt-1">รองรับ JPG, PNG (Max 5MB)</span>
-                                  <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-                              </label>
-                          )}
-                      </div>
+                              ) : (
+                                  <label className="cursor-pointer flex flex-col items-center w-full h-full justify-center py-8">
+                                      <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                          <Upload className="w-8 h-8 text-indigo-400" />
+                                      </div>
+                                      <span className="text-sm font-bold text-slate-600">แตะเพื่อเลือกรูปภาพ</span>
+                                      <span className="text-xs text-slate-400 mt-1">ระบบจะบีบอัดภาพอัตโนมัติ</span>
+                                      <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                                  </label>
+                              )}
+                          </div>
+                      ) : (
+                          <div className="space-y-3">
+                              <label className="block text-xs font-bold text-slate-500">ลิงก์รูปภาพ (Direct URL) หรือลิงก์จากโซเชียล</label>
+                              <div className="relative">
+                                  <Link className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+                                  <input 
+                                      type="text" 
+                                      value={externalLink} 
+                                      onChange={(e) => setExternalLink(e.target.value)}
+                                      className="w-full pl-10 p-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                      placeholder="https://..."
+                                  />
+                              </div>
+                              <p className="text-[10px] text-slate-400 bg-slate-50 p-2 rounded">
+                                  หากเป็นลิงก์โพสต์ (เช่น Facebook Post) รูปอาจจะไม่แสดงตัวอย่าง แต่ผู้คนสามารถกดเข้าไปดูได้
+                              </p>
+                          </div>
+                      )}
                       
                       <div>
                           <label className="block text-xs font-bold text-slate-500 mb-1 ml-1">แคปชั่นโดนๆ (Caption)</label>
                           <textarea 
-                              className="w-full p-4 border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none resize-none h-28 bg-slate-50 focus:bg-white transition"
+                              className="w-full p-4 border border-slate-200 rounded-2xl text-sm focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none resize-none h-24 bg-slate-50 focus:bg-white transition"
                               placeholder="เล่าเรื่องราวของภาพนี้..."
                               value={uploadCaption}
                               onChange={(e) => setUploadCaption(e.target.value)}
@@ -488,15 +678,15 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
                       <div className="flex gap-2 text-xs text-orange-600 bg-orange-50 p-3 rounded-xl border border-orange-100">
                           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                          <span>กรุณาตรวจสอบความถูกต้อง ภาพและข้อความไม่สามารถแก้ไขได้หลังจากส่งเข้าระบบ</span>
+                          <span>ตรวจสอบความถูกต้อง ภาพและข้อความไม่สามารถแก้ไขได้</span>
                       </div>
 
                       <button 
                           onClick={handleUpload}
-                          disabled={!uploadFile || isSubmitting}
+                          disabled={isSubmitting || (uploadMode === 'file' && !uploadFile) || (uploadMode === 'link' && !externalLink)}
                           className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-200 active:scale-95"
                       >
-                          {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'ยืนยันการส่งภาพ'}
+                          ยืนยันการส่งภาพ
                       </button>
                   </div>
               </div>
@@ -508,25 +698,27 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
           <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-md flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-200" onClick={() => setSelectedEntry(null)}>
               <div className="w-full h-full md:max-w-6xl md:h-[90vh] flex flex-col md:flex-row bg-black md:bg-[#1a1a1a] md:rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
                   
-                  {/* Close Button Mobile */}
                   <button onClick={() => setSelectedEntry(null)} className="absolute top-4 right-4 md:hidden z-50 bg-black/50 text-white p-2 rounded-full backdrop-blur-md">
                       <X className="w-6 h-6" />
                   </button>
 
-                  {/* Image Section */}
                   <div className="flex-1 bg-black flex items-center justify-center relative group">
-                      <img src={selectedEntry.photoUrl} className="max-w-full max-h-[100vh] md:max-h-[90vh] object-contain" />
+                      <GalleryImage src={selectedEntry.photoUrl} className="max-w-full max-h-[100vh] md:max-h-[90vh] object-contain" />
                   </div>
 
-                  {/* Details Sidebar */}
                   <div className="w-full md:w-96 bg-white flex flex-col border-l border-slate-800 md:relative absolute bottom-0 rounded-t-3xl md:rounded-none h-auto md:h-full max-h-[60vh] md:max-h-full">
                       
-                      {/* Desktop Close */}
-                      <button onClick={() => setSelectedEntry(null)} className="hidden md:block absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1">
-                          <X className="w-6 h-6" />
-                      </button>
+                      <div className="absolute top-4 right-4 flex items-center gap-2">
+                          {user && (user.userId === selectedEntry.userId || user.role === 'admin') && (
+                              <button onClick={() => handleDeleteEntry(selectedEntry)} className="text-red-400 hover:text-red-600 p-1 hidden md:block" title="ลบภาพ">
+                                  <Trash2 className="w-5 h-5" />
+                              </button>
+                          )}
+                          <button onClick={() => setSelectedEntry(null)} className="text-slate-400 hover:text-slate-600 p-1 hidden md:block">
+                              <X className="w-6 h-6" />
+                          </button>
+                      </div>
 
-                      {/* User Info */}
                       <div className="p-5 border-b border-slate-100 flex items-center gap-3">
                           {selectedEntry.userPictureUrl ? (
                               <img src={selectedEntry.userPictureUrl} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100" />
@@ -539,12 +731,10 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                           </div>
                       </div>
                       
-                      {/* Caption */}
                       <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
                           <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedEntry.caption || "ไม่มีคำบรรยาย"}</p>
                       </div>
 
-                      {/* Actions */}
                       <div className="p-5 border-t border-slate-100 bg-slate-50">
                           <div className="flex items-center justify-between mb-4">
                               <div className="flex items-center gap-1">
@@ -556,7 +746,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                           
                           <button 
                               onClick={() => handleLike(selectedEntry)}
-                              className={`w-full py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-sm ${user && selectedEntry.likedBy.includes(user.userId) ? 'bg-pink-500 text-white hover:bg-pink-600 shadow-pink-200' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                              className={`w-full py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-sm ${user && selectedEntry.likedBy.includes(user.userId) ? 'bg-pink-50 text-white hover:bg-pink-600 shadow-pink-200' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
                           >
                               <Heart className={`w-5 h-5 ${user && selectedEntry.likedBy.includes(user.userId) ? 'fill-white' : ''}`} />
                               {user && selectedEntry.likedBy.includes(user.userId) ? 'ถูกใจแล้ว' : 'กดถูกใจ'}

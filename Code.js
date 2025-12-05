@@ -58,6 +58,7 @@ function doPost(e) {
     else if (action === 'submitContestEntry') return submitContestEntry(data);
     else if (action === 'toggleEntryLike') return toggleEntryLike(data.entryId, data.userId);
     else if (action === 'manageContest') return manageContest(data);
+    else if (action === 'deleteContestEntry') return deleteContestEntry(data.entryId, data.userId);
     
     return errorResponse("Unknown action: " + action);
     
@@ -340,7 +341,7 @@ function submitContestEntry(data) {
   }
   if (count >= 5) return errorResponse("คุณส่งภาพครบ 5 ภาพแล้วสำหรับกิจกรรมนี้");
 
-  let photoUrl = "";
+  let photoUrl = data.photoUrl || ""; // Use external URL if provided
   if (data.photoFile && data.photoFile.startsWith("data:")) {
     photoUrl = saveFileToDrive(data.photoFile, `contest_${data.userId}_${Date.now()}`);
   }
@@ -407,6 +408,31 @@ function manageContest(data) {
     }
   }
   return successResponse({ status: 'success' });
+}
+
+function deleteContestEntry(entryId, userId) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("ContestEntries");
+  if (!sheet) return errorResponse("Sheet not found");
+  
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    // Check Entry ID
+    if (String(data[i][0]) === String(entryId)) {
+      // Check Ownership (or Admin if passed from frontend securely, but for now strict ownership)
+      // Note: Admin deletion can be handled by just trusting if the user role is admin, 
+      // but here we primarily check if the creator matches.
+      // If userId passed matches the owner of the entry
+      if (String(data[i][2]) === String(userId)) {
+         sheet.deleteRow(i + 1);
+         return successResponse({ status: 'success' });
+      } else {
+         // Optionally allow if userId belongs to an Admin (requires checking Users sheet, omitted for speed unless requested)
+         return errorResponse("Permission denied");
+      }
+    }
+  }
+  return errorResponse("Entry not found");
 }
 
 // --- EXISTING FUNCTIONS (unchanged logic) ---
