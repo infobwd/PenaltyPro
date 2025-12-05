@@ -225,7 +225,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (contest.closingDate) {
           try {
               const d = new Date(contest.closingDate);
-              // Adjust for timezone offset if needed or use local ISO string
               const pad = (n:number) => n < 10 ? '0'+n : n;
               formattedDate = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
           } catch(e) {}
@@ -592,23 +591,229 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }, "ลบทีมเรียบร้อย", "กำลังลบข้อมูลทีม...");
   };
 
-  // ... [Draw Logic methods] ...
+  // --- LIVE DRAW LOGIC ---
   const prepareLiveDraw = () => {
       const approvedTeams = localTeams.filter(t => t.status === 'Approved');
-      if (approvedTeams.length === 0) { notify("แจ้งเตือน", "ไม่มีทีมที่ Approved เพื่อจับฉลาก", "warning"); return; }
+      if (approvedTeams.length === 0) { 
+          notify("แจ้งเตือน", "ไม่มีทีมที่ Approved เพื่อจับฉลาก", "warning"); 
+          return; 
+      }
+      
       const groups: Record<string, Team[]> = {};
-      const groupNames = Array(drawGroupCount).fill(null).map((_, i) => String.fromCharCode(65 + i));
+      const groupNames = Array(Math.max(1, drawGroupCount)).fill(null).map((_, i) => String.fromCharCode(65 + i));
       groupNames.forEach(g => groups[g] = []);
-      setPoolTeams([...approvedTeams]); setLiveGroups(groups); setDrawnCount(0); setIsLiveDrawActive(true); setLiveDrawStep('idle'); setIsDrawModalOpen(false);
+      
+      setPoolTeams([...approvedTeams]); 
+      setLiveGroups(groups); 
+      setDrawnCount(0); 
+      setIsLiveDrawActive(true); 
+      setLiveDrawStep('idle'); 
+      setIsDrawModalOpen(false);
   };
-  const fireLocalConfetti = (opts: any) => { if (confettiCanvasRef.current) { const myConfetti = confetti.create(confettiCanvasRef.current, { resize: true, useWorker: true }); myConfetti(opts); } };
-  const getNextTargetGroup = () => { const groupNames = Object.keys(liveGroups).sort(); let minCount = Infinity; let target = groupNames[0]; for (const g of groupNames) { if (liveGroups[g].length < minCount) { minCount = liveGroups[g].length; target = g; } } if (minCount >= teamsPerGroup) return null; return target; };
-  const requestRemoveTeam = (team: Team, group: string) => { if (liveDrawStep === 'spinning') return; setRemoveConfirmModal({ isOpen: true, team, group }); };
-  const confirmRemoveTeam = () => { const { team, group } = removeConfirmModal; if (!team || !group) return; setLiveGroups(prev => ({ ...prev, [group]: prev[group].filter(t => t.id !== team.id) })); setPoolTeams(prev => [team, ...prev]); setDrawnCount(prev => prev - 1); if (liveDrawStep === 'finished') { setLiveDrawStep('idle'); setCurrentSpinName("..."); setCurrentSpinGroup(""); } setRemoveConfirmModal({ isOpen: false, team: null, group: null }); };
+
+  const fireLocalConfetti = (opts: any) => { 
+      if (confettiCanvasRef.current) { 
+          const myConfetti = confetti.create(confettiCanvasRef.current, { resize: true, useWorker: true }); 
+          myConfetti(opts); 
+      } 
+  };
+
+  const getNextTargetGroup = () => { 
+      const groupNames = Object.keys(liveGroups).sort(); 
+      let minCount = Infinity; 
+      let target = groupNames[0]; 
+      
+      for (const g of groupNames) { 
+          if (liveGroups[g].length < minCount) { 
+              minCount = liveGroups[g].length; 
+              target = g; 
+          } 
+      } 
+      
+      // If the smallest group is already full, then ALL groups are full
+      if (minCount >= teamsPerGroup) return null; 
+      return target; 
+  };
+
+  const requestRemoveTeam = (team: Team, group: string) => { 
+      if (liveDrawStep === 'spinning') return; 
+      setRemoveConfirmModal({ isOpen: true, team, group }); 
+  };
+
+  const confirmRemoveTeam = () => { 
+      const { team, group } = removeConfirmModal; 
+      if (!team || !group) return; 
+      
+      setLiveGroups(prev => ({ 
+          ...prev, 
+          [group]: prev[group].filter(t => t.id !== team.id) 
+      })); 
+      
+      setPoolTeams(prev => [team, ...prev]); 
+      setDrawnCount(prev => prev - 1); 
+      
+      if (liveDrawStep === 'finished') { 
+          setLiveDrawStep('idle'); 
+          setCurrentSpinName("..."); 
+          setCurrentSpinGroup(""); 
+      } 
+      
+      setRemoveConfirmModal({ isOpen: false, team: null, group: null }); 
+  };
+
   const resetDraw = () => { setResetConfirmModal(true); };
-  const confirmResetDraw = () => { const allTeams: Team[] = []; Object.values(liveGroups).forEach(groupTeams => { allTeams.push(...groupTeams); }); setPoolTeams(prev => { const existingIds = new Set(prev.map(t => t.id)); const uniqueReturning = allTeams.filter(t => !existingIds.has(t.id)); return [...prev, ...uniqueReturning]; }); const groups: Record<string, Team[]> = {}; Object.keys(liveGroups).forEach(g => groups[g] = []); setLiveGroups(groups); setDrawnCount(0); setLiveDrawStep('idle'); setCurrentSpinName("..."); setCurrentSpinGroup(""); setResetConfirmModal(false); notify("Reset", "รีเซ็ตข้อมูลเรียบร้อย", "info"); };
-  const startLiveDrawSequence = async (isFastMode: boolean = false) => { const targetGroup = getNextTargetGroup(); if (!targetGroup) { notify("เต็มแล้ว", "ทุกกลุ่มมีจำนวนทีมครบตามที่กำหนด", "warning"); setLiveDrawStep('finished'); return false; } if (poolTeams.length === 0) { notify("หมดทีม", "ไม่มีทีมในโถแล้ว", "warning"); setLiveDrawStep('finished'); return false; } setLiveDrawStep('spinning'); setCurrentSpinGroup(targetGroup); let currentPool = [...poolTeams]; for (let i = currentPool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const temp = currentPool[i]; currentPool[i] = currentPool[j]; currentPool[j] = temp; } const spinDuration = isFastMode ? 300 : 1000; const interval = 50; const steps = spinDuration / interval; for (let s = 0; s < steps; s++) { const randomTeam = currentPool[Math.floor(Math.random() * currentPool.length)]; setCurrentSpinName(randomTeam.name); await new Promise(r => setTimeout(r, interval)); } const pickedTeam = currentPool.shift(); if (!pickedTeam) { setLiveDrawStep('finished'); return false; } setCurrentSpinName(pickedTeam.name); if (!isFastMode) { setLatestReveal(pickedTeam); fireLocalConfetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); await new Promise(r => setTimeout(r, 2000)); setLatestReveal(null); } setLiveGroups(prev => ({ ...prev, [targetGroup]: [...(prev[targetGroup] || []), pickedTeam] })); setDrawnCount(prev => prev + 1); setPoolTeams([...currentPool]); const nextTarget = getNextTargetGroup(); if (currentPool.length === 0 || !nextTarget) { if (!isFastMode) { setLiveDrawStep('finished'); setCurrentSpinName("เสร็จสิ้น!"); setCurrentSpinGroup("-"); fireLocalConfetti({ particleCount: 200, spread: 100, origin: { y: 0.5 } }); } } else { setLiveDrawStep('idle'); } return true; };
-  const drawRoundBatch = async () => { if (isDrawing || liveDrawStep === 'spinning') return; setIsDrawing(true); let localPool = [...poolTeams]; const groupNames = Object.keys(liveGroups).sort(); for (const groupName of groupNames) { if (localPool.length === 0) break; if (liveGroups[groupName].length >= teamsPerGroup) continue; setLiveDrawStep('spinning'); setCurrentSpinGroup(groupName); const steps = 6; for (let s = 0; s < steps; s++) { const randomIdx = Math.floor(Math.random() * localPool.length); setCurrentSpinName(localPool[randomIdx].name); await new Promise(r => setTimeout(r, 50)); } const winnerIdx = Math.floor(Math.random() * localPool.length); const winner = localPool[winnerIdx]; localPool.splice(winnerIdx, 1); setCurrentSpinName(winner.name); setLiveGroups(prev => ({ ...prev, [groupName]: [...(prev[groupName] || []), winner] })); setPoolTeams(prev => prev.filter(t => t.id !== winner.id)); setDrawnCount(prev => prev + 1); await new Promise(r => setTimeout(r, 300)); } setLiveDrawStep('idle'); setIsDrawing(false); setCurrentSpinGroup(""); if (localPool.length === 0) { setLiveDrawStep('finished'); setCurrentSpinName("เสร็จสิ้น!"); setCurrentSpinGroup("-"); fireLocalConfetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, colors: ['#f43f5e', '#8b5cf6', '#10b981'] }); } };
+
+  const confirmResetDraw = () => { 
+      const allTeams: Team[] = []; 
+      Object.values(liveGroups).forEach(groupTeams => { allTeams.push(...groupTeams); }); 
+      
+      setPoolTeams(prev => { 
+          const existingIds = new Set(prev.map(t => t.id)); 
+          const uniqueReturning = allTeams.filter(t => !existingIds.has(t.id)); 
+          return [...prev, ...uniqueReturning]; 
+      }); 
+      
+      const groups: Record<string, Team[]> = {}; 
+      Object.keys(liveGroups).forEach(g => groups[g] = []); 
+      setLiveGroups(groups); 
+      setDrawnCount(0); 
+      setLiveDrawStep('idle'); 
+      setCurrentSpinName("..."); 
+      setCurrentSpinGroup(""); 
+      setResetConfirmModal(false); 
+      notify("Reset", "รีเซ็ตข้อมูลเรียบร้อย", "info"); 
+  };
+
+  const startLiveDrawSequence = async (isFastMode: boolean = false) => { 
+      if (isDrawing || liveDrawStep === 'spinning') return;
+      
+      const targetGroup = getNextTargetGroup(); 
+      if (!targetGroup) { 
+          notify("เต็มแล้ว", "ทุกกลุ่มมีจำนวนทีมครบตามที่กำหนด", "warning"); 
+          setLiveDrawStep('finished'); 
+          return; 
+      } 
+      
+      if (poolTeams.length === 0) { 
+          notify("หมดทีม", "ไม่มีทีมในโถแล้ว", "warning"); 
+          setLiveDrawStep('finished'); 
+          return; 
+      } 
+      
+      setIsDrawing(true);
+      setLiveDrawStep('spinning'); 
+      setCurrentSpinGroup(targetGroup); 
+      
+      let currentPool = [...poolTeams]; 
+      
+      // Shuffle pool for randomness
+      for (let i = currentPool.length - 1; i > 0; i--) { 
+          const j = Math.floor(Math.random() * (i + 1)); 
+          const temp = currentPool[i]; 
+          currentPool[i] = currentPool[j]; 
+          currentPool[j] = temp; 
+      } 
+      
+      const spinDuration = isFastMode ? 300 : 1500; 
+      const interval = 80; 
+      const steps = spinDuration / interval; 
+      
+      for (let s = 0; s < steps; s++) { 
+          const randomTeam = currentPool[Math.floor(Math.random() * currentPool.length)]; 
+          setCurrentSpinName(randomTeam.name); 
+          await new Promise(r => setTimeout(r, interval)); 
+      } 
+      
+      // Pick the winner
+      const pickedTeam = currentPool.shift(); 
+      if (!pickedTeam) { 
+          setLiveDrawStep('finished'); 
+          setIsDrawing(false);
+          return; 
+      } 
+      
+      setCurrentSpinName(pickedTeam.name); 
+      
+      if (!isFastMode) { 
+          setLatestReveal(pickedTeam); 
+          fireLocalConfetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); 
+          await new Promise(r => setTimeout(r, 2000)); 
+          setLatestReveal(null); 
+      } 
+      
+      setLiveGroups(prev => ({ 
+          ...prev, 
+          [targetGroup]: [...(prev[targetGroup] || []), pickedTeam] 
+      })); 
+      
+      setDrawnCount(prev => prev + 1); 
+      setPoolTeams([...currentPool]); 
+      
+      const nextTarget = getNextTargetGroup(); 
+      if (currentPool.length === 0 || !nextTarget) { 
+          if (!isFastMode) { 
+              setLiveDrawStep('finished'); 
+              setCurrentSpinName("เสร็จสิ้น!"); 
+              setCurrentSpinGroup("-"); 
+              fireLocalConfetti({ particleCount: 200, spread: 100, origin: { y: 0.5 } }); 
+          } else {
+              setLiveDrawStep('finished'); 
+          }
+      } else { 
+          setLiveDrawStep('idle'); 
+      } 
+      setIsDrawing(false);
+  };
+
+  const drawRoundBatch = async () => { 
+      if (isDrawing || liveDrawStep === 'spinning') return; 
+      
+      setIsDrawing(true); 
+      setLiveDrawStep('spinning');
+      
+      let localPool = [...poolTeams]; 
+      const groupNames = Object.keys(liveGroups).sort(); 
+      
+      // Try to fill one spot in each group (Round Robin filling)
+      for (const groupName of groupNames) { 
+          if (localPool.length === 0) break; 
+          if (liveGroups[groupName].length >= teamsPerGroup) continue; 
+          
+          setCurrentSpinGroup(groupName); 
+          
+          // Short spin animation
+          const steps = 6; 
+          for (let s = 0; s < steps; s++) { 
+              const randomIdx = Math.floor(Math.random() * localPool.length); 
+              setCurrentSpinName(localPool[randomIdx].name); 
+              await new Promise(r => setTimeout(r, 50)); 
+          } 
+          
+          const winnerIdx = Math.floor(Math.random() * localPool.length); 
+          const winner = localPool[winnerIdx]; 
+          localPool.splice(winnerIdx, 1); 
+          
+          setCurrentSpinName(winner.name); 
+          
+          // Update state step by step visually
+          setLiveGroups(prev => ({ ...prev, [groupName]: [...(prev[groupName] || []), winner] })); 
+          setPoolTeams(prev => prev.filter(t => t.id !== winner.id)); 
+          setDrawnCount(prev => prev + 1); 
+          
+          await new Promise(r => setTimeout(r, 300)); 
+      } 
+      
+      setLiveDrawStep('idle'); 
+      setCurrentSpinGroup(""); 
+      
+      if (localPool.length === 0) { 
+          setLiveDrawStep('finished'); 
+          setCurrentSpinName("เสร็จสิ้น!"); 
+          setCurrentSpinGroup("-"); 
+          fireLocalConfetti({ particleCount: 300, spread: 150, origin: { y: 0.5 }, colors: ['#f43f5e', '#8b5cf6', '#10b981'] }); 
+      } 
+      setIsDrawing(false);
+  };
   
   const handleSaveDrawResults = async () => { 
       setIsDrawing(true); 
@@ -1103,6 +1308,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
       )}
 
+      {/* DRAW SETUP MODAL */}
+      {isDrawModalOpen && (
+          <div className="fixed inset-0 z-[1300] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
+                  <div className="flex items-center gap-3 text-indigo-600 mb-4 border-b pb-2">
+                      <Shuffle className="w-6 h-6" />
+                      <h3 className="font-bold text-lg">ตั้งค่าการจับฉลาก</h3>
+                  </div>
+                  <p className="text-sm text-slate-600 mb-4">ระบบจะทำการสุ่มทีม "Approved" ลงกลุ่มแบบ Round-Robin (A-B-C...)</p>
+                  
+                  <div className="mb-4">
+                      <label className="block text-sm font-bold text-slate-700 mb-2">จำนวนกลุ่ม (Groups)</label>
+                      <div className="flex items-center gap-4">
+                          <button onClick={() => setDrawGroupCount(Math.max(2, drawGroupCount - 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Minus className="w-4 h-4" /></button>
+                          <span className="text-2xl font-black text-indigo-600 w-12 text-center">{drawGroupCount}</span>
+                          <button onClick={() => setDrawGroupCount(Math.min(16, drawGroupCount + 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Plus className="w-4 h-4" /></button>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2">กลุ่มจะเป็น A - {String.fromCharCode(65 + drawGroupCount - 1)}</p>
+                  </div>
+
+                  <div className="mb-6">
+                      <label className="block text-sm font-bold text-slate-700 mb-2">จำนวนทีมต่อกลุ่ม (Teams/Group)</label>
+                      <div className="flex items-center gap-4">
+                          <button onClick={() => setTeamsPerGroup(Math.max(2, teamsPerGroup - 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Minus className="w-4 h-4" /></button>
+                          <span className="text-2xl font-black text-green-600 w-12 text-center">{teamsPerGroup}</span>
+                          <button onClick={() => setTeamsPerGroup(Math.min(16, teamsPerGroup + 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Plus className="w-4 h-4" /></button>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-2">รองรับสูงสุด {drawGroupCount * teamsPerGroup} ทีม</p>
+                  </div>
+
+                  <div className="flex gap-3 flex-col">
+                      <button onClick={prepareLiveDraw} className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold text-sm shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 transition transform active:scale-95">
+                          <PlayCircle className="w-5 h-5"/> เข้าสู่ Live Draw Studio
+                      </button>
+                      <button onClick={() => setIsDrawModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-slate-600 text-sm font-medium">ยกเลิก</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {editForm && formData && (
         <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
             <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
@@ -1591,7 +1836,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 bg-white z-20">
                         <div className="flex items-center gap-3">
                             <h2 className="font-bold text-lg text-slate-800">รายชื่อทีมลงทะเบียน</h2>
-                            <button onClick={() => setIsDrawModalOpen(true)} className="flex items-center gap-1 text-xs bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-purple-600 transition font-bold shadow-md transform hover:scale-105"><Shuffle className="w-4 h-4" /> Live Draw</button>
+                            <button onClick={prepareLiveDraw} className="flex items-center gap-1 text-xs bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-purple-600 transition font-bold shadow-md transform hover:scale-105"><Shuffle className="w-4 h-4" /> Live Draw</button>
                         </div>
                         <div className="flex gap-2 w-full md:w-auto items-center">
                             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
