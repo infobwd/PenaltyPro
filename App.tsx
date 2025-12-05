@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -17,11 +18,12 @@ import NewsFeed from './components/NewsFeed';
 import TournamentSelector from './components/TournamentSelector';
 import DonationDialog from './components/DonationDialog';
 import TeamEditModal from './components/TeamEditModal';
+import ContestGallery from './components/ContestGallery';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -526,6 +528,7 @@ export default function App() {
       {currentView === 'tournament' && <TournamentView key={viewKey} teams={activeTeams} matches={activeMatches} onSelectMatch={handleStartMatchRequest} onBack={() => setCurrentView('home')} isAdmin={isAdmin} onRefresh={() => loadData(true)} onLoginClick={() => setIsLoginOpen(true)} isLoading={isLoadingData} showNotification={showNotification} tournamentId={currentTournamentId} />}
       {currentView === 'schedule' && ( <ScheduleList key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => setCurrentView('home')} isAdmin={isAdmin} isLoading={isLoadingData} onRefresh={() => loadData(true)} showNotification={showNotification} onStartMatch={handleStartMatchRequest} config={effectiveSettings} initialMatchId={initialMatchId} currentTournamentId={currentTournamentId} /> )}
       {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} />}
+      {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
       {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); setCurrentView('home'); }} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} donations={donations} isLoading={isLoadingData} /> )}
 
       {currentView === 'match' && matchState && (
@@ -591,7 +594,13 @@ export default function App() {
                   </h1>
               </div>
               <div className="flex items-center gap-2">
-                  <button onClick={() => setCurrentTournamentId(null)} className="hidden md:flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1 rounded-full transition">
+                  <button 
+                    onClick={() => setCurrentView('contest')} 
+                    className="flex items-center gap-1 text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-3 py-1.5 rounded-full transition shadow-sm font-bold mr-1"
+                  >
+                      <Camera className="w-3 h-3"/> ประกวดภาพถ่าย
+                  </button>
+                  <button onClick={() => setCurrentTournamentId(null)} className="hidden md:flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1.5 rounded-full transition">
                       <ArrowLeftRight className="w-3 h-3"/> เปลี่ยนรายการ
                   </button>
                   <button 
@@ -600,7 +609,7 @@ export default function App() {
                     disabled={isRegistrationFull}
                   >
                       {isRegistrationFull ? (
-                          <>เต็มแล้ว (Full)</>
+                          <>เต็มแล้ว</>
                       ) : (
                           <><UserPlus className="w-3 h-3" /> สมัครแข่ง</>
                       )}

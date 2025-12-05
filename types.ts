@@ -1,3 +1,4 @@
+
 export enum KickResult {
   GOAL = 'GOAL',
   SAVED = 'SAVED',
@@ -282,4 +283,26 @@ export interface UserProfile {
   role?: 'admin' | 'staff' | 'user';
   lineUserId?: string;
   lastLogin?: string;
+}
+
+export interface Contest {
+  id: string;
+  title: string;
+  description: string;
+  status: 'Open' | 'Closed';
+  createdDate: string;
+  closingDate?: string;
+}
+
+export interface ContestEntry {
+  id: string;
+  contestId: string;
+  userId: string;
+  userDisplayName: string;
+  userPictureUrl?: string;
+  photoUrl: string;
+  caption: string;
+  likeCount: number;
+  likedBy: string[]; // Array of UserIDs
+  timestamp: string;
 }

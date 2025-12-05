@@ -1,6 +1,6 @@
 
 // ... existing imports ...
-import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation } from '../types';
+import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
@@ -53,8 +53,6 @@ export const updateDonationDetails = async (donationId: string, updates: any): P
     } catch (e) { return false; }
 }
 
-// ... existing functions ...
-
 export const deleteTeam = async (teamId: string): Promise<boolean> => {
     try {
         await fetch(API_URL, {
@@ -67,6 +65,59 @@ export const deleteTeam = async (teamId: string): Promise<boolean> => {
         return true;
     } catch (e) { return false; }
 }
+
+// CONTEST FUNCTIONS
+
+export const fetchContests = async (): Promise<{ contests: Contest[], entries: ContestEntry[] }> => {
+    try {
+        const response = await fetch(`${API_URL}?action=getContests&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
+        if (!response.ok) throw new Error("Failed to fetch contests");
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("fetchContests error", error);
+        return { contests: [], entries: [] };
+    }
+};
+
+export const submitContestEntry = async (data: { contestId: string, userId: string, userDisplayName: string, userPic: string, photoFile: string, caption: string }): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'submitContestEntry', ...data })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
+export const toggleEntryLike = async (entryId: string, userId: string): Promise<{ status: string, newCount?: number, likedBy?: string[] }> => {
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            redirect: 'follow',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'toggleEntryLike', entryId, userId })
+        });
+        if (response.ok) {
+            return await response.json();
+        }
+        return { status: 'error' };
+    } catch (e) { return { status: 'error' }; }
+};
+
+export const manageContest = async (data: any): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'manageContest', ...data })
+        });
+        return true;
+    } catch (e) { return false; }
+};
 
 // RE-EXPORT all existing functions to maintain file integrity
 export const setStoredScriptUrl = (url: string) => { console.warn("URL is hardcoded in this version. Setting ignored."); };

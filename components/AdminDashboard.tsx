@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock } from 'lucide-react';
-import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
+import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest } from '../types';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
+import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -37,7 +38,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   isLoading 
 }) => {
   // Tab Persistence Logic
-  const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>(() => {
+  const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations' | 'contests'>(() => {
       const savedTab = localStorage.getItem('adminActiveTab');
       return (savedTab as any) || 'teams';
   });
@@ -64,6 +65,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [donationViewMode, setDonationViewMode] = useState<'grid' | 'list'>('grid');
   const [adminTaxFile, setAdminTaxFile] = useState<File | null>(null);
   const [isGeneratingCert, setIsGeneratingCert] = useState(false); // Certificate Loading State
+
+  // Contest Management State
+  const [contestList, setContestList] = useState<Contest[]>([]);
+  const [isContestModalOpen, setIsContestModalOpen] = useState(false);
+  const [contestForm, setContestForm] = useState<{id: string | null, title: string, description: string, closingDate: string, status: 'Open'|'Closed'}>({ id: null, title: '', description: '', closingDate: '', status: 'Open' });
+  const [isSavingContest, setIsSavingContest] = useState(false);
 
   // Teams Filter State
   const [filterStatus, setFilterStatus] = useState<string>('All');
@@ -147,8 +154,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   useEffect(() => {
       if (activeTab === 'users' || activeTab === 'donations') {
-          // Load users if on users or donations tab (to get profile pics)
           if (userList.length === 0) loadUsers();
+      }
+      if (activeTab === 'contests') {
+          loadContests();
       }
   }, [activeTab]);
 
@@ -162,6 +171,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const users = await fetchUsers();
       setUserList(users);
       setIsLoadingUsers(false);
+  };
+
+  const loadContests = async () => {
+      // Background load
+      const data = await fetchContests();
+      setContestList(data.contests);
   };
 
   const handleLocalRefresh = async () => {
@@ -183,6 +198,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       try {
           await action();
           await onRefresh(); 
+          // If active tab is contests, reload contests too
+          if (activeTab === 'contests') await loadContests();
           notify("สำเร็จ", successMsg, "success");
       } catch (error: any) {
           console.error(error);
@@ -190,6 +207,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       } finally {
           setReloadMessage(null);
       }
+  };
+
+  // --- CONTEST LOGIC ---
+  const handleCreateContest = () => {
+      setContestForm({ id: null, title: '', description: '', closingDate: '', status: 'Open' });
+      setIsContestModalOpen(true);
+  };
+
+  const handleEditContest = (contest: Contest) => {
+      setContestForm({ 
+          id: contest.id, 
+          title: contest.title, 
+          description: contest.description, 
+          closingDate: contest.closingDate || '', 
+          status: contest.status 
+      });
+      setIsContestModalOpen(true);
+  };
+
+  const handleSaveContest = async () => {
+      if (!contestForm.title) {
+          notify("ข้อมูลไม่ครบ", "กรุณาระบุหัวข้อกิจกรรม", "warning");
+          return;
+      }
+      setIsContestModalOpen(false);
+      executeWithReload(async () => {
+          const action = contestForm.id ? 'edit' : 'create';
+          await manageContest({ 
+              subAction: action, 
+              contestId: contestForm.id, 
+              title: contestForm.title, 
+              description: contestForm.description,
+              closingDate: contestForm.closingDate
+          });
+      }, contestForm.id ? "แก้ไขกิจกรรมเรียบร้อย" : "สร้างกิจกรรมใหม่เรียบร้อย", "กำลังบันทึกกิจกรรม...");
+  };
+
+  const handleToggleContestStatus = async (contest: Contest) => {
+      const newStatus = contest.status === 'Open' ? 'Closed' : 'Open';
+      executeWithReload(async () => {
+          await manageContest({ subAction: 'updateStatus', contestId: contest.id, status: newStatus });
+      }, `เปลี่ยนสถานะเป็น ${newStatus} เรียบร้อย`, "กำลังอัปเดตสถานะ...");
   };
 
   // User Management Handlers
@@ -1095,78 +1154,48 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
       )}
 
-      {/* NEWS MANAGEMENT MODAL */}
-      {isNewsModalOpen && (
+      {/* CONTEST MODAL */}
+      {isContestModalOpen && (
           <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 animate-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in duration-200">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
-                      <h3 className="font-bold text-lg text-indigo-900">{newsForm.id ? 'แก้ไขข่าว' : 'เพิ่มข่าวใหม่'}</h3>
-                      <button onClick={() => setIsNewsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                      <h3 className="font-bold text-lg text-slate-800">{contestForm.id ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่'}</h3>
+                      <button onClick={() => setIsContestModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
                   </div>
                   <div className="space-y-4">
                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label>
-                          <input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg" />
+                          <label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อกิจกรรม</label>
+                          <input 
+                              type="text" 
+                              value={contestForm.title} 
+                              onChange={e => setContestForm({...contestForm, title: e.target.value})} 
+                              className="w-full p-2 border rounded-lg"
+                              placeholder="เช่น ประกวดภาพเชียร์มันส์ๆ"
+                          />
                       </div>
-                      
                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">เป้าหมายการแสดงผล (Target Audience)</label>
-                          <select 
-                              value={newsForm.tournamentId} 
-                              onChange={e => setNewsForm({...newsForm, tournamentId: e.target.value})}
-                              className="w-full p-2 border rounded-lg bg-white"
-                          >
-                              <option value="global">🌐 Global (ทุกรายการ)</option>
-                              {currentTournament && (
-                                  <option value={currentTournament.id}>🏆 รายการปัจจุบัน: {currentTournament.name}</option>
-                              )}
-                          </select>
-                          <p className="text-xs text-slate-400 mt-1">เลือก 'Global' เพื่อให้ข่าวนี้แสดงในหน้าแรกของทุกรายการ หรือเลือกรายการปัจจุบันเพื่อแสดงเฉพาะในรายการนี้</p>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">รายละเอียด</label>
+                          <textarea 
+                              value={contestForm.description} 
+                              onChange={e => setContestForm({...contestForm, description: e.target.value})} 
+                              className="w-full p-2 border rounded-lg h-24"
+                              placeholder="รายละเอียดกติกา..."
+                          />
                       </div>
-
                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหา</label>
-                          <textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg h-32" />
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-sm font-bold text-slate-700 mb-1">รูปภาพประกอบ</label>
-                              <div className="flex items-center gap-4">
-                                  {newsForm.imagePreview ? (
-                                      <div className="relative">
-                                          <img src={newsForm.imagePreview} className="w-20 h-20 object-cover rounded-lg border"/>
-                                          <button onClick={() => setNewsForm({...newsForm, imagePreview: null, imageFile: null})} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5"><X className="w-3 h-3"/></button>
-                                      </div>
-                                  ) : (
-                                      <div className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 border border-dashed border-slate-300">No Image</div>
-                                  )}
-                                  <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-xs hover:bg-slate-100 transition">
-                                      เลือกรูปภาพ
-                                      <input type="file" accept="image/*" onChange={handleNewsImageChange} className="hidden"/>
-                                  </label>
-                              </div>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-bold text-slate-700 mb-1">เอกสารแนบ (PDF)</label>
-                              <div className="flex items-center gap-4">
-                                  {newsForm.docFile ? (
-                                      <div className="text-xs bg-indigo-50 px-2 py-1 rounded text-indigo-700 font-bold flex items-center gap-1">
-                                          <FileText className="w-3 h-3"/> {newsForm.docFile.name}
-                                      </div>
-                                  ) : <div className="text-xs text-slate-400 italic">ไม่มีไฟล์แนบ</div>}
-                                  <label className="cursor-pointer bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-xs hover:bg-slate-100 transition">
-                                      เลือกไฟล์ PDF
-                                      <input type="file" accept=".pdf,.doc,.docx" onChange={handleNewsDocChange} className="hidden"/>
-                                  </label>
-                              </div>
-                          </div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">วันปิดรับภาพ</label>
+                          <input 
+                              type="datetime-local" 
+                              value={contestForm.closingDate} 
+                              onChange={e => setContestForm({...contestForm, closingDate: e.target.value})} 
+                              className="w-full p-2 border rounded-lg"
+                          />
                       </div>
                   </div>
-                  <div className="flex justify-end gap-2 pt-6 border-t mt-4">
-                      <button onClick={() => setIsNewsModalOpen(false)} className="px-4 py-2 border rounded-lg hover:bg-slate-50 text-slate-600 font-bold text-sm">ยกเลิก</button>
-                      <button onClick={handleSaveNews} disabled={isSavingNews} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-200">
-                          {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Save className="w-4 h-4"/> บันทึก</>}
+                  <div className="flex gap-3 mt-6">
+                      <button onClick={() => setIsContestModalOpen(false)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                      <button onClick={handleSaveContest} disabled={isSavingContest} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold flex items-center justify-center gap-2">
+                          {isSavingContest ? <Loader2 className="w-4 h-4 animate-spin"/> : 'บันทึก'}
                       </button>
                   </div>
               </div>
@@ -1190,122 +1219,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
       )}
 
-      {/* DONATION MODAL */}
-      {selectedDonation && (
-          <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedDonation(null)}>
-              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
-                  <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                      <h3 className="font-bold text-lg">ตรวจสอบยอดบริจาค</h3>
-                      <button onClick={() => setSelectedDonation(null)}><X className="w-5 h-5"/></button>
-                  </div>
-                  <div className="p-6 overflow-y-auto max-h-[70vh]">
-                      <div className="mb-4 text-center">
-                          <div className="flex justify-center mb-2">
-                              {(() => {
-                                  const donorProfile = userList.find(u => u.lineUserId === selectedDonation.lineUserId);
-                                  return donorProfile?.pictureUrl ? (
-                                      <img src={donorProfile.pictureUrl} className="w-20 h-20 rounded-full border-4 border-slate-100 object-cover shadow-sm" />
-                                  ) : (
-                                      <div className="w-20 h-20 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
-                                          <User className="w-8 h-8" />
-                                      </div>
-                                  );
-                              })()}
-                          </div>
-                          <div className="text-xl font-bold text-slate-800">{selectedDonation.donorName}</div>
-                          <div className="text-2xl font-bold text-indigo-600 my-2">{selectedDonation.amount.toLocaleString()} บาท</div>
-                          <div className="text-xs text-slate-400">{selectedDonation.timestamp}</div>
-                      </div>
-                      
-                      <div className="flex items-center justify-center mb-4">
-                          <label className="flex items-center gap-2 text-sm text-slate-600 bg-slate-100 px-3 py-1 rounded-full cursor-pointer hover:bg-slate-200 transition">
-                              <input 
-                                  type="checkbox" 
-                                  checked={selectedDonation.isAnonymous} 
-                                  onChange={(e) => handleUpdateDonationAnonymous(e.target.checked)}
-                                  disabled={isVerifyingDonation}
-                                  className="w-4 h-4 rounded border-slate-300 text-indigo-600"
-                              />
-                              ไม่ประสงค์ออกนาม (Anonymous)
-                          </label>
-                      </div>
-
-                      <div className="flex gap-2 mb-4">
-                          {selectedDonation.slipUrl ? (
-                              <button onClick={() => setPreviewImage(selectedDonation.slipUrl)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition border border-slate-200">
-                                  <CreditCard className="w-3 h-3"/> ดูสลิป
-                              </button>
-                          ) : (
-                              <button disabled className="flex-1 py-2 bg-slate-50 text-slate-400 rounded-lg text-xs font-bold cursor-not-allowed">ไม่มีสลิป</button>
-                          )}
-                          
-                          {selectedDonation.taxFileUrl && (
-                              <a href={selectedDonation.taxFileUrl} target="_blank" className="flex-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition border border-blue-200">
-                                  <FileText className="w-3 h-3"/> ไฟล์ e-Donation
-                              </a>
-                          )}
-                      </div>
-                      
-                      {selectedDonation.status === 'Verified' && (
-                          <button 
-                              onClick={() => handlePrintCertificate(selectedDonation)} 
-                              disabled={isGeneratingCert}
-                              className={`w-full py-2.5 mb-4 bg-gradient-to-r from-amber-200 to-yellow-400 hover:from-amber-300 hover:to-yellow-500 text-yellow-900 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition ${isGeneratingCert ? 'opacity-70 cursor-not-allowed' : ''}`}
-                          >
-                              {isGeneratingCert ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                              {isGeneratingCert ? 'กำลังสร้างใบประกาศ...' : 'พิมพ์ใบประกาศเกียรติคุณ (Portrait)'}
-                          </button>
-                      )}
-
-                      <div className="space-y-2 text-sm text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                          <p><b>เบอร์โทร:</b> {selectedDonation.phone}</p>
-                          <p><b>e-Donation:</b> {selectedDonation.isEdonation ? 'ต้องการ' : 'ไม่ต้องการ'}</p>
-                          {selectedDonation.isEdonation && <p><b>Tax ID:</b> {selectedDonation.taxId}</p>}
-                          {selectedDonation.isEdonation && <p><b>ที่อยู่:</b> {selectedDonation.address}</p>}
-                      </div>
-
-                      {/* ADMIN UPLOAD TAX FILE */}
-                      <div className="mt-4 pt-4 border-t border-slate-200">
-                          <label className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดไฟล์ e-Donation / ลดหย่อนภาษี (Admin)</label>
-                          <div className="flex gap-2">
-                              <label className={`flex-1 cursor-pointer bg-white border text-xs font-bold text-center flex items-center justify-center gap-2 transition p-2 rounded-lg ${adminTaxFile ? 'border-indigo-500 text-indigo-600 bg-indigo-50' : selectedDonation.taxFileUrl ? 'border-green-300 bg-green-50 text-green-700' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}>
-                                  {selectedDonation.taxFileUrl && !adminTaxFile ? <CheckCircle2 className="w-3 h-3"/> : <Upload className="w-3 h-3"/>}
-                                  {adminTaxFile ? adminTaxFile.name : (selectedDonation.taxFileUrl ? "มีไฟล์ในระบบแล้ว (คลิกเพื่อเปลี่ยน)" : 'เลือกไฟล์')}
-                                  <input type="file" onChange={handleTaxFileSelect} className="hidden" accept="image/*,.pdf" />
-                              </label>
-                              {adminTaxFile && (
-                                  <button 
-                                      onClick={handleSaveTaxFile}
-                                      disabled={isVerifyingDonation}
-                                      className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-xs hover:bg-green-700 transition flex items-center gap-1 shadow-sm"
-                                  >
-                                      {isVerifyingDonation ? <Loader2 className="w-3 h-3 animate-spin"/> : <Save className="w-3 h-3"/>}
-                                      อัปโหลด
-                                  </button>
-                              )}
-                          </div>
-                      </div>
-                  </div>
-                  <div className="p-4 border-t bg-slate-50 flex gap-3">
-                      <button 
-                        onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} 
-                        disabled={isVerifyingDonation}
-                        className="flex-1 py-3 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50"
-                      >
-                          ปฏิเสธ
-                      </button>
-                      <button 
-                        onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} 
-                        disabled={isVerifyingDonation}
-                        className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-md flex items-center justify-center gap-2"
-                      >
-                          {isVerifyingDonation ? <Loader2 className="w-5 h-5 animate-spin"/> : 'ยืนยันยอด'}
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
-
       {/* Main Content Area */}
       <div className="max-w-7xl mx-auto relative">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -1317,6 +1230,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button onClick={() => setActiveTab('teams')} className={`px-4 py-2 rounded-lg font-medium transition ${activeTab === 'teams' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>จัดการทีม</button>
                 <button onClick={() => setActiveTab('news')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'news' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Bell className="w-4 h-4" /> ข่าวสาร</button>
                 <button onClick={() => setActiveTab('donations')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'donations' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><DollarSign className="w-4 h-4" /> เงินบริจาค</button>
+                <button onClick={() => setActiveTab('contests')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'contests' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Camera className="w-4 h-4" /> ประกวดภาพ</button>
                 <button onClick={() => setActiveTab('users')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><UserCog className="w-4 h-4" /> ผู้ใช้งาน</button>
                 <button onClick={() => setActiveTab('settings')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Settings className="w-4 h-4" /> ตั้งค่า</button>
                 <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition border border-red-100"><LogOut className="w-4 h-4" /></button>
@@ -1435,6 +1349,67 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </table>
                             </div>
                         )}
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* --- CONTESTS TAB --- */}
+        {activeTab === 'contests' && (
+            <div className="animate-in fade-in duration-300">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+                        <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                            <Camera className="w-6 h-6 text-indigo-600" /> จัดการประกวดภาพถ่าย
+                        </h2>
+                        <div className="flex gap-2">
+                            <button onClick={handleLocalRefresh} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
+                            <button onClick={handleCreateContest} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
+                                <Plus className="w-4 h-4" /> สร้างกิจกรรม
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="p-6 bg-slate-50 min-h-[400px]">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {contestList.map(contest => (
+                                <div key={contest.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition group relative flex flex-col">
+                                    <div className="p-5 flex-1">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className={`text-xs px-2 py-1 rounded-full font-bold ${contest.status === 'Open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                {contest.status === 'Open' ? 'เปิดรับสมัคร' : 'ปิดแล้ว'}
+                                            </div>
+                                            {contest.closingDate && (
+                                                <div className="text-xs text-slate-400 flex items-center gap-1">
+                                                    <Clock className="w-3 h-3"/> {new Date(contest.closingDate).toLocaleDateString('th-TH')}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <h3 className="font-bold text-lg text-slate-800 mb-2">{contest.title}</h3>
+                                        <p className="text-sm text-slate-500 line-clamp-3">{contest.description}</p>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 flex justify-between items-center border-t border-slate-100">
+                                        <div className="text-xs text-slate-400">Created: {new Date(contest.createdDate).toLocaleDateString('th-TH')}</div>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => handleToggleContestStatus(contest)} 
+                                                className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition ${contest.status === 'Open' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-600 hover:bg-green-50'}`}
+                                            >
+                                                <Power className="w-3 h-3"/> {contest.status === 'Open' ? 'ปิด' : 'เปิด'}
+                                            </button>
+                                            <button onClick={() => handleEditContest(contest)} className="p-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg hover:text-indigo-600 hover:border-indigo-200 transition">
+                                                <Edit3 className="w-4 h-4"/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {contestList.length === 0 && (
+                                <div className="col-span-full text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                                    ยังไม่มีกิจกรรมประกวดภาพถ่าย
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1593,8 +1568,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ... DONATIONS TAB ... */}
-        {/* ... USERS TAB ... */}
-        {/* ... Rest of code unchanged ... */}
         {activeTab === 'donations' && (
             <div className="animate-in fade-in duration-300">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
