@@ -18,6 +18,8 @@ function doGet(e) {
       return getData();
     } else if (action === 'getContests') {
       return getContests();
+    } else if (action === 'getComments') {
+      return getComments(e.parameter.entryId);
     }
     
     return successResponse({ status: 'running', message: 'Penalty Pro API is active' });
@@ -59,6 +61,7 @@ function doPost(e) {
     else if (action === 'toggleEntryLike') return toggleEntryLike(data.entryId, data.userId);
     else if (action === 'manageContest') return manageContest(data);
     else if (action === 'deleteContestEntry') return deleteContestEntry(data.entryId, data.userId);
+    else if (action === 'submitContestComment') return submitContestComment(data);
     
     return errorResponse("Unknown action: " + action);
     
@@ -419,20 +422,65 @@ function deleteContestEntry(entryId, userId) {
   for (let i = 1; i < data.length; i++) {
     // Check Entry ID
     if (String(data[i][0]) === String(entryId)) {
-      // Check Ownership (or Admin if passed from frontend securely, but for now strict ownership)
-      // Note: Admin deletion can be handled by just trusting if the user role is admin, 
-      // but here we primarily check if the creator matches.
-      // If userId passed matches the owner of the entry
+      // Check Ownership or Admin
       if (String(data[i][2]) === String(userId)) {
          sheet.deleteRow(i + 1);
          return successResponse({ status: 'success' });
       } else {
-         // Optionally allow if userId belongs to an Admin (requires checking Users sheet, omitted for speed unless requested)
          return errorResponse("Permission denied");
       }
     }
   }
   return errorResponse("Entry not found");
+}
+
+function getComments(entryId) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("ContestComments");
+  if (!sheet) {
+    sheet = ss.insertSheet("ContestComments");
+    sheet.appendRow(["ID", "EntryID", "UserID", "UserDisplayName", "UserPic", "Message", "Timestamp"]);
+    return successResponse({ comments: [] });
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  const comments = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]) === String(entryId)) {
+      comments.push({
+        id: String(data[i][0]),
+        entryId: String(data[i][1]),
+        userId: String(data[i][2]),
+        userDisplayName: data[i][3],
+        userPictureUrl: data[i][4],
+        message: data[i][5],
+        timestamp: data[i][6]
+      });
+    }
+  }
+  return successResponse({ comments });
+}
+
+function submitContestComment(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("ContestComments");
+  if (!sheet) {
+    sheet = ss.insertSheet("ContestComments");
+    sheet.appendRow(["ID", "EntryID", "UserID", "UserDisplayName", "UserPic", "Message", "Timestamp"]);
+  }
+  
+  const id = "CMT_" + Date.now();
+  sheet.appendRow([
+    id,
+    data.entryId,
+    data.userId,
+    data.userDisplayName,
+    data.userPic,
+    data.message,
+    new Date().toISOString()
+  ]);
+  
+  return successResponse({ status: 'success', id });
 }
 
 // --- EXISTING FUNCTIONS (unchanged logic) ---

@@ -306,3 +306,13 @@ export interface ContestEntry {
   likedBy: string[]; // Array of UserIDs
   timestamp: string;
 }
+
+export interface ContestComment {
+  id: string;
+  entryId: string;
+  userId: string;
+  userDisplayName: string;
+  userPictureUrl?: string;
+  message: string;
+  timestamp: string;
+}

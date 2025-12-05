@@ -1,4 +1,5 @@
-import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation, TournamentPrize } from '../types';
+
+import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation, TournamentPrize, ContestEntry } from '../types';
 
 declare global {
   interface Window {
@@ -24,6 +25,8 @@ const truncate = (str: string, length: number) => {
   if (str.length <= length) return str;
   return str.substring(0, length - 3) + "...";
 };
+
+// ... existing share functions ...
 
 export const shareMatchSummary = async (match: Match, summary: string, teamAName: string, teamBName: string, competitionName: string = "Penalty Pro Recorder") => {
     if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
@@ -289,6 +292,97 @@ export const shareGroupStandings = async (groupName: string, standings: any[], t
                 "paddingAll": "xl"
             }
         }
+    };
+
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+};
+
+export const shareContestEntry = async (entry: ContestEntry, contestTitle: string) => {
+    const liffId = window.liff?.id;
+    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
+    
+    // Fallback to basic contest link if ID not specific
+    const liffUrl = `https://liff.line.me/${liffId}?view=contest`; 
+    
+    const flexMessage = {
+      type: "flex",
+      altText: `โหวตให้ฉันด้วย: ${truncate(entry.caption, 20)}`,
+      contents: {
+        "type": "bubble",
+        "hero": {
+          "type": "image",
+          "url": entry.photoUrl,
+          "size": "full",
+          "aspectRatio": "1:1",
+          "aspectMode": "cover",
+          "action": {
+            "type": "uri",
+            "uri": liffUrl
+          }
+        },
+        "body": {
+          "type": "box",
+          "layout": "vertical",
+          "contents": [
+            {
+              "type": "text",
+              "text": contestTitle,
+              "weight": "bold",
+              "size": "xs",
+              "color": "#1e40af"
+            },
+            {
+              "type": "text",
+              "text": entry.caption || "มาโหวตให้ภาพถ่ายของฉันกันเถอะ!",
+              "weight": "bold",
+              "size": "md",
+              "margin": "md",
+              "wrap": true
+            },
+            {
+              "type": "box",
+              "layout": "baseline",
+              "margin": "md",
+              "contents": [
+                {
+                  "type": "text",
+                  "text": "By",
+                  "size": "xs",
+                  "color": "#999999",
+                  "flex": 0
+                },
+                {
+                  "type": "text",
+                  "text": entry.userDisplayName,
+                  "size": "xs",
+                  "color": "#999999",
+                  "margin": "sm",
+                  "flex": 0
+                }
+              ]
+            }
+          ]
+        },
+        "footer": {
+          "type": "box",
+          "layout": "vertical",
+          "spacing": "sm",
+          "contents": [
+            {
+              "type": "button",
+              "style": "primary",
+              "height": "sm",
+              "action": {
+                "type": "uri",
+                "label": "Vote for me!",
+                "uri": liffUrl
+              },
+              "color": "#ec4899"
+            }
+          ],
+          "flex": 0
+        }
+      }
     };
 
     try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }

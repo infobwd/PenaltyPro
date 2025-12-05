@@ -1,13 +1,14 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Contest, ContestEntry, UserProfile } from '../types';
-import { fetchContests, submitContestEntry, toggleEntryLike, fileToBase64, deleteContestEntry } from '../services/sheetService';
-import { Camera, Heart, Upload, Loader2, X, Plus, Image as ImageIcon, User, AlertCircle, Check, ArrowLeft, Calendar, Clock, Trophy, Flame, Sparkles, Trash2, Info, Link, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Contest, ContestEntry, UserProfile, ContestComment } from '../types';
+import { fetchContests, submitContestEntry, toggleEntryLike, fileToBase64, deleteContestEntry, fetchContestComments, submitContestComment } from '../services/sheetService';
+import { shareContestEntry } from '../services/liffService';
+import { Camera, Heart, Upload, Loader2, X, Plus, Image as ImageIcon, User, AlertCircle, Check, ArrowLeft, Calendar, Clock, Trophy, Flame, Sparkles, Trash2, Info, Link, ExternalLink, MessageCircle, Send, Calculator, Share2 } from 'lucide-react';
 
 interface ContestGalleryProps {
   user: UserProfile | null;
   onLoginRequest: () => void;
-  showNotification: (title: string, message: string, type: 'success' | 'error' | 'info') => void;
+  showNotification: (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
 const ITEMS_PER_PAGE = 20;
@@ -60,6 +61,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
   
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'popular' | 'latest'>('popular');
+  const [filterTab, setFilterTab] = useState<'all' | 'my'>('all'); // NEW: My Photos Tab
   
   // Upload State
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -74,6 +76,19 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
   const [uploadStatusText, setUploadStatusText] = useState('');
   
   const [selectedEntry, setSelectedEntry] = useState<ContestEntry | null>(null);
+  
+  // Custom Delete Modal State
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean, entryId: string | null }>({ isOpen: false, entryId: null });
+
+  // Comment System State
+  const [comments, setComments] = useState<ContestComment[]>([]);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [commentInput, setCommentInput] = useState('');
+  const [isSendingComment, setIsSendingComment] = useState(false);
+  
+  // Anti-Bot Challenge
+  const [antiBot, setAntiBot] = useState<{ q: string, a: number, userA: string }>({ q: '', a: 0, userA: '' });
+  const [isBotVerified, setIsBotVerified] = useState(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -97,9 +112,87 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
     loadData();
   }, []);
 
+  // Fetch comments when opening an entry
+  useEffect(() => {
+      if (selectedEntry) {
+          setIsLoadingComments(true);
+          setComments([]); // Clear prev
+          generateBotChallenge(); // New challenge per entry view
+          fetchContestComments(selectedEntry.id).then(cmts => {
+              setComments(cmts.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()));
+              setIsLoadingComments(false);
+          });
+      }
+  }, [selectedEntry]);
+
+  const generateBotChallenge = () => {
+      const n1 = Math.floor(Math.random() * 10) + 1;
+      const n2 = Math.floor(Math.random() * 10) + 1;
+      setAntiBot({ q: `${n1} + ${n2} = ?`, a: n1 + n2, userA: '' });
+      setIsBotVerified(false);
+  };
+
+  const checkBotAnswer = () => {
+      if (parseInt(antiBot.userA) === antiBot.a) {
+          setIsBotVerified(true);
+      } else {
+          showNotification("คำตอบผิด", "กรุณาลองใหม่", "error");
+          generateBotChallenge();
+      }
+  };
+
+  const handleSendComment = async () => {
+      if (!user || !selectedEntry) return;
+      if (!commentInput.trim()) return;
+      if (!isBotVerified) {
+          showNotification("Anti-Bot", "กรุณาตอบคำถามยืนยันตัวตนก่อน", "warning");
+          return;
+      }
+
+      setIsSendingComment(true);
+      const newComment: ContestComment = {
+          id: `TEMP_${Date.now()}`,
+          entryId: selectedEntry.id,
+          userId: user.userId,
+          userDisplayName: user.displayName,
+          userPictureUrl: user.pictureUrl,
+          message: commentInput,
+          timestamp: new Date().toISOString()
+      };
+      
+      // Optimistic Update
+      setComments(prev => [...prev, newComment]);
+      setCommentInput('');
+      // Reset bot check to prevent spam
+      generateBotChallenge(); 
+
+      try {
+          await submitContestComment({
+              entryId: selectedEntry.id,
+              userId: user.userId,
+              userDisplayName: user.displayName,
+              userPic: user.pictureUrl || '',
+              message: newComment.message
+          });
+      } catch (e) {
+          showNotification("ผิดพลาด", "ส่งความคิดเห็นไม่สำเร็จ", "error");
+      } finally {
+          setIsSendingComment(false);
+      }
+  };
+
   const processedEntries = useMemo(() => {
       if (!activeContest) return [];
-      const filtered = allEntries.filter(e => e.contestId === activeContest.id);
+      let filtered = allEntries.filter(e => e.contestId === activeContest.id);
+      
+      // Filter by Tab
+      if (filterTab === 'my') {
+          if (user) {
+              filtered = filtered.filter(e => e.userId === user.userId);
+          } else {
+              filtered = []; // No user logged in
+          }
+      }
       
       return filtered.sort((a, b) => {
           if (sortBy === 'popular') {
@@ -109,22 +202,24 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
               return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
           }
       });
-  }, [allEntries, activeContest, sortBy]);
+  }, [allEntries, activeContest, sortBy, filterTab, user]);
 
   const displayedEntries = useMemo(() => {
       return processedEntries.slice(0, page * ITEMS_PER_PAGE);
   }, [processedEntries, page]);
 
   const topThree = useMemo(() => {
-      if (!activeContest || sortBy !== 'popular' || processedEntries.length < 3) return [];
+      // Only show podium in "All" view and "Popular" sort
+      if (!activeContest || sortBy !== 'popular' || filterTab !== 'all' || processedEntries.length < 3) return [];
       return processedEntries.slice(0, 3).filter(e => e.likeCount > 0);
-  }, [processedEntries, sortBy, activeContest]);
+  }, [processedEntries, sortBy, activeContest, filterTab]);
 
   const handleSelectContest = (contest: Contest) => {
       setActiveContest(contest);
       setView('gallery');
       setPage(1);
       setSortBy('popular');
+      setFilterTab('all');
   };
 
   const handleLoadMore = () => {
@@ -246,21 +341,31 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
     }
   };
 
-  const handleDeleteEntry = async (entry: ContestEntry) => {
-      if (!user) return;
-      if (!confirm("คุณแน่ใจหรือไม่ที่จะลบภาพนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+  const requestDelete = (entry: ContestEntry) => {
+      setDeleteModal({ isOpen: true, entryId: entry.id });
+  };
 
-      setAllEntries(prev => prev.filter(e => e.id !== entry.id));
-      if (selectedEntry?.id === entry.id) setSelectedEntry(null);
+  const confirmDelete = async () => {
+      if (!user || !deleteModal.entryId) return;
+      const entryId = deleteModal.entryId;
+      setDeleteModal({ isOpen: false, entryId: null }); // Close modal first
+
+      setAllEntries(prev => prev.filter(e => e.id !== entryId));
+      if (selectedEntry?.id === entryId) setSelectedEntry(null);
 
       try {
-          await deleteContestEntry(entry.id, user.userId);
+          await deleteContestEntry(entryId, user.userId);
           showNotification("สำเร็จ", "ลบภาพเรียบร้อยแล้ว", "success");
       } catch (e) {
           console.error(e);
           showNotification("ผิดพลาด", "ลบภาพไม่สำเร็จ กรุณาลองใหม่", "error");
           loadData(); 
       }
+  };
+
+  const handleShare = () => {
+      if (!selectedEntry || !activeContest) return;
+      shareContestEntry(selectedEntry, activeContest.title);
   };
 
   const isContestClosed = (c: Contest) => {
@@ -271,10 +376,8 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
   const userEntriesCount = (contestId: string) => user ? allEntries.filter(e => e.userId === user.userId && e.contestId === contestId).length : 0;
 
-  // Custom Image Component to handle errors (broken links)
   const GalleryImage = ({ src, alt, className }: { src: string, alt?: string, className?: string }) => {
       const [error, setError] = useState(false);
-      
       if (error || !src) {
           return (
               <div className={`flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 ${className}`}>
@@ -286,16 +389,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
               </div>
           );
       }
-
-      return (
-          <img 
-              src={src} 
-              alt={alt} 
-              className={className} 
-              loading="lazy" 
-              onError={() => setError(true)} 
-          />
-      );
+      return <img src={src} alt={alt} className={className} loading="lazy" onError={() => setError(true)} />;
   };
 
   if (isLoading && contests.length === 0) {
@@ -348,7 +442,6 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                                           </div>
                                       )}
                                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                                      
                                       <div className="absolute top-3 right-3">
                                           {closed ? (
                                               <span className="bg-black/60 text-white backdrop-blur-md text-[10px] px-3 py-1 rounded-full font-bold flex items-center gap-1 border border-white/20">
@@ -360,15 +453,12 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                                               </span>
                                           )}
                                       </div>
-                                      
                                       <div className="absolute bottom-3 left-4 right-4 text-white">
                                           <h3 className="font-bold text-lg leading-tight line-clamp-1 shadow-black drop-shadow-md">{c.title}</h3>
                                       </div>
                                   </div>
-
                                   <div className="p-5 flex-1 flex flex-col">
                                       <p className="text-sm text-slate-500 line-clamp-2 mb-4 flex-1">{c.description}</p>
-                                      
                                       <div className="flex items-center justify-between text-xs text-slate-400 border-t border-slate-50 pt-3">
                                           <span className="flex items-center gap-1 font-medium"><ImageIcon className="w-3 h-3 text-indigo-400"/> {count} รายการ</span>
                                           {c.closingDate && (
@@ -396,6 +486,8 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
   return (
     <div className="pb-20 max-w-7xl mx-auto p-2 md:p-6 animate-in slide-in-from-right-4 duration-300">
+      
+      {/* HEADER & NAV */}
       <div className="flex items-center justify-between mb-4">
           <button onClick={() => setView('list')} className="text-slate-500 hover:text-indigo-600 flex items-center gap-2 text-sm font-bold transition bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200">
               <ArrowLeft className="w-4 h-4"/> กิจกรรมทั้งหมด
@@ -443,15 +535,46 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
         )}
       </div>
 
-      <div className="mb-6 mx-auto max-w-2xl bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-start gap-3 text-indigo-800 text-sm shadow-sm">
-          <Info className="w-5 h-5 text-indigo-500 shrink-0 mt-0.5"/>
-          <div>
-              <span className="font-bold block mb-0.5">กติกาการตัดสิน</span>
-              <span>ภาพที่มียอดหัวใจสูงสุดเป็นผู้ชนะ หากคะแนนเท่ากัน ตัดสินจากลำดับการส่งภาพ (ส่งก่อนมีสิทธิ์ก่อน)</span>
-          </div>
+      {/* TABS & FILTERS */}
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 sticky top-2 z-20">
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-full md:w-auto">
+            <button 
+                onClick={() => setFilterTab('all')}
+                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 ${filterTab === 'all' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                ภาพทั้งหมด
+            </button>
+            <button 
+                onClick={() => user ? setFilterTab('my') : onLoginRequest()}
+                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 ${filterTab === 'my' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+                ภาพของฉัน
+            </button>
+        </div>
+
+        <div className="flex gap-2 items-center w-full md:w-auto">
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-xl flex-1 md:flex-none">
+                <button 
+                    onClick={() => setSortBy('popular')}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${sortBy === 'popular' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    <Flame className={`w-3 h-3 ${sortBy === 'popular' ? 'fill-orange-500 text-orange-500' : ''}`} /> ยอดนิยม
+                </button>
+                <button 
+                    onClick={() => setSortBy('latest')}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 ${sortBy === 'latest' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    <Sparkles className={`w-3 h-3 ${sortBy === 'latest' ? 'text-indigo-500' : ''}`} /> ล่าสุด
+                </button>
+            </div>
+            <div className="text-xs font-medium text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 hidden md:block">
+                {totalEntriesInContest} ภาพ
+            </div>
+        </div>
       </div>
 
-      {sortBy === 'popular' && topThree.length > 0 && (
+      {/* TOP 3 PODIUM (Only on 'All' Tab & 'Popular' Sort) */}
+      {filterTab === 'all' && sortBy === 'popular' && topThree.length > 0 && (
           <div className="mb-10 px-4">
               <h2 className="text-center font-black text-slate-800 mb-6 flex items-center justify-center gap-2 text-xl">
                   <Trophy className="w-6 h-6 text-yellow-500" /> TOP 3 LEADERS
@@ -503,73 +626,65 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
           </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-3 rounded-2xl shadow-sm border border-slate-100 sticky top-2 z-20">
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-full md:w-auto">
-            <button 
-                onClick={() => setSortBy('popular')}
-                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 ${sortBy === 'popular' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-                <Flame className={`w-4 h-4 ${sortBy === 'popular' ? 'fill-orange-500 text-orange-500' : ''}`} /> ยอดนิยม
-            </button>
-            <button 
-                onClick={() => setSortBy('latest')}
-                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 ${sortBy === 'latest' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-                <Sparkles className={`w-4 h-4 ${sortBy === 'latest' ? 'text-indigo-500' : ''}`} /> ล่าสุด
-            </button>
-        </div>
-        <div className="text-sm font-medium text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            ทั้งหมด <span className="font-bold text-slate-800">{totalEntriesInContest}</span> ภาพ
-        </div>
-      </div>
-
-      <div className="columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
-        {displayedEntries.map((entry) => (
-            <div key={entry.id} className="break-inside-avoid bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg transition-all duration-300 group relative">
-                <div 
-                    className="relative cursor-pointer overflow-hidden"
-                    onClick={() => setSelectedEntry(entry)}
-                >
-                    <GalleryImage src={entry.photoUrl} alt={entry.caption} className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
-                        <p className="text-white text-xs font-medium line-clamp-2">{entry.caption || "ไม่มีคำบรรยาย"}</p>
-                    </div>
-                    {user && (user.userId === entry.userId || user.role === 'admin') && (
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteEntry(entry); }}
-                            className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg transition hover:bg-red-600 hover:scale-110 z-20 md:opacity-0 md:group-hover:opacity-100"
-                            title="ลบภาพ"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                        </button>
-                    )}
-                </div>
-                
-                <div className="p-3">
-                    <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-2 overflow-hidden">
-                            {entry.userPictureUrl ? (
-                                <img src={entry.userPictureUrl} className="w-6 h-6 rounded-full object-cover ring-1 ring-slate-100" />
-                            ) : (
-                                <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center"><User className="w-3 h-3 text-slate-400"/></div>
-                            )}
-                            <span className="text-xs font-bold text-slate-700 truncate max-w-[80px]">{entry.userDisplayName}</span>
+      {/* GRID */}
+      {displayedEntries.length === 0 ? (
+          <div className="text-center py-24 text-slate-400 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-200">
+              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                  <Camera className="w-10 h-10 text-slate-300" />
+              </div>
+              <h3 className="font-bold text-lg text-slate-600">
+                  {filterTab === 'my' ? "คุณยังไม่มีภาพที่ส่งเข้าประกวด" : "ยังไม่มีภาพในรายการนี้"}
+              </h3>
+              {!isClosed && filterTab === 'my' && <button onClick={() => setIsUploadOpen(true)} className="text-indigo-600 font-bold mt-2 hover:underline">ส่งภาพเลย!</button>}
+          </div>
+      ) : (
+          <div className="columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
+            {displayedEntries.map((entry) => (
+                <div key={entry.id} className="break-inside-avoid bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg transition-all duration-300 group relative">
+                    <div 
+                        className="relative cursor-pointer overflow-hidden"
+                        onClick={() => setSelectedEntry(entry)}
+                    >
+                        <GalleryImage src={entry.photoUrl} alt={entry.caption} className="w-full h-auto object-cover transform transition-transform duration-700 group-hover:scale-105" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
+                            <p className="text-white text-xs font-medium line-clamp-2">{entry.caption || "ไม่มีคำบรรยาย"}</p>
                         </div>
-                        <span className="text-[10px] text-slate-400">{new Date(entry.timestamp).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })}</span>
+                        {user && (user.userId === entry.userId || user.role === 'admin') && (
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); requestDelete(entry); }}
+                                className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg transition hover:bg-red-600 z-20 md:opacity-0 md:group-hover:opacity-100"
+                                title="ลบภาพ"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        )}
                     </div>
                     
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); handleLike(entry); }}
-                        className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${user && entry.likedBy.includes(user.userId) ? 'bg-pink-50 text-pink-600 border border-pink-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                    >
-                        <Heart className={`w-3.5 h-3.5 transition-transform duration-300 ${user && entry.likedBy.includes(user.userId) ? 'fill-pink-500 scale-110' : ''}`} />
-                        {entry.likeCount > 0 ? `${entry.likeCount}` : 'ถูกใจ'}
-                    </button>
+                    <div className="p-3">
+                        <div className="flex justify-between items-center mb-2">
+                            <div className="flex items-center gap-2 overflow-hidden">
+                                {entry.userPictureUrl ? (
+                                    <img src={entry.userPictureUrl} className="w-6 h-6 rounded-full object-cover ring-1 ring-slate-100" />
+                                ) : (
+                                    <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center"><User className="w-3 h-3 text-slate-400"/></div>
+                                )}
+                                <span className="text-xs font-bold text-slate-700 truncate max-w-[80px]">{entry.userDisplayName}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400">{new Date(entry.timestamp).toLocaleDateString('th-TH', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                        
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); handleLike(entry); }}
+                            className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 ${user && entry.likedBy.includes(user.userId) ? 'bg-pink-50 text-pink-600 border border-pink-100' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                        >
+                            <Heart className={`w-3.5 h-3.5 transition-transform duration-300 ${user && entry.likedBy.includes(user.userId) ? 'fill-pink-500 scale-110' : ''}`} />
+                            {entry.likeCount > 0 ? `${entry.likeCount}` : 'ถูกใจ'}
+                        </button>
+                    </div>
                 </div>
-            </div>
-        ))}
-      </div>
+            ))}
+          </div>
+      )}
 
       {displayedEntries.length < totalEntriesInContest && (
           <div className="mt-12 text-center">
@@ -579,13 +694,22 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
           </div>
       )}
 
-      {totalEntriesInContest === 0 && (
-          <div className="text-center py-24 text-slate-400 bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-200">
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                  <Camera className="w-10 h-10 text-slate-300" />
+      {/* Delete Confirmation Modal */}
+      {deleteModal.isOpen && (
+          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-xs w-full animate-in zoom-in duration-200 text-center">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-red-50">
+                      <Trash2 className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800 mb-2">ลบภาพนี้?</h3>
+                  <p className="text-sm text-slate-500 mb-6">คุณแน่ใจหรือไม่ที่จะลบภาพนี้ การกระทำนี้ไม่สามารถย้อนกลับได้</p>
+                  <div className="flex gap-3">
+                      <button onClick={() => setDeleteModal({ isOpen: false, entryId: null })} className="flex-1 py-2.5 border rounded-xl hover:bg-slate-50 text-slate-600 font-bold transition">ยกเลิก</button>
+                      <button onClick={confirmDelete} className="flex-1 py-2.5 bg-red-500 text-white rounded-xl hover:bg-red-600 font-bold shadow-md transition flex items-center justify-center gap-2">
+                          ยืนยันลบ
+                      </button>
+                  </div>
               </div>
-              <h3 className="font-bold text-lg text-slate-600">ยังไม่มีภาพส่งเข้าประกวด</h3>
-              {!isClosed && <p className="text-sm mt-1">เป็นคนแรกที่ส่งภาพ!</p>}
           </div>
       )}
 
@@ -695,7 +819,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
           </div>
       )}
 
-      {/* View Entry Modal (Lightbox Style) */}
+      {/* View Entry Modal (Lightbox with Comments) */}
       {selectedEntry && (
           <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-md flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-200" onClick={() => setSelectedEntry(null)}>
               <div className="w-full h-full md:max-w-6xl md:h-[90vh] flex flex-col md:flex-row bg-black md:bg-[#1a1a1a] md:rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
@@ -704,15 +828,18 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                       <X className="w-6 h-6" />
                   </button>
 
+                  {/* Left: Image */}
                   <div className="flex-1 bg-black flex items-center justify-center relative group">
                       <GalleryImage src={selectedEntry.photoUrl} className="max-w-full max-h-[100vh] md:max-h-[90vh] object-contain" />
                   </div>
 
-                  <div className="w-full md:w-96 bg-white flex flex-col border-l border-slate-800 md:relative absolute bottom-0 rounded-t-3xl md:rounded-none h-auto md:h-full max-h-[60vh] md:max-h-full">
+                  {/* Right: Details & Comments */}
+                  <div className="w-full md:w-[400px] bg-white flex flex-col border-l border-slate-800 md:relative absolute bottom-0 rounded-t-3xl md:rounded-none h-[60vh] md:h-full shadow-[0_-10px_40px_rgba(0,0,0,0.5)] md:shadow-none">
                       
-                      <div className="absolute top-4 right-4 flex items-center gap-2">
+                      {/* Header Actions */}
+                      <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
                           {user && (user.userId === selectedEntry.userId || user.role === 'admin') && (
-                              <button onClick={() => handleDeleteEntry(selectedEntry)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full md:bg-transparent md:p-1 transition" title="ลบภาพ">
+                              <button onClick={() => requestDelete(selectedEntry)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full md:bg-transparent md:p-1 transition" title="ลบภาพ">
                                   <Trash2 className="w-5 h-5" />
                               </button>
                           )}
@@ -721,7 +848,8 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                           </button>
                       </div>
 
-                      <div className="p-5 border-b border-slate-100 flex items-center gap-3">
+                      {/* User Info */}
+                      <div className="p-5 border-b border-slate-100 flex items-center gap-3 bg-white rounded-t-3xl md:rounded-none relative z-0">
                           {selectedEntry.userPictureUrl ? (
                               <img src={selectedEntry.userPictureUrl} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100" />
                           ) : (
@@ -733,26 +861,104 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
                           </div>
                       </div>
                       
-                      <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
-                          <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedEntry.caption || "ไม่มีคำบรรยาย"}</p>
+                      {/* Scrollable Content: Caption + Comments */}
+                      <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-slate-50">
+                          {selectedEntry.caption && (
+                              <div className="bg-white p-3 rounded-xl border border-slate-100 mb-4 shadow-sm">
+                                  <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedEntry.caption}</p>
+                              </div>
+                          )}
+
+                          <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                              <MessageCircle className="w-3 h-3"/> ความคิดเห็น ({comments.length})
+                          </div>
+
+                          <div className="space-y-3 pb-4">
+                              {isLoadingComments ? (
+                                  <div className="flex justify-center py-4"><Loader2 className="w-6 h-6 animate-spin text-slate-300"/></div>
+                              ) : comments.length === 0 ? (
+                                  <p className="text-center text-slate-400 text-xs py-4">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความเห็น!</p>
+                              ) : (
+                                  comments.map((cmt) => (
+                                      <div key={cmt.id} className="flex gap-2">
+                                          <div className="shrink-0">
+                                              {cmt.userPictureUrl ? <img src={cmt.userPictureUrl} className="w-8 h-8 rounded-full object-cover"/> : <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center"><User className="w-4 h-4 text-slate-400"/></div>}
+                                          </div>
+                                          <div className="bg-white p-2.5 rounded-2xl rounded-tl-none border border-slate-200 text-sm shadow-sm max-w-[85%]">
+                                              <span className="font-bold text-slate-800 block text-xs mb-0.5">{cmt.userDisplayName}</span>
+                                              <p className="text-slate-600 leading-snug">{cmt.message}</p>
+                                              <span className="text-[9px] text-slate-300 block mt-1">{new Date(cmt.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                          </div>
+                                      </div>
+                                  ))
+                              )}
+                          </div>
                       </div>
 
-                      <div className="p-5 border-t border-slate-100 bg-slate-50">
-                          <div className="flex items-center justify-between mb-4">
-                              <div className="flex items-center gap-1">
-                                  <Heart className="w-5 h-5 text-pink-500 fill-pink-500" />
-                                  <span className="font-bold text-slate-800">{selectedEntry.likeCount}</span>
-                                  <span className="text-slate-500 text-sm">คนถูกใจสิ่งนี้</span>
-                              </div>
+                      {/* Footer: Interactions & Comment Input */}
+                      <div className="p-4 border-t border-slate-100 bg-white">
+                          <div className="flex gap-2 mb-3">
+                              <button 
+                                  onClick={() => handleLike(selectedEntry)}
+                                  className={`flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-sm text-sm ${user && selectedEntry.likedBy.includes(user.userId) ? 'bg-pink-50 text-pink-600 border border-pink-100' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+                              >
+                                  <Heart className={`w-4 h-4 ${user && selectedEntry.likedBy.includes(user.userId) ? 'fill-pink-600' : ''}`} />
+                                  {selectedEntry.likeCount}
+                              </button>
+                              <button 
+                                  onClick={handleShare}
+                                  className="flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-sm text-sm bg-[#06C755] hover:bg-[#05b34c] text-white"
+                              >
+                                  <Share2 className="w-4 h-4" /> แชร์โหวต
+                              </button>
                           </div>
-                          
-                          <button 
-                              onClick={() => handleLike(selectedEntry)}
-                              className={`w-full py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition active:scale-95 shadow-sm ${user && selectedEntry.likedBy.includes(user.userId) ? 'bg-pink-50 text-white hover:bg-pink-600 shadow-pink-200' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-                          >
-                              <Heart className={`w-5 h-5 ${user && selectedEntry.likedBy.includes(user.userId) ? 'fill-white' : ''}`} />
-                              {user && selectedEntry.likedBy.includes(user.userId) ? 'ถูกใจแล้ว' : 'กดถูกใจ'}
-                          </button>
+
+                          {user ? (
+                              <div className="relative">
+                                  {/* Anti-Bot Challenge Overlay if not verified and focusing */}
+                                  {!isBotVerified && commentInput.length > 0 && (
+                                      <div className="absolute bottom-full left-0 right-0 mb-2 bg-indigo-600 text-white p-3 rounded-xl shadow-xl animate-in slide-in-from-bottom-2 z-10">
+                                          <div className="flex justify-between items-center mb-2">
+                                              <span className="text-xs font-bold flex items-center gap-1"><Calculator className="w-3 h-3"/> Security Check</span>
+                                              <button onClick={() => setCommentInput('')}><X className="w-3 h-3"/></button>
+                                          </div>
+                                          <p className="text-sm mb-2 text-center">บวกเลขเพื่อยืนยัน: <span className="font-bold text-lg">{antiBot.q}</span></p>
+                                          <div className="flex gap-2">
+                                              <input 
+                                                  type="number" 
+                                                  className="flex-1 rounded-lg text-slate-900 px-2 text-center font-bold outline-none" 
+                                                  value={antiBot.userA}
+                                                  onChange={e => setAntiBot({...antiBot, userA: e.target.value})}
+                                                  placeholder="?"
+                                              />
+                                              <button onClick={checkBotAnswer} className="bg-white/20 hover:bg-white/30 px-3 rounded-lg font-bold text-xs">OK</button>
+                                          </div>
+                                      </div>
+                                  )}
+
+                                  <div className="flex gap-2">
+                                      <input 
+                                          type="text" 
+                                          value={commentInput}
+                                          onChange={e => setCommentInput(e.target.value)}
+                                          placeholder="แสดงความคิดเห็น..." 
+                                          className="flex-1 bg-slate-100 border-0 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white transition outline-none"
+                                          onFocus={() => { if(!isBotVerified) generateBotChallenge(); }}
+                                      />
+                                      <button 
+                                          onClick={handleSendComment}
+                                          disabled={isSendingComment || !commentInput.trim() || !isBotVerified}
+                                          className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                          {isSendingComment ? <Loader2 className="w-5 h-5 animate-spin"/> : <Send className="w-5 h-5" />}
+                                      </button>
+                                  </div>
+                              </div>
+                          ) : (
+                              <button onClick={onLoginRequest} className="w-full py-2 bg-slate-100 text-slate-500 rounded-full text-xs font-bold hover:bg-slate-200 transition">
+                                  เข้าสู่ระบบเพื่อแสดงความคิดเห็น
+                              </button>
+                          )}
                       </div>
                   </div>
               </div>

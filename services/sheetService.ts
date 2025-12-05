@@ -1,6 +1,6 @@
 
 // ... existing imports ...
-import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry } from '../types';
+import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
@@ -129,6 +129,30 @@ export const manageContest = async (data: any): Promise<boolean> => {
         });
         return true;
     } catch (e) { return false; }
+};
+
+export const fetchContestComments = async (entryId: string): Promise<ContestComment[]> => {
+    try {
+        const response = await fetch(`${API_URL}?action=getComments&entryId=${entryId}&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data.comments || [];
+    } catch (error) {
+        return [];
+    }
+};
+
+export const submitContestComment = async (data: { entryId: string, userId: string, userDisplayName: string, userPic: string, message: string }): Promise<string | null> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'submitContestComment', ...data })
+        });
+        // Since no-cors, assume success and return a temp ID or true
+        return "CMT_" + Date.now();
+    } catch (e) { return null; }
 };
 
 // RE-EXPORT all existing functions to maintain file integrity
