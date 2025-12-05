@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Team, Standing, Match, KickResult, Player, MatchEvent } from '../types'; 
-import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck, Hand, Goal, Star, ChevronRight } from 'lucide-react'; 
+import { Team, Standing, Match, KickResult, Player, MatchEvent, Prediction } from '../types'; 
+import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck, Hand, Goal, Star, ChevronRight, Crown } from 'lucide-react'; 
 import PlayerCard from './PlayerCard'; 
 import { shareGroupStandings } from '../services/liffService';
 
@@ -10,11 +10,12 @@ interface StandingsViewProps {
   teams: Team[];
   onBack: () => void;
   isLoading?: boolean;
+  predictions?: Prediction[];
 }
 
-const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, isLoading }) => {
+const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, isLoading, predictions = [] }) => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay' | 'fan'>('table');
   
   if (isLoading) {
       return (
@@ -100,6 +101,36 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
   });
 
   const sortedGroupKeys = Object.keys(groupedStandings).sort();
+
+  // --- LOGIC: Fan Leaderboard ---
+  const fanLeaderboard = useMemo(() => {
+      const scores: Record<string, { name: string, pic: string, points: number, correct: number }> = {};
+      
+      // Map match results for quick lookup
+      const results: Record<string, 'A' | 'B' | null> = {};
+      matches.forEach(m => {
+          if (m.winner) {
+              if (m.winner === 'A' || m.winner === (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)) results[m.id] = 'A';
+              else if (m.winner === 'B' || m.winner === (typeof m.teamB === 'string' ? m.teamB : m.teamB.name)) results[m.id] = 'B';
+          }
+      });
+
+      predictions.forEach(p => {
+          const winner = results[p.matchId];
+          if (!winner) return; // Match not finished yet
+
+          if (!scores[p.userId]) {
+              scores[p.userId] = { name: p.userDisplayName || 'User', pic: p.userPictureUrl || '', points: 0, correct: 0 };
+          }
+
+          if (p.prediction === winner) {
+              scores[p.userId].points += 10;
+              scores[p.userId].correct += 1;
+          }
+      });
+
+      return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 50); // Top 50
+  }, [matches, predictions]);
 
   // --- LOGIC: Top Scorers ---
   const topScorers = useMemo(() => {
@@ -253,6 +284,9 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                 </button>
                 <button onClick={() => setActiveTab('fairplay')} className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'fairplay' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}>
                     <ShieldCheck className="w-4 h-4"/> Fair Play
+                </button>
+                <button onClick={() => setActiveTab('fan')} className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'fan' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}>
+                    <Sparkles className="w-4 h-4"/> Fan Zone
                 </button>
             </div>
 
@@ -514,6 +548,50 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                 </div>
             )}
 
+            {/* Content: Fan Zone */}
+            {activeTab === 'fan' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 space-y-6">
+                    <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-2xl font-black flex items-center gap-3 relative z-10"><Sparkles className="w-8 h-8"/> Fan Leaderboard</h2>
+                        <p className="text-purple-100 mt-1 relative z-10">อันดับกองเชียร์ตาทิพย์ ทายผลแม่นยำ</p>
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="divide-y divide-slate-100">
+                            {fanLeaderboard.length === 0 ? (
+                                <div className="p-12 text-center text-slate-400">ยังไม่มีข้อมูลการทายผล</div>
+                            ) : (
+                                fanLeaderboard.map((fan, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-8 h-8 flex items-center justify-center font-black rounded-full ${idx === 0 ? 'bg-yellow-100 text-yellow-600' : idx === 1 ? 'bg-slate-200 text-slate-600' : idx === 2 ? 'bg-orange-100 text-orange-600' : 'text-slate-400'}`}>
+                                                {idx < 3 ? <Crown className="w-4 h-4"/> : idx + 1}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                {fan.pic ? (
+                                                    <img src={fan.pic} className="w-10 h-10 rounded-full object-cover border border-slate-200" />
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><User className="w-5 h-5 text-slate-400"/></div>
+                                                )}
+                                                <div>
+                                                    <div className="font-bold text-slate-800 text-sm">{fan.name}</div>
+                                                    <div className="text-xs text-slate-400">ทายถูก {fan.correct} คู่</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-xl font-black text-indigo-600">{fan.points}</div>
+                                            <div className="text-[10px] text-slate-400 uppercase font-bold">Points</div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Match History (Always Visible) */}
             <div className="mt-12 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-8">
                 <div className="p-4 bg-slate-800 text-white font-bold flex items-center gap-2 sticky top-0 z-10">
@@ -551,236 +629,6 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
         </div>
     </div>
   );
-};
-
-interface TeamDetailModalProps {
-    team: Team;
-    matches: Match[];
-    onClose: () => void;
-}
-
-const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClose }) => {
-    const [tab, setTab] = useState<'info' | 'form' | 'stats' | 'cards'>('info'); 
-    const [formLimit, setFormLimit] = useState(5);
-    const [players, setPlayers] = useState<Player[]>([]);
-    const [cardPlayer, setCardPlayer] = useState<Player | null>(null);
-
-    useEffect(() => {
-        import('../services/sheetService').then(service => {
-            service.fetchDatabase().then(data => {
-                if (data && data.players) {
-                    setPlayers(data.players.filter(p => p.teamId === team.id));
-                }
-            });
-        });
-    }, [team.id]);
-
-    // Calculate Form (Last 5 matches)
-    const teamMatches = matches
-        .filter(m => {
-            const nameA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
-            const nameB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
-            return (nameA === team.name || nameB === team.name) && m.winner;
-        })
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    const recentMatches = teamMatches.slice(0, formLimit);
-
-    // Calculate Player Stats
-    const playerGoals: Record<string, number> = {};
-    matches.forEach(m => {
-        // Count Penalties
-        if (m.kicks) {
-            m.kicks.forEach(k => {
-                if (k.result === KickResult.GOAL && (k.teamId === team.name || k.teamId === 'A' && (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name || k.teamId === 'B' && (typeof m.teamB === 'string' ? m.teamB : m.teamB.name) === team.name)) {
-                    let pName = String(k.player || '').trim();
-                    if (pName.includes('(#')) pName = pName.split('(#')[0].trim();
-                    else pName = pName.replace(/[0-9]/g, '').replace('#','').trim();
-                    if(!pName) pName = "ไม่ระบุชื่อ";
-                    playerGoals[pName] = (playerGoals[pName] || 0) + 1;
-                }
-            });
-        }
-        // Count Regular Goals (Events)
-        if (m.events) {
-            m.events.forEach(e => {
-                const teamName = e.teamId === 'A' ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
-                if (e.type === 'GOAL' && teamName === team.name) {
-                    playerGoals[e.player] = (playerGoals[e.player] || 0) + 1;
-                }
-            });
-        }
-    });
-    
-    const topScorers = Object.entries(playerGoals)
-        .map(([name, goals]) => ({ name, goals }))
-        .sort((a, b) => b.goals - a.goals);
-
-    return (
-        <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose} style={{ fontFamily: "'Kanit', sans-serif" }}>
-            {cardPlayer && (
-                <PlayerCard player={cardPlayer} team={team} onClose={() => setCardPlayer(null)} />
-            )}
-
-            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
-                {/* Header */}
-                <div className="bg-slate-900 p-6 text-white relative shrink-0 overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-slate-900 opacity-50"></div>
-                    <button onClick={onClose} className="absolute top-4 right-4 bg-white/20 hover:bg-white/40 p-2 rounded-full transition z-10"><X className="w-5 h-5"/></button>
-                    <div className="flex flex-col items-center relative z-10">
-                        {team.logoUrl ? (
-                            <img src={team.logoUrl} className="w-20 h-20 bg-white rounded-2xl p-1 mb-3 shadow-lg object-contain" />
-                        ) : (
-                            <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center text-2xl font-bold mb-3">
-                                {team.shortName}
-                            </div>
-                        )}
-                        <h2 className="text-xl font-bold text-center">{team.name}</h2>
-                        {team.group && <span className="mt-1 px-3 py-1 bg-indigo-600 rounded-full text-xs font-bold shadow-sm border border-indigo-400">Group {team.group}</span>}
-                    </div>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex border-b shrink-0 overflow-x-auto scrollbar-hide">
-                    <button onClick={() => setTab('info')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'info' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}><Info className="w-4 h-4"/> ข้อมูล</button>
-                    <button onClick={() => setTab('form')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'form' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}><History className="w-4 h-4"/> ฟอร์ม</button>
-                    <button onClick={() => setTab('stats')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'stats' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}><BarChart3 className="w-4 h-4"/> สถิติ</button>
-                    <button onClick={() => setTab('cards')} className={`flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 transition min-w-[80px] ${tab === 'cards' ? 'text-yellow-600 border-b-2 border-yellow-500 bg-yellow-50' : 'text-slate-500 hover:bg-slate-50'}`}><Sparkles className="w-4 h-4 text-yellow-500"/> Cards</button>
-                </div>
-
-                {/* Content */}
-                <div className="p-4 overflow-y-auto bg-slate-50 flex-1">
-                    {tab === 'info' && (
-                        <div className="space-y-4">
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                                <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm"><MapPin className="w-4 h-4 text-indigo-500"/> ที่ตั้ง</h4>
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div><span className="text-slate-400 text-xs block">อำเภอ</span>{team.district}</div>
-                                    <div><span className="text-slate-400 text-xs block">จังหวัด</span>{team.province}</div>
-                                </div>
-                            </div>
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                                <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm"><User className="w-4 h-4 text-indigo-500"/> บุคลากร</h4>
-                                <div className="space-y-3 text-sm">
-                                    <div><span className="text-slate-400 text-xs block">ผอ.โรงเรียน</span>{team.directorName || '-'}</div>
-                                    <div className="flex justify-between">
-                                        <div><span className="text-slate-400 text-xs block">ผู้จัดการทีม</span>{team.managerName || '-'}</div>
-                                        {team.managerPhone && <a href={`tel:${team.managerPhone}`} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs flex items-center gap-1 h-fit hover:bg-indigo-100"><Phone className="w-3 h-3"/> โทร</a>}
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <div><span className="text-slate-400 text-xs block">ผู้ฝึกสอน</span>{team.coachName || '-'}</div>
-                                        {team.coachPhone && <a href={`tel:${team.coachPhone}`} className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs flex items-center gap-1 h-fit hover:bg-indigo-100"><Phone className="w-3 h-3"/> โทร</a>}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {tab === 'form' && (
-                        <div className="space-y-3">
-                            {recentMatches.length > 0 ? (
-                                <>
-                                    {recentMatches.map(m => {
-                                        const isHome = (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name;
-                                        const opponent = isHome ? (typeof m.teamB === 'string' ? m.teamB : m.teamB.name) : (typeof m.teamA === 'string' ? m.teamA : m.teamA.name);
-                                        const myScore = isHome ? m.scoreA : m.scoreB;
-                                        const opScore = isHome ? m.scoreB : m.scoreA;
-                                        const isWin = (m.winner === 'A' && isHome) || (m.winner === 'B' && !isHome) || (m.winner === team.name);
-                                        const isDraw = !m.winner || m.winner === 'Draw';
-                                        
-                                        return (
-                                            <div key={m.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-1.5 h-10 rounded-full ${isWin ? 'bg-green-500' : isDraw ? 'bg-slate-400' : 'bg-red-500'}`}></div>
-                                                    <div>
-                                                        <div className="text-xs text-slate-400">{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})} • {m.roundLabel?.split(':')[0]}</div>
-                                                        <div className="font-bold text-slate-700 text-sm">vs {opponent}</div>
-                                                    </div>
-                                                </div>
-                                                <div className={`text-xl font-mono font-black ${isWin ? 'text-green-600' : isDraw ? 'text-slate-600' : 'text-red-500'}`}>
-                                                    {myScore}-{opScore}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                    {teamMatches.length > formLimit && (
-                                        <button onClick={() => setFormLimit(prev => prev + 5)} className="w-full py-2 text-xs text-slate-500 bg-slate-200 rounded-lg hover:bg-slate-300 font-bold transition">
-                                            ดูย้อนหลังเพิ่มเติม
-                                        </button>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="text-center text-slate-400 py-8">ยังไม่มีประวัติการแข่งขัน</div>
-                            )}
-                        </div>
-                    )}
-
-                    {tab === 'stats' && (
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                            <div className="p-3 bg-slate-50 border-b text-xs font-bold text-slate-500 uppercase flex justify-between">
-                                <span>ผู้เล่น</span>
-                                <span>ประตูรวม (Game+Pen)</span>
-                            </div>
-                            <div className="divide-y divide-slate-100">
-                                {topScorers.length > 0 ? topScorers.map((p, i) => (
-                                    <div key={p.name} className="p-3 flex justify-between items-center">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                {i + 1}
-                                            </div>
-                                            <span className="font-medium text-slate-700 text-sm">{p.name}</span>
-                                        </div>
-                                        <div className="font-mono font-bold text-indigo-600">{p.goals}</div>
-                                    </div>
-                                )) : (
-                                    <div className="text-center text-slate-400 py-6 text-sm">ไม่มีข้อมูลการทำประตู</div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {tab === 'cards' && (
-                        <div className="space-y-4">
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
-                                <Sparkles className="w-5 h-5 text-yellow-600 mt-0.5"/>
-                                <div>
-                                    <h4 className="font-bold text-yellow-800 text-sm">Player Spotlight Cards</h4>
-                                    <p className="text-xs text-yellow-700">เลือกนักเตะเพื่อสร้างการ์ดเท่ๆ แชร์ลงโซเชียล!</p>
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                                {players.length > 0 ? players.map(p => (
-                                    <button 
-                                        key={p.id} 
-                                        onClick={() => setCardPlayer(p)}
-                                        className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm hover:border-yellow-400 hover:ring-2 hover:ring-yellow-100 transition flex flex-col items-center gap-2 group"
-                                    >
-                                        <div className="w-16 h-16 rounded-full bg-slate-100 overflow-hidden border-2 border-slate-200 group-hover:border-yellow-400 transition">
-                                            {p.photoUrl ? (
-                                                <img src={p.photoUrl} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <User className="w-full h-full p-3 text-slate-400" />
-                                            )}
-                                        </div>
-                                        <div className="text-center w-full">
-                                            <div className="font-bold text-slate-800 text-sm truncate w-full">{p.name}</div>
-                                            <div className="text-xs text-slate-500">#{p.number}</div>
-                                        </div>
-                                    </button>
-                                )) : (
-                                    <div className="col-span-2 text-center py-8 text-slate-400 flex flex-col items-center">
-                                        <User className="w-12 h-12 mb-2 text-slate-200" />
-                                        <span>กำลังโหลดข้อมูลนักเตะ...</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
 };
 
 export default StandingsView;

@@ -1,3 +1,4 @@
+
 // ==========================================
 // COPY THIS CODE TO YOUR GOOGLE APPS SCRIPT (Code.gs)
 // ==========================================
@@ -62,6 +63,8 @@ function doPost(e) {
     else if (action === 'deleteContestEntry') return deleteContestEntry(data.entryId, data.userId);
     else if (action === 'submitContestComment') return submitContestComment(data);
     else if (action === 'incrementShareCount') return incrementShareCount(data.entryId);
+    // Prediction Logic
+    else if (action === 'submitPrediction') return submitPrediction(data);
     
     return errorResponse("Unknown action: " + action);
     
@@ -107,6 +110,7 @@ function getData() {
   if(!ss.getSheetByName("Donations")) { const s = ss.insertSheet("Donations"); s.appendRow(["ID", "Timestamp", "DonorName", "Amount", "Phone", "IsEDonation", "TaxID", "Address", "SlipURL", "TournamentID", "LineUserID", "Status", "IsAnonymous", "TaxFileURL"]); }
   if(!ss.getSheetByName("News")) { const s = ss.insertSheet("News"); s.appendRow(["ID", "Title", "Content", "ImageURL", "Timestamp", "DocURL", "TournamentID"]); }
   if(!ss.getSheetByName("Schools")) { const s = ss.insertSheet("Schools"); s.appendRow(["ID", "Name", "District", "Province"]); }
+  if(!ss.getSheetByName("Predictions")) { const s = ss.insertSheet("Predictions"); s.appendRow(["ID", "MatchID", "UserID", "UserDisplayName", "UserPic", "Prediction", "Timestamp", "TournamentID"]); }
   
   let configSheet = ss.getSheetByName("Config"); let config = {};
   if (configSheet) { const data = configSheet.getDataRange().getValues(); if (data.length > 1) { const r = data[1]; config = { competitionName: r[0], competitionLogo: toLh3Link(r[1]), bankName: r[2], bankAccount: r[3], accountName: r[4], locationName: r[5], locationLink: r[6], announcement: r[7], adminPin: String(r[8] || '1234'), locationLat: r[9] || 0, locationLng: r[10] || 0, registrationFee: r[11] || 0, fundraisingGoal: r[12] || 0, objectiveTitle: r[13] || '', objectiveDescription: r[14] || '', objectiveImageUrl: toLh3Link(r[15] || ''), liffId: r[16] || '', pwaStartUrl: r[17] || '', pwaScope: r[18] || '' }; } }
@@ -121,17 +125,18 @@ function getData() {
   const donationData = read("Donations"); const donations = []; for(let i=1; i<donationData.length; i++) if(donationData[i][0]) donations.push({ id: String(donationData[i][0]), timestamp: donationData[i][1], donorName: donationData[i][2], amount: Number(donationData[i][3]), phone: String(donationData[i][4]).replace(/^'/, ''), isEdonation: donationData[i][5], taxId: String(donationData[i][6]), address: String(donationData[i][7]), slipUrl: toLh3Link(donationData[i][8]), tournamentId: donationData[i][9], lineUserId: donationData[i][10], status: donationData[i][11] || 'Pending', isAnonymous: donationData[i][12] || false, taxFileUrl: toLh3Link(donationData[i][13]) });
   const newsData = read("News"); const news = []; for(let i=1; i<newsData.length; i++) if(newsData[i][0]) news.push({ id: String(newsData[i][0]), title: newsData[i][1], content: newsData[i][2], imageUrl: toLh3Link(newsData[i][3]), timestamp: Number(newsData[i][4]), documentUrl: newsData[i][5] || '', tournamentId: newsData[i][6] ? String(newsData[i][6]) : 'global' });
   const schoolData = read("Schools"); const schools = []; for(let i=1; i<schoolData.length; i++) if(schoolData[i][0]) schools.push({ id: String(schoolData[i][0]), name: schoolData[i][1], district: schoolData[i][2], province: schoolData[i][3] });
+  const predictionData = read("Predictions"); const predictions = []; for(let i=1; i<predictionData.length; i++) if(predictionData[i][0]) predictions.push({ id: String(predictionData[i][0]), matchId: String(predictionData[i][1]), userId: String(predictionData[i][2]), userDisplayName: predictionData[i][3], userPictureUrl: predictionData[i][4], prediction: predictionData[i][5], timestamp: predictionData[i][6], tournamentId: predictionData[i][7] });
 
-  return successResponse({ teams, players, matches, config, schools, news, tournaments, donations });
+  return successResponse({ teams, players, matches, config, schools, news, tournaments, donations, predictions });
 }
 
-// --- CONTEST FUNCTIONS (UPDATED) ---
+// ... CONTEST FUNCTIONS ...
 
 function getContests() {
   const ss = getSpreadsheet();
   let cSheet = ss.getSheetByName("Contests");
   let eSheet = ss.getSheetByName("ContestEntries");
-  let cmtSheet = ss.getSheetByName("ContestComments"); // New check
+  let cmtSheet = ss.getSheetByName("ContestComments"); 
   
   if (!cSheet) { cSheet = ss.insertSheet("Contests"); cSheet.appendRow(["ID", "Title", "Description", "Status", "CreatedDate", "ClosingDate"]); }
   if (!eSheet) { eSheet = ss.insertSheet("ContestEntries"); eSheet.appendRow(["ID", "ContestID", "UserID", "UserDisplayName", "UserPic", "PhotoURL", "Caption", "LikeCount", "LikedByUsers", "Timestamp", "ShareCount"]); }
@@ -187,7 +192,7 @@ function incrementShareCount(entryId) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(entryId)) {
-      const currentShares = Number(data[i][10] || 0); // Column K (Index 10)
+      const currentShares = Number(data[i][10] || 0); 
       sheet.getRange(i + 1, 11).setValue(currentShares + 1);
       return successResponse({ status: 'success' });
     }
@@ -358,6 +363,43 @@ function submitContestComment(data) {
   ]);
   
   return successResponse({ status: 'success', id });
+}
+
+// ... PREDICTION FUNCTIONS ...
+
+function submitPrediction(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("Predictions");
+  if (!sheet) { 
+    sheet = ss.insertSheet("Predictions"); 
+    sheet.appendRow(["ID", "MatchID", "UserID", "UserDisplayName", "UserPic", "Prediction", "Timestamp", "TournamentID"]); 
+  }
+  
+  const rows = sheet.getDataRange().getValues();
+  // Check if user already predicted this match
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][1]) === String(data.matchId) && String(rows[i][2]) === String(data.userId)) {
+      // Update existing prediction
+      sheet.getRange(i + 1, 6).setValue(data.prediction);
+      sheet.getRange(i + 1, 7).setValue(new Date().toISOString());
+      return successResponse({ status: 'success', message: 'Updated prediction' });
+    }
+  }
+  
+  // Add new prediction
+  const id = "PRD_" + Date.now();
+  sheet.appendRow([
+    id, 
+    data.matchId, 
+    data.userId, 
+    data.userDisplayName, 
+    data.userPic, 
+    data.prediction, 
+    new Date().toISOString(),
+    data.tournamentId || 'default'
+  ]);
+  
+  return successResponse({ status: 'success', message: 'Added prediction' });
 }
 
 // ... (Existing Functions) ...

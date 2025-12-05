@@ -283,6 +283,7 @@ export interface UserProfile {
   role?: 'admin' | 'staff' | 'user';
   lineUserId?: string;
   lastLogin?: string;
+  fanPoints?: number; // Calculated on client
 }
 
 export interface Contest {
@@ -317,4 +318,15 @@ export interface ContestComment {
   userPictureUrl?: string;
   message: string;
   timestamp: string;
+}
+
+export interface Prediction {
+  id: string;
+  matchId: string;
+  userId: string;
+  userDisplayName: string;
+  userPictureUrl?: string;
+  prediction: 'A' | 'B';
+  timestamp: string;
+  tournamentId?: string;
 }

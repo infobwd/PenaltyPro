@@ -1,6 +1,6 @@
 
 // ... existing imports ...
-import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment } from '../types';
+import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
@@ -20,6 +20,18 @@ export const submitDonation = async (data: any): Promise<boolean> => {
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'submitDonation', ...data })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
+export const submitPrediction = async (data: { matchId: string, userId: string, userDisplayName: string, userPic: string, prediction: 'A' | 'B', tournamentId: string }): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'submitPrediction', ...data })
         });
         return true;
     } catch (e) { return false; }
@@ -170,7 +182,7 @@ export const incrementShareCount = async (entryId: string): Promise<boolean> => 
 // RE-EXPORT all existing functions to maintain file integrity
 export const setStoredScriptUrl = (url: string) => { console.warn("URL is hardcoded in this version. Setting ignored."); };
 
-export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[] } | null> => {
+export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[], predictions: Prediction[] } | null> => {
   try {
     // 1. Check Cache Validity
     if (!forceRefresh) {
@@ -202,7 +214,8 @@ export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ te
         schools: (data && data.schools) || [],
         news: (data && data.news) || [],
         tournaments: (data && data.tournaments) || [],
-        donations: (data && data.donations) || []
+        donations: (data && data.donations) || [],
+        predictions: (data && data.predictions) || []
     };
     
     // 3. Update Cache

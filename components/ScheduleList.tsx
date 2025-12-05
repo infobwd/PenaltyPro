@@ -1,9 +1,11 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Match, Team, Player, AppSettings, KickResult } from '../types';
-import { ArrowLeft, Calendar, MapPin, Clock, Trophy, Plus, X, Save, Loader2, Search, ChevronDown, Check, Share2, Edit2, Trash2, AlertTriangle, User, ListPlus, PlusCircle, Users, ArrowRight, PlayCircle, ClipboardCheck, RotateCcw, Flag, Video, Image, Youtube, Facebook, BarChart2, ImageIcon, Download, Camera, Filter, Sparkles, MessageSquare, Cpu, FileText, PenTool, LayoutTemplate } from 'lucide-react';
-import { scheduleMatch, deleteMatch, saveMatchToSheet, fileToBase64 } from '../services/sheetService';
+import { Match, Team, Player, AppSettings, KickResult, Prediction, UserProfile } from '../types';
+import { ArrowLeft, Calendar, MapPin, Clock, Trophy, Plus, X, Save, Loader2, Search, ChevronDown, Check, Share2, Edit2, Trash2, AlertTriangle, User, ListPlus, PlusCircle, Users, ArrowRight, PlayCircle, ClipboardCheck, RotateCcw, Flag, Video, Image, Youtube, Facebook, BarChart2, ImageIcon, Download, Camera, Filter, Sparkles, MessageSquare, Cpu, FileText, PenTool, LayoutTemplate, BrainCircuit } from 'lucide-react';
+import { scheduleMatch, deleteMatch, saveMatchToSheet, fileToBase64, submitPrediction } from '../services/sheetService';
 import { generateMatchSummary, generateLocalSummary } from '../services/geminiService';
 import { shareMatch } from '../services/liffService';
+import PredictionModal from './PredictionModal';
 
 interface ScheduleListProps {
   matches: Match[];
@@ -18,6 +20,9 @@ interface ScheduleListProps {
   config: AppSettings;
   initialMatchId?: string | null;
   currentTournamentId?: string | null;
+  predictions?: Prediction[];
+  currentUser?: UserProfile | null;
+  onLoginRequest?: () => void;
 }
 
 const VENUE_OPTIONS = ["สนาม 1", "สนาม 2", "สนาม 3", "สนาม 4", "สนามกลาง (Main Stadium)"];
@@ -102,7 +107,7 @@ const TeamSelectorModal: React.FC<TeamSelectorProps> = ({ isOpen, onClose, onSel
     );
 };
 
-const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [], onBack, isAdmin, isLoading, onRefresh, showNotification, onStartMatch, config, initialMatchId, currentTournamentId }) => {
+const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [], onBack, isAdmin, isLoading, onRefresh, showNotification, onStartMatch, config, initialMatchId, currentTournamentId, predictions = [], currentUser, onLoginRequest }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -125,6 +130,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
 
   const [isEditResultOpen, setIsEditResultOpen] = useState(false);
   const [editResultForm, setEditResultForm] = useState({ matchId: '', teamA: '', teamB: '', scoreA: '', scoreB: '' });
+
+  const [predictionModal, setPredictionModal] = useState<{ match: Match, teamA: Team, teamB: Team, current: 'A' | 'B' | undefined, stats: any } | null>(null);
 
   const [selectorConfig, setSelectorConfig] = useState<{ 
       isOpen: boolean; 
@@ -233,6 +240,57 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   }, {} as Record<string, Match[]>);
 
   const sortedDates = Object.keys(groupedScheduled).sort();
+
+  // Prediction Helper Logic
+  const getPredictionStats = (matchId: string) => {
+      const matchPredictions = predictions.filter(p => p.matchId === matchId);
+      const total = matchPredictions.length;
+      const a = matchPredictions.filter(p => p.prediction === 'A').length;
+      const b = matchPredictions.filter(p => p.prediction === 'B').length;
+      return { total, a, b };
+  };
+
+  const handleOpenPredict = (e: React.MouseEvent, match: Match) => {
+      e.stopPropagation();
+      if (!currentUser) {
+          if (showNotification) showNotification("Login Required", "กรุณาเข้าสู่ระบบก่อนทายผล", "info");
+          if (onLoginRequest) onLoginRequest();
+          return;
+      }
+      
+      const tA = resolveTeam(match.teamA);
+      const tB = resolveTeam(match.teamB);
+      const myPred = predictions.find(p => p.matchId === match.id && p.userId === currentUser.userId);
+      const stats = getPredictionStats(match.id);
+
+      setPredictionModal({
+          match,
+          teamA: tA,
+          teamB: tB,
+          current: myPred?.prediction as 'A'|'B',
+          stats
+      });
+  };
+
+  const submitUserPrediction = async (choice: 'A' | 'B') => {
+      if (!predictionModal || !currentUser) return;
+      
+      try {
+          await submitPrediction({
+              matchId: predictionModal.match.id,
+              userId: currentUser.userId,
+              userDisplayName: currentUser.displayName,
+              userPic: currentUser.pictureUrl || '',
+              prediction: choice,
+              tournamentId: currentTournamentId || 'default'
+          });
+          
+          if (showNotification) showNotification("ทายผลสำเร็จ", `คุณทายว่า ${choice === 'A' ? predictionModal.teamA.name : predictionModal.teamB.name} จะชนะ`, "success");
+          if (onRefresh) onRefresh();
+      } catch (e) {
+          if (showNotification) showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error");
+      }
+  };
 
   const handleOpenAdd = () => { 
       const today = new Date().toISOString().split('T')[0];
@@ -525,6 +583,14 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 pb-24">
       <TeamSelectorModal isOpen={selectorConfig.isOpen} onClose={() => setSelectorConfig(prev => ({ ...prev, isOpen: false }))} onSelect={handleTeamSelect} teams={getFilteredTeams(selectorConfig.mode === 'singleA' ? matchForm.teamB : selectorConfig.mode === 'singleB' ? matchForm.teamA : selectorConfig.mode === 'bulkA' && typeof selectorConfig.rowIndex === 'number' ? bulkMatches[selectorConfig.rowIndex].teamB : selectorConfig.mode === 'bulkB' && typeof selectorConfig.rowIndex === 'number' ? bulkMatches[selectorConfig.rowIndex].teamA : undefined)} title={selectorConfig.mode.includes('A') ? "เลือกทีมเหย้า" : "เลือกทีมเยือน"} />
+      
+      {predictionModal && (
+          <PredictionModal 
+              {...predictionModal} 
+              onClose={() => setPredictionModal(null)} 
+              onPredict={submitUserPrediction} 
+          />
+      )}
 
       <div className="max-w-4xl mx-auto">
         {/* ... (Header and search UI) ... */}
@@ -573,6 +639,10 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                                 {groupedScheduled[dateKey].map(match => {
                                     const tA = resolveTeam(match.teamA); 
                                     const tB = resolveTeam(match.teamB);
+                                    
+                                    // Prediction State Logic
+                                    const userPred = currentUser ? predictions.find(p => p.matchId === match.id && p.userId === currentUser.userId) : null;
+                                    
                                     return (
                                         <div key={match.id} onClick={() => setSelectedMatch(match)} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col items-center gap-4 hover:shadow-md transition relative cursor-pointer">
                                              <div className="flex flex-col md:flex-row items-center w-full gap-2 md:gap-4">
@@ -594,7 +664,22 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                                                     {match.venue && <span className="flex items-center gap-1 text-slate-500 text-xs"><MapPin className="w-3 h-3" /> {match.venue}</span>}
                                                 </div>
                                             </div>
-                                            <div className="w-full pt-3 mt-1 border-t border-slate-100 flex justify-end gap-2 flex-wrap">
+                                            <div className="w-full pt-3 mt-1 border-t border-slate-100 flex justify-end gap-2 flex-wrap items-center">
+                                                {/* Predict Button */}
+                                                <button 
+                                                    onClick={(e) => handleOpenPredict(e, match)} 
+                                                    className={`flex-1 md:flex-none flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition ${userPred ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                                                >
+                                                    {userPred ? (
+                                                        <>
+                                                            <span className="w-2 h-2 rounded-full bg-green-500 mr-1"></span> 
+                                                            You picked {userPred.prediction === 'A' ? 'Home' : 'Away'}
+                                                        </>
+                                                    ) : (
+                                                        <><BrainCircuit className="w-3 h-3" /> ทายผล</>
+                                                    )}
+                                                </button>
+
                                                 <button onClick={(e) => handleStart(e, match)} className="flex-1 md:flex-none flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-100"><PlayCircle className="w-3 h-3" /> บันทึกผล</button>
                                                 <button onClick={(e) => handleShare(e, match)} className="flex-1 md:flex-none flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-[#00B900] hover:bg-[#009900] text-white text-xs font-bold"><Share2 className="w-3 h-3" /> แชร์ LINE</button>
                                                 {isAdmin && <><button onClick={(e) => handleEditMatch(e, match)} className="flex-none flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-100 text-orange-600 hover:bg-orange-200 text-xs font-bold"><Edit2 className="w-3 h-3" /></button><button onClick={(e) => { e.stopPropagation(); setMatchToDelete(match.id); }} className="flex-none flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 text-xs font-bold"><Trash2 className="w-3 h-3" /></button></>}
@@ -613,9 +698,23 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
         <div>
             <h2 className="text-lg font-bold text-slate-700 mb-4 px-2 border-l-4 border-green-500">ผลการแข่งขัน</h2>
             <div className="space-y-3">
-                 {isLoading ? Array(3).fill(0).map((_, i) => <div key={i} className="bg-slate-50 rounded-xl border border-slate-200 p-4 h-16 animate-pulse"></div>) : finishedMatches.length === 0 ? <div className="bg-white p-6 rounded-xl shadow-sm text-center text-slate-400 border border-slate-200">ยังไม่มีผลการแข่งขัน</div> : finishedMatches.map(match => { const tA = resolveTeam(match.teamA); const tB = resolveTeam(match.teamB); 
+                 {isLoading ? Array(3).fill(0).map((_, i) => <div key={i} className="bg-slate-50 rounded-xl border border-slate-200 p-4 h-16 animate-pulse"></div>) : finishedMatches.length === 0 ? <div className="bg-white p-6 rounded-xl shadow-sm text-center text-slate-400 border border-slate-200">ยังไม่มีผลการแข่งขัน</div> : finishedMatches.map(match => { 
+                    const tA = resolveTeam(match.teamA); 
+                    const tB = resolveTeam(match.teamB); 
+                    
+                    const userPred = currentUser ? predictions.find(p => p.matchId === match.id && p.userId === currentUser.userId) : null;
+                    const isCorrect = userPred && userPred.prediction === match.winner;
+
                 return (
-                    <div key={match.id} onClick={() => setSelectedMatch(match)} className="bg-slate-50 rounded-xl border border-slate-200 p-3 md:p-4 flex flex-col items-center gap-3 opacity-80 hover:opacity-100 transition cursor-pointer">
+                    <div key={match.id} onClick={() => setSelectedMatch(match)} className="bg-slate-50 rounded-xl border border-slate-200 p-3 md:p-4 flex flex-col items-center gap-3 opacity-80 hover:opacity-100 transition cursor-pointer relative">
+                        {/* Prediction Status Badge */}
+                        {userPred && (
+                            <div className={`absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${isCorrect ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {isCorrect ? <Check className="w-3 h-3"/> : <X className="w-3 h-3"/>}
+                                {isCorrect ? 'ทายถูก' : 'ทายผิด'}
+                            </div>
+                        )}
+
                         <div className="flex flex-col md:flex-row items-center w-full gap-2 md:gap-4">
                             <div className="flex justify-between w-full md:w-auto md:flex-col md:items-start min-w-[120px] text-slate-400 text-[10px] md:text-xs border-b md:border-b-0 pb-2 md:pb-0 mb-1 md:mb-0"><span>{formatDate(match.date)}</span><span>{match.roundLabel?.split(':')[0]}</span></div>
                             <div className="flex-1 w-full grid grid-cols-[1fr_auto_1fr] md:flex md:items-center md:justify-center gap-2 md:gap-4 items-center">
