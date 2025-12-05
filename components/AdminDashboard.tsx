@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
@@ -67,9 +67,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Contest Management State
   const [contestList, setContestList] = useState<Contest[]>([]);
+  const [contestEntries, setContestEntries] = useState<any[]>([]); // To count entries
   const [isContestModalOpen, setIsContestModalOpen] = useState(false);
   const [contestForm, setContestForm] = useState<{id: string | null, title: string, description: string, closingDate: string, status: 'Open'|'Closed'}>({ id: null, title: '', description: '', closingDate: '', status: 'Open' });
   const [isSavingContest, setIsSavingContest] = useState(false);
+  const [contestViewMode, setContestViewMode] = useState<'grid' | 'list'>('grid');
+  const [contestFilter, setContestFilter] = useState<'All' | 'Open' | 'Closed'>('All');
+  const [contestSearch, setContestSearch] = useState('');
 
   // Teams Filter State
   const [filterStatus, setFilterStatus] = useState<string>('All');
@@ -176,6 +180,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       // Background load
       const data = await fetchContests();
       setContestList(data.contests);
+      setContestEntries(data.entries);
   };
 
   const handleLocalRefresh = async () => {
@@ -215,11 +220,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleEditContest = (contest: Contest) => {
+      // Format date correctly for datetime-local input (YYYY-MM-DDTHH:mm)
+      let formattedDate = '';
+      if (contest.closingDate) {
+          try {
+              const d = new Date(contest.closingDate);
+              // Adjust for timezone offset if needed or use local ISO string
+              const pad = (n:number) => n < 10 ? '0'+n : n;
+              formattedDate = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+          } catch(e) {}
+      }
+
       setContestForm({ 
           id: contest.id, 
           title: contest.title, 
           description: contest.description, 
-          closingDate: contest.closingDate || '', 
+          closingDate: formattedDate, 
           status: contest.status 
       });
       setIsContestModalOpen(true);
@@ -249,6 +265,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           await manageContest({ subAction: 'updateStatus', contestId: contest.id, status: newStatus });
       }, `เปลี่ยนสถานะเป็น ${newStatus} เรียบร้อย`, "กำลังอัปเดตสถานะ...");
   };
+
+  const filteredContests = useMemo(() => {
+      return contestList.filter(c => {
+          const matchesSearch = c.title.toLowerCase().includes(contestSearch.toLowerCase()) || c.description.toLowerCase().includes(contestSearch.toLowerCase());
+          const matchesFilter = contestFilter === 'All' || c.status === contestFilter;
+          return matchesSearch && matchesFilter;
+      });
+  }, [contestList, contestSearch, contestFilter]);
 
   // User Management Handlers
   const handleOpenUserModal = (user: UserProfile | null) => {
@@ -293,9 +317,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }, "ลบผู้ใช้เรียบร้อย", "กำลังลบผู้ใช้...");
   };
 
-  const handleVerifyDonation = async (donationId: string, status: 'Verified' | 'Rejected') => {
+  const handleVerifyDonation = async (donationId: string, status: 'Verified' | 'Rejected' | 'Pending') => {
+      // Optimistic update for selectedDonation if modal is open
+      if (selectedDonation && selectedDonation.id === donationId) {
+          setSelectedDonation({ ...selectedDonation, status });
+      }
+      
       executeWithReload(async () => {
-          await verifyDonation(donationId, status);
+          await verifyDonation(donationId, status as 'Verified' | 'Rejected');
       }, `อัปเดตสถานะเป็น ${status} เรียบร้อย`, "กำลังอัปเดตสถานะการเงิน...");
   };
 
@@ -906,10 +935,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <span className="text-slate-500">เบอร์โทร:</span>
                                   <span className="font-medium">{selectedDonation.phone}</span>
                               </div>
-                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                              <div className="flex justify-between border-b border-slate-100 pb-1 items-center">
                                   <span className="text-slate-500">สถานะ:</span>
-                                  <span className={`font-bold ${selectedDonation.status === 'Verified' ? 'text-green-600' : selectedDonation.status === 'Rejected' ? 'text-red-600' : 'text-orange-500'}`}>{selectedDonation.status}</span>
+                                  <div className="flex items-center gap-2">
+                                      <span className={`font-bold ${selectedDonation.status === 'Verified' ? 'text-green-600' : selectedDonation.status === 'Rejected' ? 'text-red-600' : 'text-orange-500'}`}>{selectedDonation.status}</span>
+                                  </div>
                               </div>
+                              {/* Status Edit Controls */}
+                              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                  <label className="block text-xs font-bold text-slate-500 mb-2">ปรับปรุงสถานะ</label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                      <button 
+                                          onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} 
+                                          disabled={selectedDonation.status === 'Verified'}
+                                          className={`py-1.5 text-xs font-bold rounded border ${selectedDonation.status === 'Verified' ? 'bg-green-100 text-green-700 border-green-200 cursor-default' : 'bg-white text-slate-600 border-slate-300 hover:bg-green-50 hover:text-green-600 hover:border-green-200'}`}
+                                      >
+                                          {selectedDonation.status === 'Verified' ? 'Verified ✓' : 'Set Verified'}
+                                      </button>
+                                      <button 
+                                          onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} 
+                                          disabled={selectedDonation.status === 'Rejected'}
+                                          className={`py-1.5 text-xs font-bold rounded border ${selectedDonation.status === 'Rejected' ? 'bg-red-100 text-red-700 border-red-200 cursor-default' : 'bg-white text-slate-600 border-slate-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200'}`}
+                                      >
+                                          {selectedDonation.status === 'Rejected' ? 'Rejected ✗' : 'Set Rejected'}
+                                      </button>
+                                  </div>
+                              </div>
+
                               <div className="flex justify-between items-center border-b border-slate-100 pb-1">
                                   <span className="text-slate-500">แสดงชื่อ:</span>
                                   <button 
@@ -947,14 +999,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       {/* Footer Actions */}
-                      <div className="mt-6 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
-                          {selectedDonation.status === 'Pending' && (
-                              <>
-                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} className="bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 transition shadow-sm">อนุมัติ (Verify)</button>
-                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} className="bg-red-50 text-red-600 border border-red-100 py-2 rounded-lg font-bold hover:bg-red-100 transition">ปฏิเสธ</button>
-                              </>
-                          )}
-                          <button onClick={() => handlePrintCertificate(selectedDonation)} disabled={isGeneratingCert} className="col-span-2 bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex items-center justify-center gap-2">
+                      <div className="mt-6 pt-4 border-t border-slate-100">
+                          <button onClick={() => handlePrintCertificate(selectedDonation)} disabled={isGeneratingCert} className="w-full bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex items-center justify-center gap-2">
                               {isGeneratingCert ? <Loader2 className="w-4 h-4 animate-spin"/> : <Printer className="w-4 h-4"/>} พิมพ์เกียรติบัตร
                           </button>
                       </div>
@@ -1052,46 +1098,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="col-span-12 md:col-span-9 flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
                       <div className="h-48 shrink-0 bg-gradient-to-br from-indigo-900 to-slate-900 rounded-3xl border border-indigo-500/30 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-indigo-900/50 group"><div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div><div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>{liveDrawStep === 'spinning' && <><div className="text-indigo-300 text-sm font-bold uppercase tracking-[0.3em] mb-2 animate-pulse flex items-center gap-2"><Sparkles className="w-4 h-4"/> กำลังสุ่มเข้าสู่กลุ่ม <span className="text-white text-lg bg-indigo-600 px-3 py-0.5 rounded shadow-lg ml-1">{currentSpinGroup}</span></div><div className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 drop-shadow-xl transition-all duration-75 scale-110 tracking-tight">{currentSpinName}</div></>}{liveDrawStep === 'idle' && <div className="text-slate-500 flex flex-col items-center gap-4"><div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center border-4 border-slate-700 shadow-inner"><PlayCircle className="w-10 h-10 opacity-50" /></div><span className="text-lg font-medium">พร้อมเริ่มการจับฉลาก</span></div>}{liveDrawStep === 'finished' && <div className="text-green-400 flex flex-col items-center gap-3"><div className="w-20 h-20 bg-green-900/30 rounded-full flex items-center justify-center border-4 border-green-600 shadow-[0_0_30px_rgba(22,163,74,0.3)] animate-pulse"><CheckCircle2 className="w-10 h-10" /></div><div><div className="text-3xl font-bold text-center">การจับฉลากเสร็จสิ้น</div><div className="text-sm text-slate-400 text-center mt-1">กรุณาตรวจสอบผลและกดปุ่ม <span className="text-green-400 font-bold">บันทึกผล</span></div></div></div>}</div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-10">{Object.keys(liveGroups).sort().map(group => { const isFull = liveGroups[group].length >= teamsPerGroup; return (<div key={group} className={`bg-slate-800 rounded-xl border ${currentSpinGroup === group && liveDrawStep === 'spinning' ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.3)] ring-2 ring-indigo-500/50' : isFull ? 'border-emerald-700/50 shadow-[0_0_10px_rgba(16,185,129,0.1)]' : 'border-slate-700'} overflow-hidden transition-all duration-300 hover:border-indigo-400/50`}><div className={`p-3 font-bold text-center border-b border-slate-700 flex justify-between items-center ${currentSpinGroup === group && liveDrawStep === 'spinning' ? 'bg-indigo-600 text-white' : isFull ? 'bg-emerald-800 text-white' : 'bg-slate-900 text-slate-300'}`}><span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-white"></div> GROUP {group}</span><span className="text-xs bg-black/20 px-2 py-0.5 rounded-full">({liveGroups[group].length}/{teamsPerGroup})</span></div><div className="p-2 space-y-2 min-h-[180px]">{liveGroups[group].map((team, idx) => (<div key={team.id} className="p-2 bg-slate-700/50 rounded flex items-center justify-between gap-2 animate-in zoom-in slide-in-from-bottom-2 duration-300 group border border-transparent hover:border-slate-600 hover:bg-slate-700 transition"><div className="flex items-center gap-3 min-w-0"><div className="w-8 h-8 rounded bg-slate-600 flex items-center justify-center shrink-0 overflow-hidden shadow-sm">{team.logoUrl ? <img src={team.logoUrl} className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-slate-300">{team.shortName.charAt(0)}</span>}</div><div className="flex flex-col min-w-0"><span className="text-sm font-bold text-slate-200 truncate leading-tight">{team.name}</span><span className="text-[10px] text-slate-500 truncate">{team.province}</span></div></div><button onClick={() => requestRemoveTeam(team, group)} className="text-slate-500 hover:text-red-400 p-1.5 rounded-full hover:bg-red-900/20 transition" title="ลบออกจากกลุ่ม" disabled={liveDrawStep === 'spinning'}><X className="w-3 h-3" /></button></div>))}{liveGroups[group].length === 0 && <div className="text-center text-slate-600 text-xs py-8 opacity-30 flex flex-col items-center"><div className="w-8 h-8 border-2 border-dashed border-slate-600 rounded-full mb-1"></div>ว่าง</div>}</div></div>);})}</div>
-                  </div>
-              </div>
-          </div>
-      )}
-
-      {/* DRAW SETUP MODAL */}
-      {isDrawModalOpen && (
-          <div className="fixed inset-0 z-[1300] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
-                  <div className="flex items-center gap-3 text-indigo-600 mb-4 border-b pb-2">
-                      <Shuffle className="w-6 h-6" />
-                      <h3 className="font-bold text-lg">ตั้งค่าการจับฉลาก</h3>
-                  </div>
-                  <p className="text-sm text-slate-600 mb-4">ระบบจะทำการสุ่มทีม "Approved" ลงกลุ่มแบบ Round-Robin (A-B-C...)</p>
-                  
-                  <div className="mb-4">
-                      <label className="block text-sm font-bold text-slate-700 mb-2">จำนวนกลุ่ม (Groups)</label>
-                      <div className="flex items-center gap-4">
-                          <button onClick={() => setDrawGroupCount(Math.max(2, drawGroupCount - 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Minus className="w-4 h-4" /></button>
-                          <span className="text-2xl font-black text-indigo-600 w-12 text-center">{drawGroupCount}</span>
-                          <button onClick={() => setDrawGroupCount(Math.min(16, drawGroupCount + 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Plus className="w-4 h-4" /></button>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-2">กลุ่มจะเป็น A - {String.fromCharCode(65 + drawGroupCount - 1)}</p>
-                  </div>
-
-                  <div className="mb-6">
-                      <label className="block text-sm font-bold text-slate-700 mb-2">จำนวนทีมต่อกลุ่ม (Teams/Group)</label>
-                      <div className="flex items-center gap-4">
-                          <button onClick={() => setTeamsPerGroup(Math.max(2, teamsPerGroup - 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Minus className="w-4 h-4" /></button>
-                          <span className="text-2xl font-black text-green-600 w-12 text-center">{teamsPerGroup}</span>
-                          <button onClick={() => setTeamsPerGroup(Math.min(16, teamsPerGroup + 1))} className="p-2 bg-slate-100 rounded-lg hover:bg-slate-200"><Plus className="w-4 h-4" /></button>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-2">รองรับสูงสุด {drawGroupCount * teamsPerGroup} ทีม</p>
-                  </div>
-
-                  <div className="flex gap-3 flex-col">
-                      <button onClick={prepareLiveDraw} className="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold text-sm shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 transition transform active:scale-95">
-                          <PlayCircle className="w-5 h-5"/> เข้าสู่ Live Draw Studio
-                      </button>
-                      <button onClick={() => setIsDrawModalOpen(false)} className="w-full py-2 text-slate-400 hover:text-slate-600 text-sm font-medium">ยกเลิก</button>
                   </div>
               </div>
           </div>
@@ -1483,10 +1489,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <span className="text-slate-500">เบอร์โทร:</span>
                                   <span className="font-medium">{selectedDonation.phone}</span>
                               </div>
-                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                              <div className="flex justify-between border-b border-slate-100 pb-1 items-center">
                                   <span className="text-slate-500">สถานะ:</span>
-                                  <span className={`font-bold ${selectedDonation.status === 'Verified' ? 'text-green-600' : selectedDonation.status === 'Rejected' ? 'text-red-600' : 'text-orange-500'}`}>{selectedDonation.status}</span>
+                                  <div className="flex items-center gap-2">
+                                      <span className={`font-bold ${selectedDonation.status === 'Verified' ? 'text-green-600' : selectedDonation.status === 'Rejected' ? 'text-red-600' : 'text-orange-500'}`}>{selectedDonation.status}</span>
+                                  </div>
                               </div>
+                              {/* Status Edit Controls */}
+                              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                  <label className="block text-xs font-bold text-slate-500 mb-2">ปรับปรุงสถานะ</label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                      <button 
+                                          onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} 
+                                          disabled={selectedDonation.status === 'Verified'}
+                                          className={`py-1.5 text-xs font-bold rounded border ${selectedDonation.status === 'Verified' ? 'bg-green-100 text-green-700 border-green-200 cursor-default' : 'bg-white text-slate-600 border-slate-300 hover:bg-green-50 hover:text-green-600 hover:border-green-200'}`}
+                                      >
+                                          {selectedDonation.status === 'Verified' ? 'Verified ✓' : 'Set Verified'}
+                                      </button>
+                                      <button 
+                                          onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} 
+                                          disabled={selectedDonation.status === 'Rejected'}
+                                          className={`py-1.5 text-xs font-bold rounded border ${selectedDonation.status === 'Rejected' ? 'bg-red-100 text-red-700 border-red-200 cursor-default' : 'bg-white text-slate-600 border-slate-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200'}`}
+                                      >
+                                          {selectedDonation.status === 'Rejected' ? 'Rejected ✗' : 'Set Rejected'}
+                                      </button>
+                                  </div>
+                              </div>
+
                               <div className="flex justify-between items-center border-b border-slate-100 pb-1">
                                   <span className="text-slate-500">แสดงชื่อ:</span>
                                   <button 
@@ -1524,14 +1553,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       {/* Footer Actions */}
-                      <div className="mt-6 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
-                          {selectedDonation.status === 'Pending' && (
-                              <>
-                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} className="bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 transition shadow-sm">อนุมัติ (Verify)</button>
-                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} className="bg-red-50 text-red-600 border border-red-100 py-2 rounded-lg font-bold hover:bg-red-100 transition">ปฏิเสธ</button>
-                              </>
-                          )}
-                          <button onClick={() => handlePrintCertificate(selectedDonation)} disabled={isGeneratingCert} className="col-span-2 bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex items-center justify-center gap-2">
+                      <div className="mt-6 pt-4 border-t border-slate-100">
+                          <button onClick={() => handlePrintCertificate(selectedDonation)} disabled={isGeneratingCert} className="w-full bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex items-center justify-center gap-2">
                               {isGeneratingCert ? <Loader2 className="w-4 h-4 animate-spin"/> : <Printer className="w-4 h-4"/>} พิมพ์เกียรติบัตร
                           </button>
                       </div>
@@ -1679,11 +1702,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'contests' && (
             <div className="animate-in fade-in duration-300">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
-                        <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                            <Camera className="w-6 h-6 text-indigo-600" /> จัดการประกวดภาพถ่าย
-                        </h2>
-                        <div className="flex gap-2">
+                    <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 bg-white z-10">
+                        <div className="flex items-center gap-3">
+                            <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                <Camera className="w-6 h-6 text-indigo-600" /> จัดการประกวดภาพถ่าย
+                            </h2>
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto items-center">
+                            <select value={contestFilter} onChange={(e) => setContestFilter(e.target.value as any)} className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="All">ทั้งหมด</option>
+                                <option value="Open">เปิดรับสมัคร</option>
+                                <option value="Closed">ปิดแล้ว</option>
+                            </select>
+                            <div className="relative flex-1 md:flex-none">
+                                <input 
+                                    type="text" 
+                                    placeholder="ค้นหากิจกรรม..." 
+                                    value={contestSearch}
+                                    onChange={(e) => setContestSearch(e.target.value)}
+                                    className="pl-9 pr-4 py-2 border rounded-lg text-sm w-full bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                            </div>
+                            <div className="flex border rounded-lg overflow-hidden shrink-0">
+                                <button onClick={() => setContestViewMode('grid')} className={`p-2 ${contestViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><Grid className="w-4 h-4"/></button>
+                                <button onClick={() => setContestViewMode('list')} className={`p-2 ${contestViewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><List className="w-4 h-4"/></button>
+                            </div>
                             <button onClick={handleLocalRefresh} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
                             <button onClick={handleCreateContest} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
                                 <Plus className="w-4 h-4" /> สร้างกิจกรรม
@@ -1692,45 +1736,98 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                     
                     <div className="p-6 bg-slate-50 min-h-[400px]">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {contestList.map(contest => (
-                                <div key={contest.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition group relative flex flex-col">
-                                    <div className="p-5 flex-1">
-                                        <div className="flex justify-between items-start mb-3">
-                                            <div className={`text-xs px-2 py-1 rounded-full font-bold ${contest.status === 'Open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                {contest.status === 'Open' ? 'เปิดรับสมัคร' : 'ปิดแล้ว'}
-                                            </div>
-                                            {contest.closingDate && (
-                                                <div className="text-xs text-slate-400 flex items-center gap-1">
-                                                    <Clock className="w-3 h-3"/> {new Date(contest.closingDate).toLocaleDateString('th-TH')}
+                        {contestViewMode === 'grid' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {filteredContests.map(contest => {
+                                    const entryCount = contestEntries.filter(e => e.contestId === contest.id).length;
+                                    return (
+                                        <div key={contest.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition group relative flex flex-col">
+                                            <div className="p-5 flex-1">
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div className={`text-xs px-2 py-1 rounded-full font-bold ${contest.status === 'Open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {contest.status === 'Open' ? 'เปิดรับสมัคร' : 'ปิดแล้ว'}
+                                                    </div>
+                                                    <div className="text-xs text-slate-400 flex items-center gap-2">
+                                                        <span className="flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded border border-slate-100"><Image className="w-3 h-3"/> {entryCount}</span>
+                                                        {contest.closingDate && (
+                                                            <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {new Date(contest.closingDate).toLocaleDateString('th-TH')}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            )}
+                                                <h3 className="font-bold text-lg text-slate-800 mb-2">{contest.title}</h3>
+                                                <p className="text-sm text-slate-500 line-clamp-3">{contest.description}</p>
+                                            </div>
+                                            <div className="bg-slate-50 p-3 flex justify-between items-center border-t border-slate-100">
+                                                <div className="text-xs text-slate-400">Created: {new Date(contest.createdDate).toLocaleDateString('th-TH')}</div>
+                                                <div className="flex gap-2">
+                                                    <button 
+                                                        onClick={() => handleToggleContestStatus(contest)} 
+                                                        className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition ${contest.status === 'Open' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-600 hover:bg-green-50'}`}
+                                                    >
+                                                        <Power className="w-3 h-3"/> {contest.status === 'Open' ? 'ปิด' : 'เปิด'}
+                                                    </button>
+                                                    <button onClick={() => handleEditContest(contest)} className="p-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg hover:text-indigo-600 hover:border-indigo-200 transition">
+                                                        <Edit3 className="w-4 h-4"/>
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <h3 className="font-bold text-lg text-slate-800 mb-2">{contest.title}</h3>
-                                        <p className="text-sm text-slate-500 line-clamp-3">{contest.description}</p>
-                                    </div>
-                                    <div className="bg-slate-50 p-3 flex justify-between items-center border-t border-slate-100">
-                                        <div className="text-xs text-slate-400">Created: {new Date(contest.createdDate).toLocaleDateString('th-TH')}</div>
-                                        <div className="flex gap-2">
-                                            <button 
-                                                onClick={() => handleToggleContestStatus(contest)} 
-                                                className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition ${contest.status === 'Open' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-600 hover:bg-green-50'}`}
-                                            >
-                                                <Power className="w-3 h-3"/> {contest.status === 'Open' ? 'ปิด' : 'เปิด'}
-                                            </button>
-                                            <button onClick={() => handleEditContest(contest)} className="p-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg hover:text-indigo-600 hover:border-indigo-200 transition">
-                                                <Edit3 className="w-4 h-4"/>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                            {contestList.length === 0 && (
-                                <div className="col-span-full text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                                    ยังไม่มีกิจกรรมประกวดภาพถ่าย
-                                </div>
-                            )}
-                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-4">หัวข้อกิจกรรม</th>
+                                            <th className="p-4 text-center">สถานะ</th>
+                                            <th className="p-4 text-center">จำนวนภาพ</th>
+                                            <th className="p-4">ปิดรับเมื่อ</th>
+                                            <th className="p-4 text-right">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredContests.map(contest => {
+                                            const entryCount = contestEntries.filter(e => e.contestId === contest.id).length;
+                                            return (
+                                                <tr key={contest.id} className="hover:bg-slate-50 transition">
+                                                    <td className="p-4 font-bold text-slate-700">
+                                                        {contest.title}
+                                                        <p className="text-xs text-slate-400 font-normal truncate max-w-[200px]">{contest.description}</p>
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className={`text-xs px-2 py-1 rounded-full font-bold ${contest.status === 'Open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                            {contest.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center font-mono text-indigo-600 font-bold">{entryCount}</td>
+                                                    <td className="p-4 text-slate-500 text-xs">
+                                                        {contest.closingDate ? new Date(contest.closingDate).toLocaleString('th-TH') : '-'}
+                                                    </td>
+                                                    <td className="p-4 text-right flex justify-end gap-2">
+                                                        <button 
+                                                            onClick={() => handleToggleContestStatus(contest)} 
+                                                            className={`p-1.5 rounded border text-xs font-bold transition ${contest.status === 'Open' ? 'text-red-600 border-red-200 hover:bg-red-50' : 'text-green-600 border-green-200 hover:bg-green-50'}`}
+                                                            title={contest.status === 'Open' ? 'ปิดกิจกรรม' : 'เปิดกิจกรรม'}
+                                                        >
+                                                            <Power className="w-4 h-4"/>
+                                                        </button>
+                                                        <button onClick={() => handleEditContest(contest)} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded border border-slate-200 hover:border-indigo-200"><Edit3 className="w-4 h-4"/></button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        
+                        {filteredContests.length === 0 && (
+                            <div className="col-span-full text-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                                ไม่พบกิจกรรมตามเงื่อนไข
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
