@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
 import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus, Download, Image as ImageIcon } from 'lucide-react';
@@ -158,16 +159,17 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
           if (header) header.style.display = 'block';
           if (footer) footer.style.display = 'block';
 
-          // Add padding for better look
+          // Add padding for better look and ensure height allows for all content
           element.style.padding = '40px';
           element.style.width = 'fit-content';
           element.style.minWidth = `${element.scrollWidth + 100}px`;
-          element.style.minHeight = `${element.scrollHeight}px`;
+          // Ensure container expands to fit taller nodes if needed
+          element.style.minHeight = `fit-content`; 
           element.style.overflow = 'visible';
-          element.style.backgroundColor = '#f8fafc'; // Ensure background is set
+          element.style.backgroundColor = '#f8fafc'; 
 
           const canvas = await html2canvas(element, {
-              scale: 3, // High Resolution but manageable size
+              scale: 3, 
               useCORS: true,
               backgroundColor: '#f8fafc',
               ignoreElements: (el) => el.classList.contains('no-export'),
@@ -469,7 +471,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
 
       <div className="flex flex-col lg:flex-row gap-6 flex-1 items-start relative overflow-x-auto">
           
-          <div ref={bracketRef} className="flex-1 w-full pb-10 px-4 pt-4 bg-slate-50 min-h-[600px] relative">
+          <div ref={bracketRef} className={`flex-1 w-full pb-10 px-4 pt-4 bg-slate-50 relative ${isLargeBracket ? 'min-h-[1200px]' : 'min-h-[900px]'}`}>
              
              {/* Hidden Export Header - Visually Appealing */}
              <div id="bracket-export-header" className="hidden p-8 mb-8 text-center bg-gradient-to-r from-indigo-900 to-slate-900 text-white rounded-3xl shadow-lg border-b-8 border-yellow-400 overflow-hidden relative">
@@ -487,12 +489,12 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                 </div>
              </div>
 
-             <div className={`flex flex-col gap-8 mx-auto ${isLargeBracket ? 'min-w-[1400px]' : 'min-w-[1100px]'}`}>
+             <div className={`flex flex-col gap-10 mx-auto ${isLargeBracket ? 'min-w-[1400px]' : 'min-w-[1100px]'}`}>
                  
                  {/* LINE A */}
                  <div className="bg-blue-50/30 p-4 md:p-6 rounded-3xl border border-blue-100 shadow-inner relative">
                      <div className="absolute top-0 left-0 bg-blue-600 text-white px-3 py-1 rounded-br-xl text-xs font-bold shadow-sm z-10">สาย A</div>
-                     <div className="flex justify-start gap-0 items-stretch pt-4">
+                     <div className="flex justify-start gap-0 items-stretch pt-6">
                         {isLargeBracket && (
                             <BracketColumn title="รอบ 32">
                                 {isLoading ? <BracketSkeleton count={4} /> : round32_A_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
@@ -525,7 +527,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                  {/* LINE B */}
                  <div className="bg-red-50/30 p-4 md:p-6 rounded-3xl border border-red-100 shadow-inner relative">
                      <div className="absolute top-0 left-0 bg-red-600 text-white px-3 py-1 rounded-br-xl text-xs font-bold shadow-sm z-10">สาย B</div>
-                     <div className="flex justify-start gap-0 items-stretch pt-4">
+                     <div className="flex justify-start gap-0 items-stretch pt-6">
                         {isLargeBracket && (
                             <BracketColumn title="รอบ 32">
                                 {isLoading ? <BracketSkeleton count={4} /> : round32_B_Pairs.map((pair, i) => <BracketPair key={i} pair={pair} getMatch={getScheduledMatch} isEditing={editMode} isAdmin={isAdmin} onSlotClick={handleSlotClick} onQuickRemove={handleQuickRemove} onSelect={setSelectedMatch} fullTeams={teams} onUpdateDetails={handleMatchDetailsUpdate} />)}
@@ -695,6 +697,8 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
   );
 };
 
+// ... (Rest of the component remains same: TeamAssignmentModal, BracketSkeleton, BracketColumn)
+
 const TeamAssignmentModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
@@ -832,9 +836,10 @@ const TeamAssignmentModal: React.FC<{
 const BracketSkeleton: React.FC<{count: number}> = ({count}) => (
     <div className="flex flex-col justify-around h-full w-full gap-4">
         {Array(count).fill(0).map((_, i) => (
-            <div key={i} className="w-[240px] h-[80px] bg-white rounded-xl border border-slate-200 shadow-sm animate-pulse flex flex-col p-2 gap-2 mx-auto">
+            <div key={i} className="w-[240px] h-[180px] bg-white rounded-xl border border-slate-200 shadow-sm animate-pulse flex flex-col p-2 gap-2 mx-auto">
                 <div className="h-4 w-1/3 bg-slate-100 rounded"></div>
-                <div className="h-8 bg-slate-100 rounded"></div>
+                <div className="h-20 bg-slate-100 rounded"></div>
+                <div className="h-20 bg-slate-100 rounded"></div>
             </div>
         ))}
     </div>
@@ -855,10 +860,9 @@ const chunkArray = (arr: any[], size: number) => {
     );
 };
 
-// Component for a Pair of Matches + Connector
 const BracketPair: React.FC<any> = ({ pair, getMatch, ...props }) => {
     return (
-        <div className="flex flex-col justify-center gap-2 relative py-4">
+        <div className="flex flex-col justify-center gap-6 relative py-4">
             {/* The two nodes */}
             <BracketNode slot={pair[0]} match={getMatch(pair[0].label)} {...props} showConnector="bottom" />
             <BracketNode slot={pair[1]} match={getMatch(pair[1].label)} {...props} showConnector="top" />
@@ -939,10 +943,10 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                      )}
                  </div>
                  
-                 <div className="divide-y divide-slate-100 text-xs">
+                 <div className="divide-y divide-slate-100 text-xs md:text-sm">
                      {/* TEAM A */}
                      <div 
-                        className={`p-2 flex justify-between items-center h-10 transition-all duration-200 ${tA ? (match?.winner === 'A' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100 group' : 'bg-slate-50/30'}`}
+                        className={`p-2 flex justify-between items-center min-h-[100px] transition-all duration-200 ${tA ? (match?.winner === 'A' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100 group' : 'bg-slate-50/30'}`}
                         onClick={(e) => {
                             if (isEditing) {
                                 e.stopPropagation();
@@ -952,8 +956,8 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                      >
                          {tA ? (
                              <div className="flex items-center gap-2 overflow-hidden w-full relative">
-                                 {tA.logo ? <img src={tA.logo} className="w-6 h-6 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-6 h-6 rounded-full bg-slate-200 shrink-0"></div>}
-                                 <span className={`font-bold truncate ${match?.winner === 'A' ? 'text-slate-900' : 'text-slate-600'}`}>{tA.name}</span>
+                                 {tA.logo ? <img src={tA.logo} className="w-10 h-10 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0"></div>}
+                                 <span className={`font-bold leading-snug w-full whitespace-normal text-sm md:text-base ${match?.winner === 'A' ? 'text-slate-900' : 'text-slate-600'}`}>{tA.name}</span>
                                  
                                  {/* Quick Remove Button (Edit Mode Only) */}
                                  {isEditing && (
@@ -975,12 +979,12 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                                  <span className={`text-[10px] italic select-none ${isEditing ? 'font-bold' : ''}`}>{isEditing ? 'เลือกทีม A' : 'รอคู่แข่ง'}</span>
                              </div>
                          )}
-                         {match && match.winner && <span className={`font-bold px-1.5 rounded ${match.winner === 'A' ? 'bg-green-600 text-white' : 'text-slate-400'}`}>{match.scoreA}</span>}
+                         {match && match.winner && <span className={`font-bold px-2 py-1 rounded text-sm ${match.winner === 'A' ? 'bg-green-600 text-white' : 'text-slate-400 bg-slate-100'}`}>{match.scoreA}</span>}
                      </div>
 
                      {/* TEAM B */}
                      <div 
-                        className={`p-2 flex justify-between items-center h-10 transition-all duration-200 ${tB ? (match?.winner === 'B' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100 group' : 'bg-slate-50/30'}`}
+                        className={`p-2 flex justify-between items-center min-h-[100px] transition-all duration-200 ${tB ? (match?.winner === 'B' ? 'bg-green-50' : 'bg-white') : isEditing ? 'bg-indigo-50/50 cursor-pointer hover:bg-indigo-100 group' : 'bg-slate-50/30'}`}
                         onClick={(e) => {
                             if (isEditing) {
                                 e.stopPropagation();
@@ -990,8 +994,8 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                      >
                          {tB ? (
                              <div className="flex items-center gap-2 overflow-hidden w-full relative">
-                                 {tB.logo ? <img src={tB.logo} className="w-6 h-6 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-6 h-6 rounded-full bg-slate-200 shrink-0"></div>}
-                                 <span className={`font-bold truncate ${match?.winner === 'B' ? 'text-slate-900' : 'text-slate-600'}`}>{tB.name}</span>
+                                 {tB.logo ? <img src={tB.logo} className="w-10 h-10 object-contain bg-white rounded-full border border-slate-100 p-0.5 shrink-0" /> : <div className="w-10 h-10 rounded-full bg-slate-200 shrink-0"></div>}
+                                 <span className={`font-bold leading-snug w-full whitespace-normal text-sm md:text-base ${match?.winner === 'B' ? 'text-slate-900' : 'text-slate-600'}`}>{tB.name}</span>
                                  
                                  {/* Quick Remove Button (Edit Mode Only) */}
                                  {isEditing && (
@@ -1013,7 +1017,7 @@ const BracketNode: React.FC<BracketNodeProps> = ({ slot, match, isEditing, isAdm
                                  <span className={`text-[10px] italic select-none ${isEditing ? 'font-bold' : ''}`}>{isEditing ? 'เลือกทีม B' : 'รอคู่แข่ง'}</span>
                              </div>
                          )}
-                         {match && match.winner && <span className={`font-bold px-1.5 rounded ${match.winner === 'B' ? 'bg-green-600 text-white' : 'text-slate-400'}`}>{match.scoreB}</span>}
+                         {match && match.winner && <span className={`font-bold px-2 py-1 rounded text-sm ${match.winner === 'B' ? 'bg-green-600 text-white' : 'text-slate-400 bg-slate-100'}`}>{match.scoreB}</span>}
                      </div>
                  </div>
 

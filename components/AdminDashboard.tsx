@@ -1,11 +1,8 @@
 
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock } from 'lucide-react';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam } from '../services/sheetService';
-import { shareNews, shareDonation } from '../services/liffService';
 import confetti from 'canvas-confetti';
 
 interface AdminDashboardProps {
@@ -26,28 +23,20 @@ interface AdminDashboardProps {
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 const MAX_DOC_SIZE = 3 * 1024 * 1024;   // 3MB
 
-const AdminSkeleton = () => (
-  <div className="animate-in fade-in duration-300 w-full py-8 opacity-50 pointer-events-none">
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {[1,2,3].map(i => <div key={i} className="h-32 bg-white rounded-xl border border-slate-200 shadow-sm animate-pulse relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-r from-slate-100 via-white to-slate-100 -translate-x-full animate-[shimmer_1.5s_infinite]"></div></div>)}
-    </div>
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between">
-            <div className="h-8 bg-slate-200 rounded w-1/4 animate-pulse"></div>
-            <div className="h-8 bg-slate-200 rounded w-1/6 animate-pulse"></div>
-        </div>
-        <div className="p-6 space-y-4">
-            {[1,2,3,4,5,6].map(i => (
-                <div key={i} className="h-20 bg-slate-50 rounded-xl border border-slate-100 animate-pulse relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-r from-slate-50 via-white to-slate-50 -translate-x-full animate-[shimmer_1.5s_infinite]"></div>
-                </div>
-            ))}
-        </div>
-    </div>
-  </div>
-);
-
-export default function AdminDashboard({ teams: initialTeams, players: initialPlayers, settings, onLogout, onRefresh, news = [], showNotification, initialTeamId, currentTournament, tournaments = [], donations = [], isLoading }: AdminDashboardProps) {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
+  teams: initialTeams, 
+  players: initialPlayers, 
+  settings, 
+  onLogout, 
+  onRefresh, 
+  news = [], 
+  showNotification, 
+  initialTeamId, 
+  currentTournament, 
+  tournaments = [], 
+  donations = [], 
+  isLoading 
+}) => {
   // Tab Persistence Logic
   const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations'>(() => {
       const savedTab = localStorage.getItem('adminActiveTab');
@@ -194,7 +183,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       setReloadMessage(loadingMsg);
       try {
           await action();
-          await onRefresh(); // Sync from backend
+          await onRefresh(); 
           notify("สำเร็จ", successMsg, "success");
       } catch (error: any) {
           console.error(error);
@@ -580,14 +569,14 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       if (type === 'primary') setEditPrimaryColor(color); else setEditSecondaryColor(color);
       handleEditFieldChange('color', JSON.stringify([p, s]));
   };
-  const handlePlayerChange = (index: number, field: keyof Player, value: string) => { if (editForm) { const updatedPlayers = [...editForm.players]; updatedPlayers[index] = { ...updatedPlayers[index], [field]: value }; setEditForm({ ...editForm, players: updatedPlayers }); } };
+  const handlePlayerChange = (index: number, field: keyof Player, value: string) => { if (editForm) { const updatedPlayers = [...(editForm.players as Player[])]; updatedPlayers[index] = { ...updatedPlayers[index], [field]: value }; setEditForm({ ...editForm, players: updatedPlayers }); } };
   const handleDateInput = (index: number, value: string) => {
       let cleaned = value.replace(/[^0-9]/g, ''); if (cleaned.length > 8) cleaned = cleaned.substring(0, 8);
       let formatted = cleaned; if (cleaned.length > 2) formatted = cleaned.substring(0, 2) + '/' + cleaned.substring(2); if (cleaned.length > 4) formatted = formatted.substring(0, 5) + '/' + cleaned.substring(4);
       handlePlayerChange(index, 'birthDate', formatted);
   };
   const handlePlayerPhotoChange = async (index: number, file: File) => {
-      if (editForm && file) { if (!validateFile(file, 'image')) return; try { const base64 = await fileToBase64(file); const updatedPlayers = [...editForm.players]; updatedPlayers[index] = { ...updatedPlayers[index], photoUrl: base64 }; setEditForm({ ...editForm, players: updatedPlayers }); } catch (e) { console.error("Error converting player photo", e); } }
+      if (editForm && file) { if (!validateFile(file, 'image')) return; try { const base64 = await fileToBase64(file); const updatedPlayers = [...(editForm.players as Player[])]; updatedPlayers[index] = { ...updatedPlayers[index], photoUrl: base64 }; setEditForm({ ...editForm, players: updatedPlayers }); } catch (e) { console.error("Error converting player photo", e); } }
   };
   const handleFileChange = (type: 'logo' | 'slip' | 'doc', file: File) => {
       if (editForm && file) {
@@ -602,8 +591,8 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
           }
       }
   };
-  const handleAddPlayer = () => { if (!editForm) return; const newPlayer: Player = { id: `TEMP_${Date.now()}_${Math.floor(Math.random()*1000)}`, teamId: editForm.team.id, name: '', number: '', position: 'Player', photoUrl: '', birthDate: '' }; setEditForm({ ...editForm, players: [...editForm.players, newPlayer] }); };
-  const removePlayer = (index: number) => { if (!editForm) return; const updatedPlayers = editForm.players.filter((_, i) => i !== index); setEditForm({ ...editForm, players: updatedPlayers }); };
+  const handleAddPlayer = () => { if (!editForm) return; const newPlayer: Player = { id: `TEMP_${Date.now()}_${Math.floor(Math.random()*1000)}`, teamId: editForm.team.id, name: '', number: '', position: 'Player', photoUrl: '', birthDate: '' }; setEditForm({ ...editForm, players: [...(editForm.players as Player[]), newPlayer] }); };
+  const removePlayer = (index: number) => { if (!editForm) return; const updatedPlayers = (editForm.players as Player[]).filter((_, i) => i !== index); setEditForm({ ...editForm, players: updatedPlayers }); };
 
   const handleSaveTeamChanges = async (updatedTeam: Team, updatedPlayers: Player[]) => {
       // Close modal immediately to show the skeleton on main page
@@ -690,7 +679,7 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
       return matchSearch && matchStatus;
   });
 
-  const downloadCSV = () => { try { const headers = "ID,ชื่อทีม,ตัวย่อ,สถานะ,กลุ่ม,อำเภอ,จังหวัด,ผู้อำนวยการ,ผู้จัดการ,เบอร์โทร,ผู้ฝึกสอน,เบอร์โทรโค้ช"; const rows = filteredTeams.map(t => `"${t.id}","${t.name}","${t.shortName}","${t.status}","${t.group || ''}","${t.district}","${t.province}","${t.directorName || ''}","${t.managerName}","'${t.managerPhone || ''}","${t.coachName}","'${t.coachPhone || ''}"` ); const csvContent = [headers, ...rows].join("\n"); const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "teams_data.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); } catch (e) { console.error("CSV Download Error:", e); notify("ผิดพลาด", "ดาวน์โหลด CSV ไม่สำเร็จ", "error"); } };
+  const downloadCSV = () => { try { const headers = "ID,ชื่อทีม,ตัวย่อ,สถานะ,กลุ่ม,อำเภอ,จังหวัด,ผู้อำนวยการ,ผู้จัดการ,เบอร์โทร,ผู้ฝึกสอน,เบอร์โทรโค้ช"; const rows: string[] = filteredTeams.map(t => `"${t.id}","${t.name}","${t.shortName}","${t.status}","${t.group || ''}","${t.district}","${t.province}","${t.directorName || ''}","${t.managerName}","'${t.managerPhone || ''}","${t.coachName}","'${t.coachPhone || ''}"` ); const csvContent = [headers, ...rows].join("\n"); const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "teams_data.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); } catch (e) { console.error("CSV Download Error:", e); notify("ผิดพลาด", "ดาวน์โหลด CSV ไม่สำเร็จ", "error"); } };
   
   const handleNewsImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0]) {
@@ -1343,70 +1332,105 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
                             <button onClick={() => setIsDrawModalOpen(true)} className="flex items-center gap-1 text-xs bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-purple-600 transition font-bold shadow-md transform hover:scale-105"><Shuffle className="w-4 h-4" /> Live Draw</button>
                         </div>
                         <div className="flex gap-2 w-full md:w-auto items-center">
-                            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none"><option value="All">ทุกสถานะ</option><option value="Pending">รออนุมัติ</option><option value="Approved">อนุมัติแล้ว</option><option value="Rejected">ปฏิเสธ</option></select>
-                            <div className="flex bg-slate-100 rounded-lg p-1"><button onClick={() => setViewMode('grid')} className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button><button onClick={() => setViewMode('list')} className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}><List className="w-4 h-4"/></button></div>
-                            <div className="relative flex-1 md:w-64"><Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" /><input type="text" placeholder="ค้นหาทีม / จังหวัด..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm" /></div>
-                            <button onClick={downloadCSV} className="flex items-center gap-2 text-sm px-3 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-indigo-700 font-medium"><Download className="w-4 h-4" /> CSV</button>
-                            <button onClick={handleLocalRefresh} className="text-sm px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 flex items-center gap-1">
-                                {reloadMessage ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>} รีเฟรช
-                            </button>
+                            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="All">สถานะ: ทั้งหมด</option>
+                                <option value="Pending">รออนุมัติ</option>
+                                <option value="Approved">อนุมัติแล้ว</option>
+                                <option value="Rejected">ไม่อนุมัติ</option>
+                            </select>
+                            <div className="relative flex-1 md:flex-none">
+                                <input 
+                                    type="text" 
+                                    placeholder="ค้นหาทีม..." 
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="pl-9 pr-4 py-2 border rounded-lg text-sm w-full bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                            </div>
+                            <div className="flex border rounded-lg overflow-hidden shrink-0">
+                                <button onClick={() => setViewMode('grid')} className={`p-2 ${viewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><Grid className="w-4 h-4"/></button>
+                                <button onClick={() => setViewMode('list')} className={`p-2 ${viewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><List className="w-4 h-4"/></button>
+                            </div>
+                            <button onClick={downloadCSV} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Download CSV"><Download className="w-4 h-4"/></button>
+                            <button onClick={handleLocalRefresh} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
                         </div>
                     </div>
 
-                    {/* CONTENT AREA */}
-                    <div className="p-4 bg-slate-50 min-h-[400px]">
-                        {viewMode === 'list' ? (
-                            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-x-auto">
-                                <table className="w-full text-left"><thead className="bg-slate-50 text-slate-500 text-sm"><tr><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('name')}>ชื่อทีม/โรงเรียน</th><th className="p-4 font-medium cursor-pointer" onClick={() => handleSort('group')}>กลุ่ม</th><th className="p-4 font-medium">ผู้ติดต่อ</th><th className="p-4 font-medium text-center cursor-pointer" onClick={() => handleSort('status')}>สถานะ</th><th className="p-4 font-medium text-right">จัดการ</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredTeams.map(team => (<tr key={team.id} className="hover:bg-slate-50"><td className="p-4"><div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-8 h-8 rounded object-cover" /> : <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center font-bold text-slate-500 text-xs">{team.shortName}</div>}<div><p className="font-bold text-slate-800 text-sm">{team.name}</p><p className="text-[10px] text-slate-500">{team.province}</p></div></div></td><td className="p-4">{team.group || '-'}</td><td className="p-4 text-xs">{team.managerPhone}</td><td className="p-4 text-center"><span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td><td className="p-4 text-right flex justify-end gap-2">{team.status === 'Pending' && (<><button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="p-2 text-green-600 hover:bg-green-50 rounded bg-green-50/50 border border-green-200" title="อนุมัติ"><Check className="w-4 h-4"/></button><button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="p-2 text-red-600 hover:bg-red-50 rounded bg-red-50/50 border border-red-200" title="ปฏิเสธ"><X className="w-4 h-4"/></button></>)}<button onClick={() => setSelectedTeam(team)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded border border-indigo-200"><Edit3 className="w-4 h-4"/></button><button onClick={() => handleDeleteTeam(team.id)} className="text-red-500 hover:bg-red-50 p-2 rounded border border-red-200"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {/* Content */}
+                    <div className="p-6 bg-slate-50 min-h-[400px]">
+                        {viewMode === 'grid' ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                 {filteredTeams.map(team => (
-                                    <div key={team.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col hover:shadow-md transition group">
+                                    <div key={team.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition group relative">
                                         <div className="p-4 flex items-start justify-between">
-                                            <div className="flex items-center gap-3">{team.logoUrl ? <img src={team.logoUrl} className="w-12 h-12 rounded-lg object-contain bg-slate-50 border border-slate-100 p-0.5" /> : <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-slate-400">{team.shortName}</div>}<div><h3 className="font-bold text-slate-800 line-clamp-1">{team.name}</h3><p className="text-xs text-slate-500 flex items-center gap-1"><MapPin className="w-3 h-3"/> {team.province}</p></div></div>
-                                            <div className="flex flex-col items-end gap-1"><span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span>{team.group && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold">Gr. {team.group}</span>}</div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-100 relative">
+                                                    {team.logoUrl ? <img src={team.logoUrl} className="w-full h-full object-contain p-1" /> : <div className="text-lg font-bold text-slate-400">{team.shortName.charAt(0)}</div>}
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-slate-800 text-sm truncate w-32" title={team.name}>{team.name}</h3>
+                                                    <p className="text-xs text-slate-500">{team.province}</p>
+                                                </div>
+                                            </div>
+                                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                {team.status}
+                                            </span>
                                         </div>
-                                        
-                                        <div className="p-4 pt-0 border-t border-slate-100 mt-auto">
-                                            <div className="grid grid-cols-2 gap-2 pt-3 mb-2">
-                                                {team.slipUrl ? 
-                                                    <button onClick={() => setPreviewImage(team.slipUrl!)} className="py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1 transition">
-                                                        <CreditCard className="w-3 h-3"/> ดูสลิป
-                                                    </button> : 
-                                                    <div className="py-1.5 text-center text-xs text-slate-400 italic bg-slate-50 rounded border border-slate-100">ไม่มีสลิป</div>
-                                                }
-                                                {team.docUrl ? 
-                                                    <a href={team.docUrl} target="_blank" className="py-1.5 bg-white border border-slate-200 rounded text-xs font-bold text-slate-600 hover:text-indigo-600 hover:border-indigo-300 flex items-center justify-center gap-1 transition">
-                                                        <FileText className="w-3 h-3"/> ดูเอกสาร
-                                                    </a> : 
-                                                    <div className="py-1.5 text-center text-xs text-slate-400 italic bg-slate-50 rounded border border-slate-100">ไม่มีเอกสาร</div>
-                                                }
+                                        <div className="px-4 pb-4 space-y-2">
+                                            <div className="text-xs text-slate-500 flex justify-between"><span>ผู้จัดการ:</span> <span className="font-medium text-slate-700">{team.managerName}</span></div>
+                                            <div className="text-xs text-slate-500 flex justify-between"><span>เบอร์โทร:</span> <span className="font-medium text-slate-700">{team.managerPhone}</span></div>
+                                            {team.group && <div className="text-xs text-slate-500 flex justify-between"><span>กลุ่ม:</span> <span className="font-bold text-indigo-600 bg-indigo-50 px-2 rounded">{team.group}</span></div>}
+                                        </div>
+                                        <div className="border-t bg-slate-50 p-2 flex justify-between items-center">
+                                            <div className="flex gap-1">
+                                                {team.slipUrl && <button onClick={() => setPreviewImage(team.slipUrl)} className="p-1.5 hover:bg-white rounded text-slate-400 hover:text-indigo-600" title="ดูสลิป"><CreditCard className="w-4 h-4"/></button>}
+                                                {team.docUrl && <a href={team.docUrl} target="_blank" className="p-1.5 hover:bg-white rounded text-slate-400 hover:text-indigo-600" title="ดูเอกสาร"><FileText className="w-4 h-4"/></a>}
                                             </div>
-
-                                            <div className="flex gap-2 mb-2">
-                                                <button onClick={() => handleStatusUpdate(team.id, 'Approved')} className="flex-1 py-1.5 bg-green-50 text-green-600 border border-green-200 hover:bg-green-100 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm">
-                                                    <Check className="w-3 h-3"/> อนุมัติ
-                                                </button>
-                                                <button onClick={() => handleStatusUpdate(team.id, 'Rejected')} className="flex-1 py-1.5 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-sm">
-                                                    <X className="w-3 h-3"/> ปฏิเสธ
-                                                </button>
-                                            </div>
-                                            
                                             <div className="flex gap-2">
-                                                <button onClick={() => setSelectedTeam(team)} className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition text-xs font-bold flex items-center justify-center gap-1">
+                                                <button onClick={() => { setSelectedTeam(team); setIsEditingTeam(true); }} className="text-xs font-bold text-indigo-600 bg-white border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1">
                                                     <Edit3 className="w-3 h-3"/> จัดการ
                                                 </button>
-                                                <button onClick={() => handleDeleteTeam(team.id)} className="w-10 flex items-center justify-center py-2 bg-red-50 hover:bg-red-100 text-red-500 rounded-lg transition border border-red-100">
-                                                    <Trash2 className="w-4 h-4"/>
+                                                <button onClick={() => handleDeleteTeam(team.id)} className="text-xs font-bold text-red-600 bg-white border border-red-200 px-2 py-1.5 rounded-lg hover:bg-red-50">
+                                                    <Trash2 className="w-3 h-3"/>
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
+                        ) : (
+                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('name')}>ชื่อทีม</th>
+                                            <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('province')}>จังหวัด</th>
+                                            <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('status')}>สถานะ</th>
+                                            <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('group')}>กลุ่ม</th>
+                                            <th className="p-4 text-right">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredTeams.map(team => (
+                                            <tr key={team.id} className="hover:bg-slate-50 transition">
+                                                <td className="p-4 font-bold text-slate-700 flex items-center gap-3">
+                                                    {team.logoUrl && <img src={team.logoUrl} className="w-6 h-6 object-contain rounded bg-slate-100" />}
+                                                    {team.name}
+                                                </td>
+                                                <td className="p-4 text-slate-600">{team.province}</td>
+                                                <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${team.status === 'Approved' ? 'bg-green-100 text-green-700' : team.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{team.status}</span></td>
+                                                <td className="p-4 font-mono font-bold text-indigo-600">{team.group || '-'}</td>
+                                                <td className="p-4 text-right flex justify-end gap-2">
+                                                    <button onClick={() => { setSelectedTeam(team); setIsEditingTeam(true); }} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
+                                                    <button onClick={() => handleDeleteTeam(team.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         )}
-                        {filteredTeams.length === 0 && <div className="text-center py-12 text-slate-400">ไม่พบข้อมูลทีม</div>}
                     </div>
                 </div>
             </div>
@@ -1414,207 +1438,150 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
 
         {/* --- SETTINGS TAB --- */}
         {activeTab === 'settings' && (
-            <div className="animate-in fade-in duration-300 max-w-2xl mx-auto">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-6">
-                    <h3 className="font-bold text-lg border-b pb-2">ตั้งค่าทั่วไป</h3>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อรายการแข่งขัน</label><input type="text" value={configForm.competitionName} onChange={e => setConfigForm({...configForm, competitionName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-2">โลโก้การแข่งขัน</label><div className="flex items-center gap-4">{settingsLogoPreview && <img src={settingsLogoPreview} className="w-16 h-16 object-contain border rounded-lg p-1"/>}<input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleSettingsLogoChange(e.target.files[0])} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
-                    <h3 className="font-bold text-lg border-b pb-2 pt-4">การระดมทุน (Objective)</h3>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">เป้าหมายระดมทุน (บาท)</label><input type="number" value={configForm.fundraisingGoal} onChange={e => setConfigForm({...configForm, fundraisingGoal: Number(e.target.value)})} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อโครงการ</label><input type="text" value={configForm.objectiveTitle} onChange={e => setConfigForm({...configForm, objectiveTitle: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">รายละเอียดโครงการ</label><textarea value={configForm.objectiveDescription} onChange={e => setConfigForm({...configForm, objectiveDescription: e.target.value})} className="w-full p-2 border rounded-lg h-24" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-2">รูปภาพโครงการ</label><div className="flex items-center gap-4">{objectiveImagePreview && <img src={objectiveImagePreview} className="w-16 h-16 object-cover border rounded-lg"/>}<input type="file" accept="image/*" onChange={e => e.target.files?.[0] && handleObjectiveImageChange(e.target.files[0])} className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/></div></div>
-                    <h3 className="font-bold text-lg border-b pb-2 pt-4">ระบบ</h3>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">Admin PIN</label><input type="text" value={configForm.adminPin} onChange={e => setConfigForm({...configForm, adminPin: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="block text-sm font-bold text-slate-700 mb-1">LIFF ID</label><input type="text" value={configForm.liffId} onChange={e => setConfigForm({...configForm, liffId: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div className="pt-6 border-t"><button onClick={handleSaveConfig} disabled={isSavingSettings} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2">{isSavingSettings ? <Loader2 className="w-5 h-5 animate-spin"/> : 'บันทึกการตั้งค่า'}</button></div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 animate-in fade-in duration-300">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Settings className="w-6 h-6 text-indigo-600" /> ตั้งค่าระบบ</h2>
+                    <button onClick={handleSaveConfig} disabled={isSavingSettings} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition flex items-center gap-2 shadow-lg shadow-indigo-200">
+                        {isSavingSettings ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} บันทึก
+                    </button>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="space-y-4">
+                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">ข้อมูลทั่วไป</h3>
+                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อรายการแข่งขัน</label><input type="text" value={configForm.competitionName} onChange={e => setConfigForm({...configForm, competitionName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ประกาศ (News Ticker)</label><textarea value={configForm.announcement} onChange={e => setConfigForm({...configForm, announcement: e.target.value})} className="w-full p-2 border rounded-lg h-20" placeholder="ใส่ข้อความประกาศ... (ใช้ | คั่นหลายข้อความ)" /></div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">โลโก้การแข่งขัน</label>
+                            <div className="flex items-center gap-4">
+                                {settingsLogoPreview ? <img src={settingsLogoPreview} className="w-16 h-16 object-contain border rounded-lg p-1" /> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">No Logo</div>}
+                                <label className="cursor-pointer bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition">เปลี่ยนรูป<input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleSettingsLogoChange(e.target.files[0])} className="hidden" /></label>
+                            </div>
+                        </div>
+                        <div><label className="block text-sm font-bold text-slate-700 mb-1">รหัส Admin PIN</label><input type="text" value={configForm.adminPin || ''} onChange={e => setConfigForm({...configForm, adminPin: e.target.value})} className="w-full p-2 border rounded-lg font-mono tracking-widest" /></div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">การเงินและรับสมัคร</h3>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">ธนาคาร</label><input type="text" value={configForm.bankName} onChange={e => setConfigForm({...configForm, bankName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">เลขบัญชี</label><input type="text" value={configForm.bankAccount} onChange={e => setConfigForm({...configForm, bankAccount: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                        </div>
+                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อบัญชี</label><input type="text" value={configForm.accountName} onChange={e => setConfigForm({...configForm, accountName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">ค่าสมัคร (บาท)</label><input type="number" value={configForm.registrationFee || 0} onChange={e => setConfigForm({...configForm, registrationFee: parseInt(e.target.value)})} className="w-full p-2 border rounded-lg" /></div>
+                            <div><label className="block text-sm font-bold text-slate-700 mb-1">เป้าหมายระดมทุน</label><input type="number" value={configForm.fundraisingGoal || 0} onChange={e => setConfigForm({...configForm, fundraisingGoal: parseInt(e.target.value)})} className="w-full p-2 border rounded-lg" /></div>
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-4 lg:col-span-2">
+                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">การเชื่อมต่อระบบ (Integration)</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">LIFF ID (LINE Front-end Framework)</label>
+                                <input 
+                                    type="text" 
+                                    value={configForm.liffId || ''} 
+                                    onChange={e => setConfigForm({...configForm, liffId: e.target.value})} 
+                                    className="w-full p-2 border rounded-lg font-mono text-xs" 
+                                    placeholder="เช่น 1657xxxxxx-xxxxxxx"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">ใช้สำหรับการแชร์ผลบอลและการยืนยันตัวตนผ่าน LINE</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Google Maps Link</label>
+                                <input type="text" value={configForm.locationLink} onChange={e => setConfigForm({...configForm, locationLink: e.target.value})} className="w-full p-2 border rounded-lg text-xs" />
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         )}
 
         {/* --- NEWS TAB --- */}
         {activeTab === 'news' && (
-            <div className="animate-in fade-in duration-300 max-w-4xl mx-auto">
-                <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <div className="flex items-center gap-3">
-                        <h2 className="font-bold text-xl text-slate-800">จัดการข่าวสาร</h2>
-                        {/* News View Toggle */}
-                        <div className="flex bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
-                            <button onClick={() => setNewsViewMode('grid')} className={`p-1.5 rounded transition ${newsViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="Grid View"><Grid className="w-4 h-4"/></button>
-                            <button onClick={() => setNewsViewMode('list')} className={`p-1.5 rounded transition ${newsViewMode === 'list' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`} title="List View"><List className="w-4 h-4"/></button>
+            <div className="animate-in fade-in duration-300">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+                        <h2 className="font-bold text-lg text-slate-800">จัดการข่าวสาร</h2>
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="ค้นหาข่าว..." 
+                                value={newsSearch}
+                                onChange={e => setNewsSearch(e.target.value)}
+                                className="p-2 border rounded-lg text-sm w-48 focus:w-64 transition-all outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <div className="flex border rounded-lg overflow-hidden shrink-0">
+                                <button onClick={() => setNewsViewMode('grid')} className={`p-2 ${newsViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><Grid className="w-4 h-4"/></button>
+                                <button onClick={() => setNewsViewMode('list')} className={`p-2 ${newsViewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><List className="w-4 h-4"/></button>
+                            </div>
+                            <button onClick={() => setIsNewsModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
+                                <Plus className="w-4 h-4" /> เพิ่มข่าว
+                            </button>
                         </div>
                     </div>
-                    <div className="flex gap-2 items-center w-full md:w-auto">
-                        <div className="relative flex-1 md:flex-none">
-                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                            <input type="text" placeholder="ค้นหาข่าว..." value={newsSearch} onChange={e => setNewsSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
-                        </div>
-                        <button 
-                            onClick={() => { 
-                                const defaultTournamentId = currentTournament ? currentTournament.id : 'global';
-                                setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: defaultTournamentId }); 
-                                setIsNewsModalOpen(true); 
-                            }} 
-                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm shadow-sm"
-                        >
-                            <Plus className="w-4 h-4"/> เพิ่มข่าว
-                        </button>
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    {filteredNews.length === 0 ? <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ไม่มีข่าวสาร</div> : 
-                    newsViewMode === 'grid' ? (
-                        filteredNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
-                            const isGlobal = !item.tournamentId || item.tournamentId === 'global';
-                            let badgeLabel = 'Unknown';
-                            let badgeColor = 'bg-gray-500';
-
-                            if (isGlobal) { badgeLabel = 'Global'; badgeColor = 'bg-green-500'; } 
-                            else if (currentTournament && String(item.tournamentId) === String(currentTournament.id)) { badgeLabel = currentTournament.name; badgeColor = 'bg-blue-600'; } 
-                            else { const found = tournaments.find(t => String(t.id) === String(item.tournamentId)); badgeLabel = found ? found.name : 'รายการอื่น'; badgeColor = 'bg-orange-500'; }
-                            
-                            return (
-                                <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 hover:shadow-md transition group">
-                                    <div className="w-full md:w-48 h-32 bg-slate-100 rounded-lg overflow-hidden shrink-0 relative">
-                                        {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" /> : <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-8 h-8"/></div>}
-                                        <div className={`absolute top-2 left-2 text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm max-w-[140px] truncate text-white ${badgeColor}`}>
-                                            {badgeLabel}
+                    
+                    <div className="p-6 bg-slate-50 min-h-[400px]">
+                        {newsViewMode === 'grid' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {filteredNews.map(item => (
+                                    <div key={item.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition group relative">
+                                        <div className="h-40 bg-slate-100 relative overflow-hidden">
+                                            {item.imageUrl ? (
+                                                <img src={item.imageUrl} className="w-full h-full object-cover transition duration-500 group-hover:scale-105"/>
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-slate-300"><Image className="w-12 h-12"/></div>
+                                            )}
+                                            {(!item.tournamentId || item.tournamentId === 'global') && (
+                                                <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] px-2 py-1 rounded-full backdrop-blur-sm flex items-center gap-1">
+                                                    <Globe className="w-3 h-3" /> Global
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <h3 className="font-bold text-lg text-slate-800 line-clamp-1 group-hover:text-indigo-600 transition">{item.title}</h3>
-                                            <div className="flex items-center gap-1">
-                                                <button onClick={() => shareNews(item)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition"><Share2 className="w-4 h-4"/></button>
-                                                <button onClick={() => handleEditNews(item)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"><Edit3 className="w-4 h-4"/></button>
-                                                <button onClick={() => triggerDeleteNews(item.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"><Trash2 className="w-4 h-4"/></button>
+                                        <div className="p-4">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="text-xs text-slate-400 flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString('th-TH')}</div>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => handleEditNews(item)} className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
+                                                    <button onClick={() => triggerDeleteNews(item.id)} className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50"><Trash2 className="w-4 h-4"/></button>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <p className="text-slate-600 text-sm line-clamp-2 mb-2">{item.content}</p>
-                                        <div className="flex items-center gap-4 text-xs text-slate-400">
-                                            <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(item.timestamp).toLocaleDateString()}</span>
-                                            {item.documentUrl && <span className="flex items-center gap-1 text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีเอกสารแนบ</span>}
+                                            <h3 className="font-bold text-slate-800 line-clamp-1 mb-2">{item.title}</h3>
+                                            <p className="text-xs text-slate-500 line-clamp-2">{item.content}</p>
+                                            {item.documentUrl && <div className="mt-2 flex items-center gap-1 text-[10px] text-indigo-500 font-bold"><Paperclip className="w-3 h-3"/> มีไฟล์แนบ</div>}
                                         </div>
                                     </div>
-                                </div>
-                            );
-                        })
-                    ) : (
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 text-slate-500 border-b">
-                                    <tr>
-                                        <th className="p-3 font-bold w-12 text-center">รูป</th>
-                                        <th className="p-3 font-bold">หัวข้อข่าว</th>
-                                        <th className="p-3 font-bold w-32">Target</th>
-                                        <th className="p-3 font-bold w-24">วันที่</th>
-                                        <th className="p-3 font-bold text-right w-32">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {filteredNews.sort((a,b) => b.timestamp - a.timestamp).map(item => {
-                                        const isGlobal = !item.tournamentId || item.tournamentId === 'global';
-                                        let badgeLabel = 'Unknown';
-                                        let badgeColor = 'bg-gray-100 text-gray-600';
-
-                                        if (isGlobal) { badgeLabel = 'Global'; badgeColor = 'bg-green-100 text-green-700'; } 
-                                        else if (currentTournament && String(item.tournamentId) === String(currentTournament.id)) { badgeLabel = 'Current'; badgeColor = 'bg-blue-100 text-blue-700'; } 
-                                        else { const found = tournaments.find(t => String(t.id) === String(item.tournamentId)); badgeLabel = found ? (found.name.length > 10 ? found.name.substring(0,10)+'...' : found.name) : 'Other'; badgeColor = 'bg-orange-100 text-orange-700'; }
-
-                                        return (
-                                            <tr key={item.id} className="hover:bg-slate-50 transition group">
-                                                <td className="p-3 text-center">
-                                                    {item.imageUrl ? <img src={item.imageUrl} className="w-10 h-10 rounded object-cover mx-auto border border-slate-200" /> : <div className="w-10 h-10 rounded bg-slate-100 flex items-center justify-center mx-auto text-slate-400"><Image className="w-5 h-5"/></div>}
-                                                </td>
-                                                <td className="p-3">
-                                                    <div className="font-bold text-slate-800 line-clamp-1">{item.title}</div>
-                                                    <div className="text-xs text-slate-500 line-clamp-1">{item.content}</div>
-                                                </td>
-                                                <td className="p-3">
-                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${badgeColor}`}>{badgeLabel}</span>
-                                                </td>
-                                                <td className="p-3 text-slate-500 text-xs">{new Date(item.timestamp).toLocaleDateString('th-TH', {day: 'numeric', month:'short'})}</td>
-                                                <td className="p-3 text-right">
-                                                    <div className="flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition">
-                                                        <button onClick={() => shareNews(item)} className="p-1.5 hover:bg-green-50 text-slate-400 hover:text-green-600 rounded"><Share2 className="w-4 h-4"/></button>
-                                                        <button onClick={() => handleEditNews(item)} className="p-1.5 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
-                                                        <button onClick={() => triggerDeleteNews(item.id)} className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
-                                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-4">หัวข้อข่าว</th>
+                                            <th className="p-4">วันที่</th>
+                                            <th className="p-4">ประเภท</th>
+                                            <th className="p-4 text-right">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredNews.map(item => (
+                                            <tr key={item.id} className="hover:bg-slate-50 transition">
+                                                <td className="p-4 font-bold text-slate-700">{item.title}</td>
+                                                <td className="p-4 text-slate-500">{new Date(item.timestamp).toLocaleDateString('th-TH')}</td>
+                                                <td className="p-4"><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600">{(!item.tournamentId || item.tournamentId === 'global') ? 'Global' : 'Tournament'}</span></td>
+                                                <td className="p-4 text-right flex justify-end gap-2">
+                                                    <button onClick={() => handleEditNews(item)} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
+                                                    <button onClick={() => triggerDeleteNews(item.id)} className="p-1.5 hover:bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
                                                 </td>
                                             </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </div>
-            </div>
-        )}
-
-        {/* --- USERS TAB --- */}
-        {activeTab === 'users' && (
-            <div className="animate-in fade-in duration-300">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><UserCog className="w-6 h-6 text-indigo-600" /> จัดการผู้ใช้งาน ({userList.length})</h2>
-                    <div className="flex gap-2 items-center">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                            <input type="text" placeholder="ค้นหาผู้ใช้..." value={userSearch} onChange={e => setUserSearch(e.target.value)} className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
-                        </div>
-                        <button onClick={() => handleOpenUserModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition text-sm shadow-md"><UserPlus className="w-4 h-4"/> เพิ่มผู้ใช้</button>
-                        <button onClick={() => loadUsers()} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 transition"><RefreshCw className="w-4 h-4"/></button>
-                    </div>
-                </div>
-                
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-slate-50 text-slate-500 text-sm border-b">
-                                <tr>
-                                    <th className="p-4 font-bold w-16">#</th>
-                                    <th className="p-4 font-bold">ผู้ใช้งาน</th>
-                                    <th className="p-4 font-bold">Role</th>
-                                    <th className="p-4 font-bold">เบอร์โทร</th>
-                                    <th className="p-4 font-bold">เข้าสู่ระบบล่าสุด</th>
-                                    <th className="p-4 font-bold text-right">จัดการ</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 text-sm">
-                                {isLoadingUsers ? (
-                                    <tr><td colSpan={6} className="p-8 text-center text-slate-400"><Loader2 className="w-6 h-6 animate-spin mx-auto"/></td></tr>
-                                ) : filteredUsers.length === 0 ? (
-                                    <tr><td colSpan={6} className="p-8 text-center text-slate-400 italic">ไม่พบผู้ใช้งาน</td></tr>
-                                ) : (
-                                    filteredUsers.map((user, idx) => (
-                                        <tr key={user.userId} className="hover:bg-slate-50 transition">
-                                            <td className="p-4 text-slate-400">{idx + 1}</td>
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-3">
-                                                    {user.pictureUrl ? <img src={user.pictureUrl} className="w-8 h-8 rounded-full bg-slate-200 object-cover border border-slate-100" /> : <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">{user.displayName?.charAt(0) || 'U'}</div>}
-                                                    <div>
-                                                        <div className="font-bold text-slate-800">{user.displayName}</div>
-                                                        <div className="text-xs text-slate-400 font-mono">{user.username || 'Line Login'}</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${user.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span>
-                                            </td>
-                                            <td className="p-4 text-slate-600">{user.phoneNumber || '-'}</td>
-                                            <td className="p-4 text-slate-500 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleDateString('th-TH') + ' ' + new Date(user.lastLogin).toLocaleTimeString('th-TH') : '-'}</td>
-                                            <td className="p-4 text-right">
-                                                <div className="flex justify-end gap-2">
-                                                    <button onClick={() => handleOpenUserModal(user)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded border border-indigo-200 transition"><Edit3 className="w-4 h-4"/></button>
-                                                    <button onClick={() => handleDeleteUser(user.userId)} className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-red-200 transition"><Trash2 className="w-4 h-4"/></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        {filteredNews.length === 0 && <div className="text-center py-12 text-slate-400">ยังไม่มีข่าวสาร</div>}
                     </div>
                 </div>
             </div>
@@ -1623,94 +1590,158 @@ export default function AdminDashboard({ teams: initialTeams, players: initialPl
         {/* --- DONATIONS TAB --- */}
         {activeTab === 'donations' && (
             <div className="animate-in fade-in duration-300">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-bold text-xl text-slate-800 flex items-center gap-2"><DollarSign className="w-6 h-6 text-green-600" /> ตรวจสอบยอดบริจาค ({filteredDonations.length})</h2>
-                    <div className="flex gap-2 items-center">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                            <input type="text" placeholder="ค้นหาผู้บริจาค/เบอร์..." value={donationSearch} onChange={e => setDonationSearch(e.target.value)} className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white" />
-                        </div>
-                        <div className="flex bg-white border border-slate-200 rounded-lg p-1">
-                            <button onClick={() => setDonationViewMode('grid')} className={`p-1.5 rounded ${donationViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Grid className="w-4 h-4"/></button>
-                            <button onClick={() => setDonationViewMode('list')} className={`p-1.5 rounded ${donationViewMode === 'list' ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400'}`}><List className="w-4 h-4"/></button>
-                        </div>
-                        <button onClick={handleLocalRefresh} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 transition flex items-center gap-1 text-sm"><RefreshCw className="w-4 h-4"/> รีเฟรช</button>
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><div className="flex items-center justify-between"><div><p className="text-slate-500 text-sm">ยอดรวมทั้งหมด</p><p className="text-3xl font-bold text-green-600">{filteredDonations.filter(d => d.status === 'Verified').reduce((sum, d) => sum + d.amount, 0).toLocaleString()}</p></div><div className="p-3 bg-green-50 rounded-full"><DollarSign className="w-6 h-6 text-green-600" /></div></div></div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><div className="flex items-center justify-between"><div><p className="text-slate-500 text-sm">รายการรอตรวจสอบ</p><p className="text-3xl font-bold text-orange-500">{filteredDonations.filter(d => d.status === 'Pending').length}</p></div><div className="p-3 bg-orange-50 rounded-full"><Clock className="w-6 h-6 text-orange-500" /></div></div></div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><div className="flex items-center justify-between"><div><p className="text-slate-500 text-sm">ขอ e-Donation</p><p className="text-3xl font-bold text-blue-600">{filteredDonations.filter(d => d.isEdonation).length}</p></div><div className="p-3 bg-blue-50 rounded-full"><FileText className="w-6 h-6 text-blue-600" /></div></div></div>
                 </div>
 
-                {filteredDonations.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400 bg-white rounded-xl border border-dashed border-slate-200">ยังไม่มีรายการบริจาค</div>
-                ) : donationViewMode === 'grid' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
-                            <div key={d.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col relative group" onClick={() => setSelectedDonation(d)}>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); shareDonation(d, currentTournament?.name || 'Penalty Pro Arena'); }}
-                                    className="absolute top-2 left-2 p-1.5 bg-white/90 text-indigo-600 rounded-full shadow-md z-10 transition-all hover:scale-110"
-                                    title="แชร์ใบอนุโมทนา"
-                                >
-                                    <Share2 className="w-4 h-4" />
-                                </button>
-                                <div className="h-32 bg-slate-100 relative overflow-hidden flex items-center justify-center">
-                                    {d.slipUrl ? <img src={d.slipUrl} className="w-full h-full object-cover"/> : <div className="text-slate-300 flex flex-col items-center"><Image className="w-8 h-8 mb-1"/><span className="text-xs">No Slip</span></div>}
-                                    <div className={`absolute top-2 right-2 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-sm ${d.status === 'Verified' ? 'bg-green-500' : d.status === 'Rejected' ? 'bg-red-500' : 'bg-orange-500'}`}>
-                                        {d.status}
-                                    </div>
-                                </div>
-                                <div className="p-3">
-                                    <div className="flex justify-between items-start mb-1">
-                                        <h4 className="font-bold text-slate-800 text-sm truncate pr-2">{d.donorName}</h4>
-                                        <span className="font-mono font-bold text-indigo-600 text-sm">฿{d.amount.toLocaleString()}</span>
-                                    </div>
-                                    <div className="text-xs text-slate-400 mb-2">{new Date(d.timestamp).toLocaleDateString('th-TH')}</div>
-                                    <div className="flex gap-1 mt-auto">
-                                        {d.status === 'Pending' && <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-1 rounded w-full text-center">รอตรวจสอบ</span>}
-                                        {d.status === 'Verified' && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-1 rounded w-full text-center flex items-center justify-center gap-1"><Check className="w-3 h-3"/> ยืนยันแล้ว</span>}
-                                        {d.status === 'Rejected' && <span className="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded w-full text-center">ปฏิเสธ</span>}
-                                    </div>
-                                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+                        <h2 className="font-bold text-lg text-slate-800">รายการบริจาค</h2>
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="ค้นหาผู้บริจาค..." 
+                                value={donationSearch}
+                                onChange={e => setDonationSearch(e.target.value)}
+                                className="p-2 border rounded-lg text-sm w-48 focus:w-64 transition-all outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <div className="flex border rounded-lg overflow-hidden shrink-0">
+                                <button onClick={() => setDonationViewMode('grid')} className={`p-2 ${donationViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><Grid className="w-4 h-4"/></button>
+                                <button onClick={() => setDonationViewMode('list')} className={`p-2 ${donationViewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><List className="w-4 h-4"/></button>
                             </div>
-                        ))}
+                            <button onClick={handleLocalRefresh} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
+                        </div>
                     </div>
-                ) : (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 text-slate-500 border-b">
-                                <tr>
-                                    <th className="p-3 font-bold">วันที่</th>
-                                    <th className="p-3 font-bold">ผู้บริจาค</th>
-                                    <th className="p-3 font-bold">ยอดเงิน</th>
-                                    <th className="p-3 font-bold">สถานะ</th>
-                                    <th className="p-3 font-bold">ประเภท</th>
-                                    <th className="p-3 font-bold text-right">จัดการ</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {filteredDonations.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(d => (
-                                    <tr key={d.id} className="hover:bg-slate-50">
-                                        <td className="p-3 text-slate-500">{new Date(d.timestamp).toLocaleDateString('th-TH')}</td>
-                                        <td className="p-3 font-bold text-slate-700">{d.donorName}</td>
-                                        <td className="p-3 font-mono text-indigo-600 font-bold">{d.amount.toLocaleString()}</td>
-                                        <td className="p-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${d.status === 'Verified' ? 'bg-green-100 text-green-700' : d.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
-                                                {d.status}
-                                            </span>
-                                        </td>
-                                        <td className="p-3 text-xs text-slate-500">
-                                            {d.isEdonation ? <span className="flex items-center gap-1 text-blue-600"><FileCheck className="w-3 h-3"/> e-Donation</span> : 'ทั่วไป'}
-                                        </td>
-                                        <td className="p-3 text-right">
-                                            <button onClick={() => setSelectedDonation(d)} className="text-slate-400 hover:text-indigo-600 p-1 rounded border hover:bg-indigo-50"><Edit3 className="w-4 h-4"/></button>
-                                        </td>
-                                    </tr>
+
+                    <div className="p-6 bg-slate-50 min-h-[400px]">
+                        {donationViewMode === 'grid' ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                {filteredDonations.map(don => (
+                                    <div key={don.id} onClick={() => setSelectedDonation(don)} className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition cursor-pointer relative overflow-hidden group">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${don.isAnonymous ? 'bg-slate-100 text-slate-500' : 'bg-indigo-100 text-indigo-600'}`}>
+                                                    {don.isAnonymous ? <User className="w-4 h-4"/> : don.donorName.charAt(0)}
+                                                </div>
+                                                <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${don.status === 'Verified' ? 'bg-green-100 text-green-700' : don.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{don.status}</span>
+                                            </div>
+                                            {don.isEdonation && <div className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 font-bold">e-Donation</div>}
+                                        </div>
+                                        <div className="mb-2">
+                                            <h4 className="font-bold text-slate-800 text-sm truncate">{don.donorName}</h4>
+                                            <p className="text-xl font-black text-indigo-600">{don.amount.toLocaleString()}</p>
+                                        </div>
+                                        <div className="text-xs text-slate-400 flex justify-between items-center border-t pt-2 mt-2">
+                                            <span>{new Date(don.timestamp).toLocaleDateString('th-TH')}</span>
+                                            {don.slipUrl && <CreditCard className="w-4 h-4 text-slate-300"/>}
+                                        </div>
+                                    </div>
                                 ))}
-                            </tbody>
-                        </table>
+                            </div>
+                        ) : (
+                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                        <tr>
+                                            <th className="p-4">วันที่</th>
+                                            <th className="p-4">ผู้บริจาค</th>
+                                            <th className="p-4 text-right">จำนวนเงิน</th>
+                                            <th className="p-4 text-center">สถานะ</th>
+                                            <th className="p-4 text-center">e-Donation</th>
+                                            <th className="p-4 text-right">จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {filteredDonations.map(don => (
+                                            <tr key={don.id} onClick={() => setSelectedDonation(don)} className="hover:bg-slate-50 transition cursor-pointer">
+                                                <td className="p-4 text-slate-500">{new Date(don.timestamp).toLocaleDateString('th-TH')}</td>
+                                                <td className="p-4 font-bold text-slate-700">{don.donorName} {don.isAnonymous && <span className="text-[10px] text-slate-400">(Anon)</span>}</td>
+                                                <td className="p-4 text-right font-mono font-bold text-indigo-600">{don.amount.toLocaleString()}</td>
+                                                <td className="p-4 text-center"><span className={`px-2 py-1 rounded-full text-xs font-bold ${don.status === 'Verified' ? 'bg-green-100 text-green-700' : don.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{don.status}</span></td>
+                                                <td className="p-4 text-center">{don.isEdonation ? <CheckCircle2 className="w-4 h-4 text-blue-500 mx-auto"/> : '-'}</td>
+                                                <td className="p-4 text-right"><button className="text-xs bg-white border px-2 py-1 rounded hover:bg-slate-50">ตรวจสอบ</button></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        {filteredDonations.length === 0 && <div className="text-center py-12 text-slate-400">ไม่มีรายการบริจาค</div>}
                     </div>
-                )}
+                </div>
             </div>
         )}
+
+        {/* --- USERS TAB --- */}
+        {activeTab === 'users' && (
+            <div className="animate-in fade-in duration-300">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
+                        <h2 className="font-bold text-lg text-slate-800">จัดการผู้ใช้งาน</h2>
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="ค้นหาผู้ใช้..." 
+                                value={userSearch}
+                                onChange={e => setUserSearch(e.target.value)}
+                                className="p-2 border rounded-lg text-sm w-48 focus:w-64 transition-all outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <button onClick={() => handleOpenUserModal(null)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
+                                <UserPlus className="w-4 h-4" /> เพิ่มผู้ใช้
+                            </button>
+                            <button onClick={loadUsers} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
+                        </div>
+                    </div>
+
+                    <div className="p-6 bg-slate-50 min-h-[400px]">
+                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                                    <tr>
+                                        <th className="p-4">User</th>
+                                        <th className="p-4">Role</th>
+                                        <th className="p-4">Login Type</th>
+                                        <th className="p-4">Last Login</th>
+                                        <th className="p-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {isLoadingUsers ? (
+                                        <tr><td colSpan={5} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500"/></td></tr>
+                                    ) : filteredUsers.map(user => (
+                                        <tr key={user.userId} className="hover:bg-slate-50 transition">
+                                            <td className="p-4">
+                                                <div className="flex items-center gap-3">
+                                                    {user.pictureUrl ? <img src={user.pictureUrl} className="w-8 h-8 rounded-full object-cover border border-slate-200"/> : <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold">{user.displayName?.charAt(0)}</div>}
+                                                    <div>
+                                                        <div className="font-bold text-slate-800">{user.displayName}</div>
+                                                        <div className="text-xs text-slate-400">{user.username || user.lineUserId}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span></td>
+                                            <td className="p-4 text-slate-500 text-xs">{user.type === 'line' ? 'LINE' : 'Password'}</td>
+                                            <td className="p-4 text-slate-400 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : '-'}</td>
+                                            <td className="p-4 text-right flex justify-end gap-2">
+                                                <button onClick={() => handleOpenUserModal(user)} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
+                                                <button onClick={() => handleDeleteUser(user.userId)} className="p-1.5 hover:bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {!isLoadingUsers && filteredUsers.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">ไม่พบผู้ใช้งาน</td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
       </div>
     </div>
   );
-}
+};
+
+export default AdminDashboard;

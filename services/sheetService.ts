@@ -5,6 +5,7 @@ import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsIt
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
 const CACHE_KEY_TIMESTAMP = 'penalty_pro_db_timestamp';
+const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes Cache Duration
 
 export const getStoredScriptUrl = (): string | null => {
   return API_URL;
@@ -69,8 +70,24 @@ export const deleteTeam = async (teamId: string): Promise<boolean> => {
 
 // RE-EXPORT all existing functions to maintain file integrity
 export const setStoredScriptUrl = (url: string) => { console.warn("URL is hardcoded in this version. Setting ignored."); };
-export const fetchDatabase = async (): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[] } | null> => {
+
+export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[] } | null> => {
   try {
+    // 1. Check Cache Validity
+    if (!forceRefresh) {
+        const cachedData = localStorage.getItem(CACHE_KEY_DB);
+        const cachedTime = localStorage.getItem(CACHE_KEY_TIMESTAMP);
+        
+        if (cachedData && cachedTime) {
+            const now = Date.now();
+            if (now - parseInt(cachedTime) < CACHE_DURATION) {
+                console.log("Using Cached Data");
+                return JSON.parse(cachedData);
+            }
+        }
+    }
+
+    // 2. Fetch from Network if expired or forced
     const response = await fetch(`${API_URL}?action=getData&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
     if (!response.ok) throw new Error(`Network response was not ok`);
     const text = await response.text();
@@ -88,11 +105,14 @@ export const fetchDatabase = async (): Promise<{ teams: Team[], players: Player[
         tournaments: (data && data.tournaments) || [],
         donations: (data && data.donations) || []
     };
+    
+    // 3. Update Cache
     localStorage.setItem(CACHE_KEY_DB, JSON.stringify(parsedData));
     localStorage.setItem(CACHE_KEY_TIMESTAMP, Date.now().toString());
     return parsedData;
   } catch (error: any) {
     console.warn("Network fetch failed, attempting offline cache:", error);
+    // Fallback: Return old cache even if expired if network fails
     const cachedData = localStorage.getItem(CACHE_KEY_DB);
     if (cachedData) { try { return JSON.parse(cachedData); } catch (e) { console.error("Cache corrupted", e); } }
     throw error;

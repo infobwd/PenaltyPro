@@ -16,7 +16,9 @@
     "canvas-confetti": "^1.9.4",
     "html2canvas": "^1.4.1",
     "vite": "^7.2.4",
-    "@vitejs/plugin-react": "^5.1.1"
+    "@vitejs/plugin-react": "^5.1.1",
+    "path": "^0.12.7",
+    "url": "^0.11.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
