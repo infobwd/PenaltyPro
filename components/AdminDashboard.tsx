@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
@@ -803,6 +802,167 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
       )}
       
+      {/* NEWS MODAL */}
+      {isNewsModalOpen && (
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                      <h3 className="font-bold text-lg text-slate-800">{newsForm.id ? 'แก้ไขข่าวสาร' : 'เพิ่มข่าวสาร'}</h3>
+                      <button onClick={() => setIsNewsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                  </div>
+                  <div className="space-y-4 overflow-y-auto flex-1 p-1">
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label>
+                          <input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="หัวข้อข่าว..." />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหา</label>
+                          <textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg h-32" placeholder="รายละเอียด..." />
+                      </div>
+                      
+                      {/* Scope Selection */}
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">การแสดงผล</label>
+                          <select value={newsForm.tournamentId} onChange={e => setNewsForm({...newsForm, tournamentId: e.target.value})} className="w-full p-2 border rounded-lg bg-white">
+                              <option value="global">Global (แสดงหน้าแรก)</option>
+                              {tournaments?.map(t => (
+                                  <option key={t.id} value={t.id}>เฉพาะรายการ: {t.name}</option>
+                              ))}
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">รูปภาพประกอบ</label>
+                          <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition relative">
+                              {newsForm.imagePreview ? (
+                                  <div className="relative">
+                                      <img src={newsForm.imagePreview} className="max-h-40 mx-auto rounded shadow-sm" />
+                                      <button onClick={() => setNewsForm({...newsForm, imageFile: null, imagePreview: null})} className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full"><X className="w-3 h-3"/></button>
+                                  </div>
+                              ) : (
+                                  <label className="cursor-pointer block w-full h-full">
+                                      <Image className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                                      <span className="text-xs text-slate-500">คลิกเพื่ออัปโหลดรูป</span>
+                                      <input type="file" accept="image/*" className="hidden" onChange={handleNewsImageChange} />
+                                  </label>
+                              )}
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">เอกสารแนบ (PDF/Doc)</label>
+                          <div className="flex items-center gap-2">
+                              <label className="cursor-pointer bg-white border px-3 py-2 rounded-lg text-sm hover:bg-slate-50 flex items-center gap-2">
+                                  <Paperclip className="w-4 h-4"/> เลือกไฟล์
+                                  <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleNewsDocChange} />
+                              </label>
+                              {newsForm.docFile ? <span className="text-xs text-green-600 font-bold truncate">{newsForm.docFile.name}</span> : (newsForm.id && newsForm.docFile === null) ? <span className="text-xs text-slate-400">ยังไม่เปลี่ยนไฟล์</span> : null}
+                          </div>
+                      </div>
+                  </div>
+                  <div className="flex gap-3 mt-6 shrink-0">
+                      <button onClick={() => setIsNewsModalOpen(false)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                      <button onClick={handleSaveNews} disabled={isSavingNews} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold flex items-center justify-center gap-2">
+                          {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : 'บันทึก'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* DONATION DETAIL MODAL */}
+      {selectedDonation && (
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedDonation(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col md:flex-row overflow-hidden animate-in zoom-in duration-200 max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                  {/* Left: Slip Image */}
+                  <div className="w-full md:w-1/2 bg-slate-900 flex items-center justify-center p-4 relative group">
+                      {selectedDonation.slipUrl ? (
+                          <img src={selectedDonation.slipUrl} className="max-w-full max-h-[40vh] md:max-h-full object-contain cursor-zoom-in" onClick={() => setPreviewImage(selectedDonation.slipUrl)} />
+                      ) : (
+                          <div className="text-slate-500 flex flex-col items-center"><Image className="w-12 h-12 mb-2 opacity-20"/><span>ไม่มีรูปสลิป</span></div>
+                      )}
+                      {/* Zoom hint */}
+                      {selectedDonation.slipUrl && <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition">คลิกเพื่อขยาย</div>}
+                  </div>
+                  
+                  {/* Right: Info & Actions */}
+                  <div className="w-full md:w-1/2 p-6 flex flex-col overflow-y-auto">
+                      <div className="flex justify-between items-start mb-4">
+                          <div>
+                              <h3 className="font-bold text-lg text-slate-800">{selectedDonation.donorName}</h3>
+                              <p className="text-xs text-slate-500">{new Date(selectedDonation.timestamp).toLocaleString('th-TH')}</p>
+                          </div>
+                          <button onClick={() => setSelectedDonation(null)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+                      </div>
+
+                      <div className="space-y-4 flex-1">
+                          <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                              <p className="text-xs text-indigo-500 font-bold uppercase">จำนวนเงิน</p>
+                              <p className="text-2xl font-black text-indigo-700">{selectedDonation.amount.toLocaleString()} บาท</p>
+                          </div>
+
+                          <div className="space-y-2 text-sm">
+                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                                  <span className="text-slate-500">เบอร์โทร:</span>
+                                  <span className="font-medium">{selectedDonation.phone}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                                  <span className="text-slate-500">สถานะ:</span>
+                                  <span className={`font-bold ${selectedDonation.status === 'Verified' ? 'text-green-600' : selectedDonation.status === 'Rejected' ? 'text-red-600' : 'text-orange-500'}`}>{selectedDonation.status}</span>
+                              </div>
+                              <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                                  <span className="text-slate-500">แสดงชื่อ:</span>
+                                  <button 
+                                      onClick={() => handleUpdateDonationAnonymous(!selectedDonation.isAnonymous)}
+                                      className={`text-xs font-bold px-2 py-0.5 rounded transition ${selectedDonation.isAnonymous ? 'bg-slate-200 text-slate-600' : 'bg-green-100 text-green-700'}`}
+                                  >
+                                      {selectedDonation.isAnonymous ? 'ไม่แสดง (Anon)' : 'แสดงปกติ'}
+                                  </button>
+                              </div>
+                          </div>
+
+                          {selectedDonation.isEdonation && (
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm">
+                                  <div className="flex items-center gap-2 mb-2 text-blue-600 font-bold">
+                                      <FileCheck className="w-4 h-4"/> ขอ e-Donation
+                                  </div>
+                                  <p className="text-xs text-slate-500 mb-1">Tax ID: <span className="text-slate-800 font-mono">{selectedDonation.taxId}</span></p>
+                                  <p className="text-xs text-slate-500 mb-2">ที่อยู่: {selectedDonation.address}</p>
+                                  
+                                  {/* Admin File Upload for Tax Receipt */}
+                                  <div className="mt-2 pt-2 border-t border-slate-200">
+                                      <p className="text-xs font-bold mb-1">หลักฐานการลดหย่อน (Admin Upload)</p>
+                                      <div className="flex gap-2 items-center">
+                                          <input type="file" accept="image/*,.pdf" className="text-xs w-full" onChange={handleTaxFileSelect} />
+                                          {adminTaxFile && (
+                                              <button onClick={handleSaveTaxFile} className="bg-blue-600 text-white text-xs px-2 py-1 rounded hover:bg-blue-700">Save</button>
+                                          )}
+                                      </div>
+                                      {selectedDonation.taxFileUrl && (
+                                          <a href={selectedDonation.taxFileUrl} target="_blank" className="text-[10px] text-blue-500 underline mt-1 block">ดูไฟล์ที่อัปโหลดแล้ว</a>
+                                      )}
+                                  </div>
+                              </div>
+                          )}
+                      </div>
+
+                      {/* Footer Actions */}
+                      <div className="mt-6 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
+                          {selectedDonation.status === 'Pending' && (
+                              <>
+                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} className="bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 transition shadow-sm">อนุมัติ (Verify)</button>
+                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} className="bg-red-50 text-red-600 border border-red-100 py-2 rounded-lg font-bold hover:bg-red-100 transition">ปฏิเสธ</button>
+                              </>
+                          )}
+                          <button onClick={() => handlePrintCertificate(selectedDonation)} disabled={isGeneratingCert} className="col-span-2 bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex items-center justify-center gap-2">
+                              {isGeneratingCert ? <Loader2 className="w-4 h-4 animate-spin"/> : <Printer className="w-4 h-4"/>} พิมพ์เกียรติบัตร
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* CONFIRM REMOVE TEAM FROM LIVE DRAW */}
       {removeConfirmModal.isOpen && (
           <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1215,6 +1375,167 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                   <textarea className="w-full p-3 border border-slate-300 rounded-lg text-sm h-32 focus:ring-2 focus:ring-red-200 focus:border-red-400 mb-4" placeholder="เช่น เอกสารไม่ครบถ้วน, สลิปไม่ชัดเจน..." value={rejectReasonInput} onChange={(e) => setRejectReasonInput(e.target.value)} autoFocus></textarea>
                   <div className="flex gap-3"><button onClick={() => setRejectModal({ isOpen: false, teamId: null })} className="flex-1 py-2 border rounded-lg hover:bg-slate-50 text-sm font-bold text-slate-600">ยกเลิก</button><button onClick={confirmReject} className="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-sm shadow-sm flex items-center justify-center gap-2">{isSavingTeam ? <Loader2 className="w-4 h-4 animate-spin"/> : 'ยืนยันไม่อนุมัติ'}</button></div>
+              </div>
+          </div>
+      )}
+
+      {/* NEWS MODAL */}
+      {isNewsModalOpen && (
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                  <div className="flex justify-between items-center mb-4 border-b pb-2">
+                      <h3 className="font-bold text-lg text-slate-800">{newsForm.id ? 'แก้ไขข่าวสาร' : 'เพิ่มข่าวสาร'}</h3>
+                      <button onClick={() => setIsNewsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+                  </div>
+                  <div className="space-y-4 overflow-y-auto flex-1 p-1">
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">หัวข้อข่าว</label>
+                          <input type="text" value={newsForm.title} onChange={e => setNewsForm({...newsForm, title: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="หัวข้อข่าว..." />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">เนื้อหา</label>
+                          <textarea value={newsForm.content} onChange={e => setNewsForm({...newsForm, content: e.target.value})} className="w-full p-2 border rounded-lg h-32" placeholder="รายละเอียด..." />
+                      </div>
+                      
+                      {/* Scope Selection */}
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">การแสดงผล</label>
+                          <select value={newsForm.tournamentId} onChange={e => setNewsForm({...newsForm, tournamentId: e.target.value})} className="w-full p-2 border rounded-lg bg-white">
+                              <option value="global">Global (แสดงหน้าแรก)</option>
+                              {tournaments?.map(t => (
+                                  <option key={t.id} value={t.id}>เฉพาะรายการ: {t.name}</option>
+                              ))}
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">รูปภาพประกอบ</label>
+                          <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition relative">
+                              {newsForm.imagePreview ? (
+                                  <div className="relative">
+                                      <img src={newsForm.imagePreview} className="max-h-40 mx-auto rounded shadow-sm" />
+                                      <button onClick={() => setNewsForm({...newsForm, imageFile: null, imagePreview: null})} className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full"><X className="w-3 h-3"/></button>
+                                  </div>
+                              ) : (
+                                  <label className="cursor-pointer block w-full h-full">
+                                      <Image className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                                      <span className="text-xs text-slate-500">คลิกเพื่ออัปโหลดรูป</span>
+                                      <input type="file" accept="image/*" className="hidden" onChange={handleNewsImageChange} />
+                                  </label>
+                              )}
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">เอกสารแนบ (PDF/Doc)</label>
+                          <div className="flex items-center gap-2">
+                              <label className="cursor-pointer bg-white border px-3 py-2 rounded-lg text-sm hover:bg-slate-50 flex items-center gap-2">
+                                  <Paperclip className="w-4 h-4"/> เลือกไฟล์
+                                  <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleNewsDocChange} />
+                              </label>
+                              {newsForm.docFile ? <span className="text-xs text-green-600 font-bold truncate">{newsForm.docFile.name}</span> : (newsForm.id && newsForm.docFile === null) ? <span className="text-xs text-slate-400">ยังไม่เปลี่ยนไฟล์</span> : null}
+                          </div>
+                      </div>
+                  </div>
+                  <div className="flex gap-3 mt-6 shrink-0">
+                      <button onClick={() => setIsNewsModalOpen(false)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                      <button onClick={handleSaveNews} disabled={isSavingNews} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold flex items-center justify-center gap-2">
+                          {isSavingNews ? <Loader2 className="w-4 h-4 animate-spin"/> : 'บันทึก'}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* DONATION DETAIL MODAL */}
+      {selectedDonation && (
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedDonation(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col md:flex-row overflow-hidden animate-in zoom-in duration-200 max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                  {/* Left: Slip Image */}
+                  <div className="w-full md:w-1/2 bg-slate-900 flex items-center justify-center p-4 relative group">
+                      {selectedDonation.slipUrl ? (
+                          <img src={selectedDonation.slipUrl} className="max-w-full max-h-[40vh] md:max-h-full object-contain cursor-zoom-in" onClick={() => setPreviewImage(selectedDonation.slipUrl)} />
+                      ) : (
+                          <div className="text-slate-500 flex flex-col items-center"><Image className="w-12 h-12 mb-2 opacity-20"/><span>ไม่มีรูปสลิป</span></div>
+                      )}
+                      {/* Zoom hint */}
+                      {selectedDonation.slipUrl && <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition">คลิกเพื่อขยาย</div>}
+                  </div>
+                  
+                  {/* Right: Info & Actions */}
+                  <div className="w-full md:w-1/2 p-6 flex flex-col overflow-y-auto">
+                      <div className="flex justify-between items-start mb-4">
+                          <div>
+                              <h3 className="font-bold text-lg text-slate-800">{selectedDonation.donorName}</h3>
+                              <p className="text-xs text-slate-500">{new Date(selectedDonation.timestamp).toLocaleString('th-TH')}</p>
+                          </div>
+                          <button onClick={() => setSelectedDonation(null)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+                      </div>
+
+                      <div className="space-y-4 flex-1">
+                          <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                              <p className="text-xs text-indigo-500 font-bold uppercase">จำนวนเงิน</p>
+                              <p className="text-2xl font-black text-indigo-700">{selectedDonation.amount.toLocaleString()} บาท</p>
+                          </div>
+
+                          <div className="space-y-2 text-sm">
+                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                                  <span className="text-slate-500">เบอร์โทร:</span>
+                                  <span className="font-medium">{selectedDonation.phone}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                                  <span className="text-slate-500">สถานะ:</span>
+                                  <span className={`font-bold ${selectedDonation.status === 'Verified' ? 'text-green-600' : selectedDonation.status === 'Rejected' ? 'text-red-600' : 'text-orange-500'}`}>{selectedDonation.status}</span>
+                              </div>
+                              <div className="flex justify-between items-center border-b border-slate-100 pb-1">
+                                  <span className="text-slate-500">แสดงชื่อ:</span>
+                                  <button 
+                                      onClick={() => handleUpdateDonationAnonymous(!selectedDonation.isAnonymous)}
+                                      className={`text-xs font-bold px-2 py-0.5 rounded transition ${selectedDonation.isAnonymous ? 'bg-slate-200 text-slate-600' : 'bg-green-100 text-green-700'}`}
+                                  >
+                                      {selectedDonation.isAnonymous ? 'ไม่แสดง (Anon)' : 'แสดงปกติ'}
+                                  </button>
+                              </div>
+                          </div>
+
+                          {selectedDonation.isEdonation && (
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm">
+                                  <div className="flex items-center gap-2 mb-2 text-blue-600 font-bold">
+                                      <FileCheck className="w-4 h-4"/> ขอ e-Donation
+                                  </div>
+                                  <p className="text-xs text-slate-500 mb-1">Tax ID: <span className="text-slate-800 font-mono">{selectedDonation.taxId}</span></p>
+                                  <p className="text-xs text-slate-500 mb-2">ที่อยู่: {selectedDonation.address}</p>
+                                  
+                                  {/* Admin File Upload for Tax Receipt */}
+                                  <div className="mt-2 pt-2 border-t border-slate-200">
+                                      <p className="text-xs font-bold mb-1">หลักฐานการลดหย่อน (Admin Upload)</p>
+                                      <div className="flex gap-2 items-center">
+                                          <input type="file" accept="image/*,.pdf" className="text-xs w-full" onChange={handleTaxFileSelect} />
+                                          {adminTaxFile && (
+                                              <button onClick={handleSaveTaxFile} className="bg-blue-600 text-white text-xs px-2 py-1 rounded hover:bg-blue-700">Save</button>
+                                          )}
+                                      </div>
+                                      {selectedDonation.taxFileUrl && (
+                                          <a href={selectedDonation.taxFileUrl} target="_blank" className="text-[10px] text-blue-500 underline mt-1 block">ดูไฟล์ที่อัปโหลดแล้ว</a>
+                                      )}
+                                  </div>
+                              </div>
+                          )}
+                      </div>
+
+                      {/* Footer Actions */}
+                      <div className="mt-6 pt-4 border-t border-slate-100 grid grid-cols-2 gap-3">
+                          {selectedDonation.status === 'Pending' && (
+                              <>
+                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Verified')} className="bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 transition shadow-sm">อนุมัติ (Verify)</button>
+                                  <button onClick={() => handleVerifyDonation(selectedDonation.id, 'Rejected')} className="bg-red-50 text-red-600 border border-red-100 py-2 rounded-lg font-bold hover:bg-red-100 transition">ปฏิเสธ</button>
+                              </>
+                          )}
+                          <button onClick={() => handlePrintCertificate(selectedDonation)} disabled={isGeneratingCert} className="col-span-2 bg-slate-800 text-white py-2 rounded-lg font-bold hover:bg-slate-900 transition flex items-center justify-center gap-2">
+                              {isGeneratingCert ? <Loader2 className="w-4 h-4 animate-spin"/> : <Printer className="w-4 h-4"/>} พิมพ์เกียรติบัตร
+                          </button>
+                      </div>
+                  </div>
               </div>
           </div>
       )}
