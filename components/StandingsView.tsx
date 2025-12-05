@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Team, Standing, Match, KickResult, Player, MatchEvent } from '../types'; 
-import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck } from 'lucide-react'; 
+import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck, Hand, Goal } from 'lucide-react'; 
 import PlayerCard from './PlayerCard'; 
 import { shareGroupStandings } from '../services/liffService';
 
@@ -14,7 +14,7 @@ interface StandingsViewProps {
 
 const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, isLoading }) => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'fairplay'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay'>('table');
   
   if (isLoading) {
       return (
@@ -98,25 +98,24 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
 
   // --- LOGIC: Top Scorers ---
   const topScorers = useMemo(() => {
-      const scorerMap: Record<string, { name: string, teamName: string, goals: number, teamLogo?: string }> = {};
+      const scorerMap: Record<string, { name: string, teamName: string, totalGoals: number, regularGoals: number, penGoals: number, teamLogo?: string }> = {};
       
       matches.forEach(m => {
           // 1. Regular Match Goals (Events)
           if (m.events) {
               m.events.forEach(e => {
                   if (e.type === 'GOAL') {
-                      const key = `${e.player}_${e.teamId}`; // Simple composite key
+                      const key = `${e.player}_${e.teamId}`; 
                       const teamName = e.teamId === 'A' 
                           ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)
                           : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
-                      
-                      // Find team logo
                       const teamObj = teams.find(t => t.name === teamName);
 
                       if (!scorerMap[key]) {
-                          scorerMap[key] = { name: e.player, teamName, goals: 0, teamLogo: teamObj?.logoUrl };
+                          scorerMap[key] = { name: e.player, teamName, totalGoals: 0, regularGoals: 0, penGoals: 0, teamLogo: teamObj?.logoUrl };
                       }
-                      scorerMap[key].goals += 1;
+                      scorerMap[key].totalGoals += 1;
+                      scorerMap[key].regularGoals += 1;
                   }
               });
           }
@@ -126,7 +125,6 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
               m.kicks.forEach(k => {
                   if (k.result === KickResult.GOAL) {
                       let pName = String(k.player || '').trim();
-                      // Clean name
                       if (pName.includes('(#')) pName = pName.split('(#')[0].trim();
                       else pName = pName.replace(/[0-9]/g, '').replace('#','').trim();
                       if(!pName) return;
@@ -134,32 +132,67 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                       const teamName = k.teamId === 'A' || (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === k.teamId
                           ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)
                           : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
-                      
-                      const key = `${pName}_${teamName}`;
                       const teamObj = teams.find(t => t.name === teamName);
+                      const key = `${pName}_${teamName}`;
 
                       if (!scorerMap[key]) {
-                          scorerMap[key] = { name: pName, teamName, goals: 0, teamLogo: teamObj?.logoUrl };
+                          scorerMap[key] = { name: pName, teamName, totalGoals: 0, regularGoals: 0, penGoals: 0, teamLogo: teamObj?.logoUrl };
                       }
-                      scorerMap[key].goals += 1;
+                      scorerMap[key].totalGoals += 1;
+                      scorerMap[key].penGoals += 1;
                   }
               });
           }
       });
 
-      return Object.values(scorerMap).sort((a, b) => b.goals - a.goals).slice(0, 20); // Top 20
+      return Object.values(scorerMap).sort((a, b) => {
+          if (b.totalGoals !== a.totalGoals) return b.totalGoals - a.totalGoals;
+          return b.regularGoals - a.regularGoals; // Tie-breaker: Regular goals worth more? or just order
+      }).slice(0, 20); 
+  }, [matches, teams]);
+
+  // --- LOGIC: Top Keepers (Golden Glove) ---
+  const topKeepers = useMemo(() => {
+      // We don't explicitly store "Keeper Name" in Kicks usually, unless we infer from roster.
+      // But assuming the 'player' field in Kicks is the *Kicker*.
+      // The *Saver* is the goalkeeper of the *Opposing Team*.
+      // Since we don't know the GK name per save easily without complex tracking,
+      // We will aggregate saves by **TEAM**. "Team with most penalty saves".
+      // OR if we want to be fancy, we display "Goalkeeper of [Team Name]".
+      
+      const savesMap: Record<string, { teamName: string, saves: number, teamLogo?: string }> = {};
+
+      matches.forEach(m => {
+          if (m.kicks) {
+              m.kicks.forEach(k => {
+                  if (k.result === KickResult.SAVED) {
+                      // Determine the DEFENDING team (The one who saved)
+                      // If kicker is A, saver is B.
+                      const kickerTeam = k.teamId === 'A' || (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === k.teamId ? 'A' : 'B';
+                      const saverTeamSide = kickerTeam === 'A' ? 'B' : 'A';
+                      
+                      const saverTeamName = saverTeamSide === 'A' 
+                          ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)
+                          : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
+                      
+                      const teamObj = teams.find(t => t.name === saverTeamName);
+                      
+                      if (!savesMap[saverTeamName]) {
+                          savesMap[saverTeamName] = { teamName: saverTeamName, saves: 0, teamLogo: teamObj?.logoUrl };
+                      }
+                      savesMap[saverTeamName].saves += 1;
+                  }
+              });
+          }
+      });
+
+      return Object.values(savesMap).sort((a, b) => b.saves - a.saves).slice(0, 10);
   }, [matches, teams]);
 
   // --- LOGIC: Fair Play ---
   const fairPlayRankings = useMemo(() => {
       const fpMap: Record<string, { team: Team, yellow: number, red: number, points: number }> = {};
-      
-      // Initialize all approved teams
-      teams.forEach(t => {
-          if (t.status === 'Approved') {
-              fpMap[t.name] = { team: t, yellow: 0, red: 0, points: 0 };
-          }
-      });
+      teams.forEach(t => { if (t.status === 'Approved') fpMap[t.name] = { team: t, yellow: 0, red: 0, points: 0 }; });
 
       matches.forEach(m => {
           if (m.events) {
@@ -181,11 +214,15 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
           }
       });
 
-      return Object.values(fpMap).sort((a, b) => a.points - b.points).slice(0, 20); // Lowest points is better
+      // Filter out teams with 0 points if list is too long, or just show all
+      return Object.values(fpMap)
+        .filter(t => true) // Keep all for now
+        .sort((a, b) => a.points - b.points) // Lowest points is better
+        .slice(0, 20); 
   }, [matches, teams]);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 pb-24">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 pb-24 font-sans">
         <div className="max-w-5xl mx-auto">
             <div className="flex items-center gap-4 mb-6">
                 <button onClick={onBack} className="p-2 bg-white rounded-full shadow-sm hover:bg-slate-100 transition text-slate-600">
@@ -200,21 +237,27 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
             <div className="flex overflow-x-auto gap-2 mb-8 pb-2 scrollbar-hide">
                 <button 
                     onClick={() => setActiveTab('table')}
-                    className={`px-6 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'table' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
+                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'table' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
                 >
                     <LayoutGrid className="w-4 h-4"/> ตารางคะแนน
                 </button>
                 <button 
                     onClick={() => setActiveTab('scorers')}
-                    className={`px-6 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'scorers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
+                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'scorers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
                 >
-                    <Medal className="w-4 h-4"/> อันดับดาวซัลโว
+                    <Medal className="w-4 h-4"/> ดาวซัลโว
+                </button>
+                <button 
+                    onClick={() => setActiveTab('keepers')}
+                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'keepers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
+                >
+                    <Hand className="w-4 h-4"/> จอมหนึบ
                 </button>
                 <button 
                     onClick={() => setActiveTab('fairplay')}
-                    className={`px-6 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'fairplay' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
+                    className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition flex items-center gap-2 ${activeTab === 'fairplay' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white text-slate-500 hover:bg-slate-100 border border-slate-200'}`}
                 >
-                    <ShieldCheck className="w-4 h-4"/> คะแนนแฟร์เพลย์
+                    <ShieldCheck className="w-4 h-4"/> Fair Play
                 </button>
             </div>
 
@@ -295,29 +338,39 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
             {/* Content: Top Scorers */}
             {activeTab === 'scorers' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="p-6 bg-gradient-to-r from-yellow-500 to-orange-500 text-white">
-                        <h2 className="text-xl font-bold flex items-center gap-2"><Medal className="w-6 h-6"/> อันดับดาวซัลโว (Golden Boot)</h2>
-                        <p className="text-white/80 text-sm mt-1">รวมทุกรายการแข่งขัน (จุดโทษ + เวลาปกติ)</p>
+                    <div className="p-6 bg-gradient-to-r from-yellow-500 to-orange-500 text-white relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-xl font-bold flex items-center gap-2 relative z-10"><Medal className="w-6 h-6"/> อันดับดาวซัลโว (Golden Boot)</h2>
+                        <p className="text-white/80 text-sm mt-1 relative z-10">รวมประตูจากเวลาปกติและจุดโทษ</p>
                     </div>
                     {topScorers.length > 0 ? (
                         <div className="divide-y divide-slate-100">
                             {topScorers.map((player, idx) => (
-                                <div key={`${player.name}_${player.teamName}`} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
+                                <div key={`${player.name}_${player.teamName}`} className={`flex items-center justify-between p-4 hover:bg-slate-50 transition ${idx < 3 ? 'bg-yellow-50/30' : ''}`}>
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${idx === 0 ? 'bg-yellow-100 text-yellow-600' : idx === 1 ? 'bg-slate-100 text-slate-600' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'text-slate-400'}`}>
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg border-2 ${idx === 0 ? 'bg-yellow-400 text-yellow-900 border-yellow-200 shadow-md' : idx === 1 ? 'bg-slate-300 text-slate-800 border-slate-200' : idx === 2 ? 'bg-orange-300 text-orange-900 border-orange-200' : 'text-slate-400 bg-white border-transparent'}`}>
                                             {idx + 1}
                                         </div>
                                         <div className="flex flex-col">
-                                            <span className="font-bold text-slate-800 text-base">{player.name}</span>
+                                            <span className="font-bold text-slate-800 text-base flex items-center gap-2">
+                                                {player.name}
+                                                {idx === 0 && <span className="bg-yellow-100 text-yellow-700 text-[9px] px-1.5 py-0.5 rounded font-bold border border-yellow-200">KING</span>}
+                                            </span>
                                             <div className="flex items-center gap-2 text-xs text-slate-500">
                                                 {player.teamLogo && <img src={player.teamLogo} className="w-4 h-4 object-contain" />}
                                                 {player.teamName}
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-2xl font-black text-indigo-600">{player.goals}</span>
-                                        <span className="text-xs text-slate-400 uppercase font-bold">Goals</span>
+                                    <div className="flex items-center gap-4">
+                                        <div className="hidden md:flex flex-col items-end text-[10px] text-slate-400 font-medium">
+                                            <span>Reg: {player.regularGoals}</span>
+                                            <span>Pen: {player.penGoals}</span>
+                                        </div>
+                                        <div className="flex flex-col items-center w-12">
+                                            <span className="text-2xl font-black text-indigo-600 leading-none">{player.totalGoals}</span>
+                                            <span className="text-[9px] text-slate-400 uppercase font-bold mt-1">Goals</span>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -328,19 +381,60 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                 </div>
             )}
 
+            {/* Content: Top Keepers (NEW) */}
+            {activeTab === 'keepers' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="p-6 bg-gradient-to-r from-blue-500 to-cyan-500 text-white relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-xl font-bold flex items-center gap-2 relative z-10"><Hand className="w-6 h-6"/> จอมหนึบ (Golden Glove)</h2>
+                        <p className="text-white/80 text-sm mt-1 relative z-10">สถิติการเซฟจุดโทษ (นับรวมเป็นทีม)</p>
+                    </div>
+                    {topKeepers.length > 0 ? (
+                        <div className="divide-y divide-slate-100">
+                            {topKeepers.map((keeperTeam, idx) => (
+                                <div key={keeperTeam.teamName} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm text-slate-500 bg-slate-100`}>
+                                            {idx + 1}
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            {keeperTeam.teamLogo ? <img src={keeperTeam.teamLogo} className="w-10 h-10 object-contain rounded-lg bg-slate-50 p-0.5" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">{keeperTeam.teamName.substring(0,1)}</div>}
+                                            <div className="flex flex-col">
+                                                <span className="font-bold text-slate-800 text-base">ผู้รักษาประตู {keeperTeam.teamName}</span>
+                                                <span className="text-xs text-slate-400">Team Saves</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col items-center w-16 bg-slate-50 rounded-lg p-1 border border-slate-100">
+                                        <span className="text-xl font-black text-blue-600">{keeperTeam.saves}</span>
+                                        <span className="text-[9px] text-slate-400 uppercase font-bold">Saves</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-2">
+                            <Hand className="w-12 h-12 opacity-20"/>
+                            <span>ยังไม่มีการเซฟจุดโทษ</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Content: Fair Play */}
             {activeTab === 'fairplay' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="p-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white">
-                        <h2 className="text-xl font-bold flex items-center gap-2"><ShieldCheck className="w-6 h-6"/> คะแนน Fair Play</h2>
-                        <p className="text-white/80 text-sm mt-1">คะแนนน้อย = มารยาทดี (เหลือง=1, แดง=3)</p>
+                    <div className="p-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h2 className="text-xl font-bold flex items-center gap-2 relative z-10"><ShieldCheck className="w-6 h-6"/> คะแนน Fair Play</h2>
+                        <p className="text-white/80 text-sm mt-1 relative z-10">คะแนนน้อย = มารยาทดี (เหลือง=1, แดง=3)</p>
                     </div>
                     {fairPlayRankings.length > 0 ? (
                         <div className="divide-y divide-slate-100">
                             {fairPlayRankings.map((fp, idx) => (
                                 <div key={fp.team.id} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
                                     <div className="flex items-center gap-4">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm text-slate-400 bg-slate-100`}>
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${idx < 3 ? 'text-green-600 bg-green-100' : 'text-slate-400 bg-slate-100'}`}>
                                             {idx + 1}
                                         </div>
                                         <div className="flex items-center gap-3">
@@ -348,14 +442,20 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                                             <span className="font-bold text-slate-800 text-base">{fp.team.name}</span>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex items-center gap-3 text-sm">
-                                            <span className="flex items-center gap-1 text-yellow-600 font-bold bg-yellow-50 px-2 py-1 rounded"><div className="w-2 h-3 bg-yellow-400 rounded-[1px]"></div> {fp.yellow}</span>
-                                            <span className="flex items-center gap-1 text-red-600 font-bold bg-red-50 px-2 py-1 rounded"><div className="w-2 h-3 bg-red-500 rounded-[1px]"></div> {fp.red}</span>
+                                    <div className="flex items-center gap-4 md:gap-8">
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <div className="flex flex-col items-center w-8">
+                                                <div className="w-3 h-4 bg-yellow-400 rounded-[1px] shadow-sm mb-1"></div>
+                                                <span className="font-bold text-slate-600">{fp.yellow}</span>
+                                            </div>
+                                            <div className="flex flex-col items-center w-8">
+                                                <div className="w-3 h-4 bg-red-500 rounded-[1px] shadow-sm mb-1"></div>
+                                                <span className="font-bold text-slate-600">{fp.red}</span>
+                                            </div>
                                         </div>
-                                        <div className="text-center w-16">
+                                        <div className="text-center w-12 bg-slate-50 rounded-lg p-1 border border-slate-100">
                                             <span className="block text-xl font-black text-slate-700">{fp.points}</span>
-                                            <span className="block text-[9px] text-slate-400 uppercase font-bold">Points</span>
+                                            <span className="block text-[9px] text-slate-400 uppercase font-bold">Pts</span>
                                         </div>
                                     </div>
                                 </div>
@@ -442,18 +542,24 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
     // Calculate Player Stats
     const playerGoals: Record<string, number> = {};
     matches.forEach(m => {
+        // Count Penalties
         if (m.kicks) {
             m.kicks.forEach(k => {
                 if (k.result === KickResult.GOAL && (k.teamId === team.name || k.teamId === 'A' && (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name || k.teamId === 'B' && (typeof m.teamB === 'string' ? m.teamB : m.teamB.name) === team.name)) {
-                    // Fix: Ensure player name is a string before trimming
                     let pName = String(k.player || '').trim();
-                    if (pName.includes('(#')) {
-                         pName = pName.split('(#')[0].trim();
-                    } else {
-                         pName = pName.replace(/[0-9]/g, '').replace('#','').trim();
-                    }
+                    if (pName.includes('(#')) pName = pName.split('(#')[0].trim();
+                    else pName = pName.replace(/[0-9]/g, '').replace('#','').trim();
                     if(!pName) pName = "ไม่ระบุชื่อ";
                     playerGoals[pName] = (playerGoals[pName] || 0) + 1;
+                }
+            });
+        }
+        // Count Regular Goals (Events)
+        if (m.events) {
+            m.events.forEach(e => {
+                const teamName = e.teamId === 'A' ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
+                if (e.type === 'GOAL' && teamName === team.name) {
+                    playerGoals[e.player] = (playerGoals[e.player] || 0) + 1;
                 }
             });
         }
@@ -564,7 +670,7 @@ const TeamDetailModal: React.FC<TeamDetailModalProps> = ({ team, matches, onClos
                         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                             <div className="p-3 bg-slate-50 border-b text-xs font-bold text-slate-500 uppercase flex justify-between">
                                 <span>ผู้เล่น</span>
-                                <span>ประตู (เฉพาะจุดโทษ)</span>
+                                <span>ประตูรวม (Game+Pen)</span>
                             </div>
                             <div className="divide-y divide-slate-100">
                                 {topScorers.length > 0 ? topScorers.map((p, i) => (
