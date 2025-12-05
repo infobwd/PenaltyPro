@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
+import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation, Prediction } from './types';
 import MatchSetup from './components/MatchSetup';
 import ScoreVisualizer from './components/ScoreVisualizer';
 import PenaltyInterface from './components/PenaltyInterface';
@@ -108,6 +108,7 @@ export default function App() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [currentTournamentId, setCurrentTournamentId] = useState<string | null>(null);
   const [donations, setDonations] = useState<Donation[]>([]); 
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
 
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -138,6 +139,7 @@ export default function App() {
   const activeMatches = currentTournamentId ? matchesLog.filter(m => m.tournamentId === currentTournamentId || (!m.tournamentId && currentTournamentId === 'default')) : [];
   const activeTournament = tournaments.find(t => t.id === currentTournamentId);
   const activeDonations = currentTournamentId ? donations.filter(d => d.tournamentId === currentTournamentId) : [];
+  const activePredictions = currentTournamentId ? predictions.filter(p => p.tournamentId === currentTournamentId) : [];
 
   const getTournamentConfig = (): TournamentConfig => { try { return activeTournament?.config ? JSON.parse(activeTournament.config) : {}; } catch(e) { return {}; } };
   const tConfig = getTournamentConfig();
@@ -213,6 +215,7 @@ export default function App() {
                 setNewsItems(data.news || []);
                 setTournaments(data.tournaments || []);
                 setDonations(data.donations || []);
+                setPredictions(data.predictions || []);
                 
                 // Logic for tournament ID selection
                 if (!currentTournamentId) { 
@@ -316,6 +319,7 @@ export default function App() {
         setNewsItems(data.news || []);
         setTournaments(data.tournaments || []);
         setDonations(data.donations || []);
+        setPredictions(data.predictions || []);
       }
     } catch (e: any) { console.warn("Database Error", e); setConnectionError(e.message); showNotification("เชื่อมต่อไม่ได้", e.message, 'error'); } finally { setIsLoadingData(false); }
   };
@@ -526,8 +530,29 @@ export default function App() {
       {editingKick && activeTournament?.type === 'Penalty' && (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[1100] p-4 backdrop-blur-sm" onClick={() => setEditingKick(null)}><div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}><div className="flex justify-between items-start mb-4"><h3 className="font-bold text-lg text-slate-800">แก้ไขผลการยิง</h3><button onClick={() => confirmDeleteKick(editingKick.id)} className="text-red-500 hover:bg-red-50 p-1 rounded transition" title="ลบรายการนี้"><Trash2 className="w-5 h-5" /></button></div><div className="space-y-4"><div><label className="block text-sm text-slate-500 mb-1">ชื่อผู้เล่น</label><input type="text" className="w-full p-2 border rounded-lg" defaultValue={editingKick.player} id="edit-player-name" /></div><div><label className="block text-sm text-slate-500 mb-1">ผลการยิง</label><select className="w-full p-2 border rounded-lg" defaultValue={editingKick.result} id="edit-kick-result"><option value={KickResult.GOAL}>เข้าประตู (GOAL)</option><option value={KickResult.SAVED}>เซฟได้ (SAVED)</option><option value={KickResult.MISSED}>ยิงพลาด (MISSED)</option></select></div><div className="flex gap-2 pt-4"><button onClick={() => setEditingKick(null)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button><button onClick={() => { const name = (document.getElementById('edit-player-name') as HTMLInputElement).value; const res = (document.getElementById('edit-kick-result') as HTMLSelectElement).value as KickResult; handleUpdateOldKick(editingKick.id, res, name); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold">บันทึก</button></div></div></div></div>)}
 
       {currentView === 'tournament' && <TournamentView key={viewKey} teams={activeTeams} matches={activeMatches} onSelectMatch={handleStartMatchRequest} onBack={() => setCurrentView('home')} isAdmin={isAdmin} onRefresh={() => loadData(true)} onLoginClick={() => setIsLoginOpen(true)} isLoading={isLoadingData} showNotification={showNotification} tournamentId={currentTournamentId} />}
-      {currentView === 'schedule' && ( <ScheduleList key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => setCurrentView('home')} isAdmin={isAdmin} isLoading={isLoadingData} onRefresh={() => loadData(true)} showNotification={showNotification} onStartMatch={handleStartMatchRequest} config={effectiveSettings} initialMatchId={initialMatchId} currentTournamentId={currentTournamentId} /> )}
-      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} />}
+      
+      {currentView === 'schedule' && ( 
+        <ScheduleList 
+            key={viewKey} 
+            matches={activeMatches} 
+            teams={activeTeams} 
+            players={activePlayers} 
+            onBack={() => setCurrentView('home')} 
+            isAdmin={isAdmin} 
+            isLoading={isLoadingData} 
+            onRefresh={() => loadData(true)} 
+            showNotification={showNotification} 
+            onStartMatch={handleStartMatchRequest} 
+            config={effectiveSettings} 
+            initialMatchId={initialMatchId} 
+            currentTournamentId={currentTournamentId} 
+            predictions={activePredictions}
+            currentUser={currentUser}
+            onLoginRequest={() => setIsUserLoginOpen(true)}
+        /> 
+      )}
+      
+      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} predictions={activePredictions} />}
       {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
       {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); setCurrentView('home'); }} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} donations={donations} isLoading={isLoadingData} /> )}
 

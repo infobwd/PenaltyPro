@@ -13,6 +13,88 @@ interface StandingsViewProps {
   predictions?: Prediction[];
 }
 
+const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => void }> = ({ team, matches, onClose }) => {
+    const teamMatches = matches.filter(m => {
+        const tA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
+        const tB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
+        return tA === team.name || tB === team.name;
+    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const stats = {
+        played: teamMatches.filter(m => m.winner).length,
+        won: teamMatches.filter(m => m.winner && (m.winner === 'A' ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name) === team.name)).length,
+        lost: teamMatches.filter(m => m.winner && (m.winner === 'A' ? (typeof m.teamB === 'string' ? m.teamB : m.teamB.name) === team.name : (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name)).length,
+        gf: teamMatches.filter(m => m.winner).reduce((sum, m) => sum + ((typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name ? m.scoreA : m.scoreB), 0),
+        ga: teamMatches.filter(m => m.winner).reduce((sum, m) => sum + ((typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name ? m.scoreB : m.scoreA), 0)
+    };
+
+    return (
+        <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200" onClick={onClose}>
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+                <div className="bg-indigo-900 p-6 text-white flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-4">
+                        {team.logoUrl ? <img src={team.logoUrl} className="w-16 h-16 bg-white rounded-xl p-1 object-contain" /> : <div className="w-16 h-16 bg-white/10 rounded-xl flex items-center justify-center text-2xl font-bold">{team.shortName}</div>}
+                        <div>
+                            <h2 className="text-xl font-bold">{team.name}</h2>
+                            <div className="flex items-center gap-2 text-indigo-200 text-sm mt-1">
+                                {team.province} • {team.group ? `Group ${team.group}` : 'No Group'}
+                            </div>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition"><X className="w-5 h-5"/></button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                        <div className="bg-white p-4 rounded-xl shadow-sm text-center border border-slate-100">
+                            <div className="text-xs text-slate-400 font-bold uppercase">Played</div>
+                            <div className="text-2xl font-black text-slate-800">{stats.played}</div>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm text-center border border-slate-100">
+                            <div className="text-xs text-slate-400 font-bold uppercase">Won</div>
+                            <div className="text-2xl font-black text-green-600">{stats.won}</div>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm text-center border border-slate-100">
+                            <div className="text-xs text-slate-400 font-bold uppercase">Goals</div>
+                            <div className="text-2xl font-black text-indigo-600">{stats.gf}</div>
+                        </div>
+                    </div>
+
+                    <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><History className="w-4 h-4"/> Match History</h3>
+                    <div className="space-y-2">
+                        {teamMatches.length === 0 ? (
+                            <div className="text-center text-slate-400 py-4 text-sm">ยังไม่มีประวัติการแข่งขัน</div>
+                        ) : (
+                            teamMatches.map(m => {
+                                const isA = (typeof m.teamA === 'string' ? m.teamA : m.teamA.name) === team.name;
+                                const opponent = isA ? (typeof m.teamB === 'string' ? m.teamB : m.teamB.name) : (typeof m.teamA === 'string' ? m.teamA : m.teamA.name);
+                                const score = isA ? m.scoreA : m.scoreB;
+                                const oppScore = isA ? m.scoreB : m.scoreA;
+                                const resultColor = !m.winner ? 'bg-slate-100 border-slate-200' : (m.winner === (isA ? 'A' : 'B') || m.winner === team.name) ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200';
+                                
+                                return (
+                                    <div key={m.id} className={`p-3 rounded-lg border flex justify-between items-center ${resultColor}`}>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs font-bold text-slate-500 w-12">{new Date(m.date).toLocaleDateString('th-TH', {month:'short', day:'numeric'})}</span>
+                                            <div>
+                                                <div className="font-bold text-sm text-slate-800">vs {opponent}</div>
+                                                <div className="text-[10px] text-slate-500">{m.roundLabel?.split(':')[0]}</div>
+                                            </div>
+                                        </div>
+                                        <div className="font-mono font-black text-lg">
+                                            {m.winner ? `${score} - ${oppScore}` : 'Pending'}
+                                        </div>
+                                    </div>
+                                )
+                            })
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, isLoading, predictions = [] }) => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay' | 'fan'>('table');
