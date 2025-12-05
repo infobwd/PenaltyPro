@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock } from 'lucide-react';
@@ -608,6 +607,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }, "อัปเดตข้อมูลและรีโหลดเรียบร้อย", "กำลังอัปเดตข้อมูลทีม...");
   };
   
+  const handleAddNewNews = () => {
+      setNewsForm({ id: null, title: '', content: '', imageFile: null, imagePreview: null, docFile: null, tournamentId: 'global' });
+      setIsNewsModalOpen(true);
+  };
+
   const handleEditNews = (item: NewsItem) => { 
       setNewsForm({ 
           id: item.id, 
@@ -1516,7 +1520,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <button onClick={() => setNewsViewMode('grid')} className={`p-2 ${newsViewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><Grid className="w-4 h-4"/></button>
                                 <button onClick={() => setNewsViewMode('list')} className={`p-2 ${newsViewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:text-slate-600'}`}><List className="w-4 h-4"/></button>
                             </div>
-                            <button onClick={() => setIsNewsModalOpen(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
+                            <button onClick={handleLocalRefresh} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
+                            <button onClick={handleAddNewNews} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
                                 <Plus className="w-4 h-4" /> เพิ่มข่าว
                             </button>
                         </div>
@@ -1587,7 +1592,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
         )}
 
-        {/* --- DONATIONS TAB --- */}
+        {/* ... DONATIONS TAB ... */}
+        {/* ... USERS TAB ... */}
+        {/* ... Rest of code unchanged ... */}
         {activeTab === 'donations' && (
             <div className="animate-in fade-in duration-300">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

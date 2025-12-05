@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Team, Standing, Match, KickResult, Player } from '../types'; 
-import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles } from 'lucide-react'; 
+import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2 } from 'lucide-react'; 
 import PlayerCard from './PlayerCard'; 
+import { shareGroupStandings } from '../services/liffService';
 
 interface StandingsViewProps {
   matches: Match[]; 
@@ -117,7 +118,16 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                     <div key={groupName} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-4">
                         <div className="p-4 bg-indigo-900 text-white font-bold flex items-center justify-between">
                             <div className="flex items-center gap-2"><LayoutGrid className="w-5 h-5" /> Group {groupName}</div>
-                            <div className="text-xs bg-indigo-800 px-2 py-1 rounded text-indigo-200">สาย {groupName}</div>
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={() => shareGroupStandings(groupName, groupedStandings[groupName])}
+                                    className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition text-white"
+                                    title="แชร์ตารางคะแนน"
+                                >
+                                    <Share2 className="w-4 h-4" />
+                                </button>
+                                <div className="text-xs bg-indigo-800 px-2 py-1 rounded text-indigo-200">สาย {groupName}</div>
+                            </div>
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">

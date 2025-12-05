@@ -238,3 +238,58 @@ export const sharePrizeSummary = async (tournamentName: string, prizes: Tourname
 
     try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
 };
+
+export const shareGroupStandings = async (groupName: string, standings: any[], tournamentName: string = "Official Standings") => {
+    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
+
+    const tableRows = standings.map((team, index) => ({
+        "type": "box",
+        "layout": "horizontal",
+        "contents": [
+            { "type": "text", "text": `${index + 1}`, "size": "xs", "color": "#64748b", "flex": 1, "align": "center", "weight": "bold" },
+            { "type": "text", "text": truncate(team.teamName, 15), "size": "xs", "color": "#1e293b", "flex": 4, "weight": "bold", "wrap": true },
+            { "type": "text", "text": `${team.played}`, "size": "xs", "color": "#64748b", "flex": 1, "align": "center" },
+            { "type": "text", "text": `${team.points}`, "size": "xs", "color": "#1e3a8a", "flex": 1, "align": "center", "weight": "bold" }
+        ],
+        "margin": "sm",
+        "spacing": "sm"
+    }));
+
+    const flexMessage = {
+        type: "flex",
+        altText: `ตารางคะแนน Group ${groupName}`,
+        contents: {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    { "type": "text", "text": tournamentName, "weight": "bold", "color": "#1e3a8a", "size": "xxs", "align": "center" },
+                    { "type": "text", "text": `GROUP ${groupName}`, "weight": "bold", "size": "xl", "margin": "xs", "align": "center", "color": "#ca8a04" },
+                    { "type": "separator", "margin": "md" },
+                    {
+                        "type": "box",
+                        "layout": "horizontal",
+                        "contents": [
+                            { "type": "text", "text": "#", "size": "xxs", "color": "#94a3b8", "flex": 1, "align": "center" },
+                            { "type": "text", "text": "TEAM", "size": "xxs", "color": "#94a3b8", "flex": 4 },
+                            { "type": "text", "text": "P", "size": "xxs", "color": "#94a3b8", "flex": 1, "align": "center" },
+                            { "type": "text", "text": "PTS", "size": "xxs", "color": "#94a3b8", "flex": 1, "align": "center", "weight": "bold" }
+                        ],
+                        "margin": "md"
+                    },
+                    { "type": "separator", "margin": "sm" },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "sm",
+                        "contents": tableRows.length > 0 ? tableRows : [{ "type": "text", "text": "No Data", "size": "xs", "align": "center", "color": "#cbd5e1" }]
+                    }
+                ],
+                "paddingAll": "xl"
+            }
+        }
+    };
+
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+};
