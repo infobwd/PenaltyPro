@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -176,6 +176,16 @@ const SettingsManagerModal: React.FC<{ isOpen: boolean, onClose: () => void, spo
                                     </div>
                                 ))}
                             </div>
+                            
+                            <div className="mt-6 pt-4 border-t border-slate-200 text-xs text-slate-500">
+                                <h5 className="font-bold mb-2 flex items-center gap-1"><Keyboard className="w-3 h-3"/> Keyboard Shortcuts</h5>
+                                <ul className="space-y-1">
+                                    <li><span className="font-mono bg-slate-100 px-1 rounded">Space</span> : Play / Stop</li>
+                                    <li><span className="font-mono bg-slate-100 px-1 rounded">→</span> or <span className="font-mono bg-slate-100 px-1 rounded">N</span> : Next Track</li>
+                                    <li><span className="font-mono bg-slate-100 px-1 rounded">M</span> : Mute / Unmute</li>
+                                    <li><span className="font-mono bg-slate-100 px-1 rounded">F</span> : Fullscreen</li>
+                                </ul>
+                            </div>
                         </>
                     )}
                 </div>
@@ -192,6 +202,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [uiScale, setUiScale] = useState(1);
   
   // Sponsors
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
@@ -200,6 +211,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // Music System
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
   const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
   
@@ -233,12 +245,29 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   useEffect(() => {
       loadExtras();
+      // Responsive Scaling Logic
+      const handleResize = () => {
+          const width = window.innerWidth;
+          // Base scale on 1920px width. If wider, scale up.
+          const newScale = Math.max(1, width / 1920);
+          setUiScale(newScale);
+      };
+      
+      window.addEventListener('resize', handleResize);
+      handleResize(); // Init
+      
+      return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // --- AUDIO LOGIC ---
   const handlePlayMusic = (track: MusicTrack) => {
       setCurrentTrack(track);
-      setIsMuted(false); // Auto unmute on manual change
+      setIsPlaying(true);
+      setIsMuted(false); 
+  };
+
+  const togglePlayback = () => {
+      setIsPlaying(!isPlaying);
   };
 
   const handleNextTrack = () => {
@@ -255,12 +284,46 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       setIsMuted(!isMuted);
   };
 
+  // --- KEYBOARD SHORTCUTS ---
+  useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+          // Ignore if typing in an input
+          if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+          switch(e.code) {
+              case 'Space':
+                  e.preventDefault();
+                  togglePlayback();
+                  break;
+              case 'ArrowRight':
+              case 'KeyN':
+                  handleNextTrack();
+                  break;
+              case 'KeyM':
+                  toggleMute();
+                  break;
+              case 'KeyF':
+                  enterFullScreen();
+                  break;
+              case 'KeyS':
+                  setIsSettingsOpen(prev => !prev);
+                  break;
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentTrack, isPlaying, musicTracks, isMuted]);
+
   const handleStartExperience = () => {
       setHasInteracted(true);
       // Play default track if none selected
       if (musicTracks.length > 0 && !currentTrack) {
           handlePlayMusic(musicTracks[0]);
+      } else if (currentTrack) {
+          setIsPlaying(true);
       }
+      
       // Force audio context for HTML5 audio
       if (audioRef.current) {
           audioRef.current.play().catch(e => console.log("Audio play caught", e));
@@ -429,7 +492,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   // --- RENDER MUSIC PLAYER ---
   const renderMusicPlayer = () => {
-      if (!currentTrack) return null;
+      if (!currentTrack || !isPlaying) return null;
 
       if (currentTrack.type === 'Youtube' || (currentTrack.url && currentTrack.url.includes('youtu'))) {
           // Convert regular link to embed
@@ -457,9 +520,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       } 
       
       // HTML5 Audio for Direct MP3 or Suno (if direct link available)
-      // Note: Suno sharing links (suno.com/s/...) are pages, not audio files.
-      // Ideally, users should use the direct link or we try to embed via iframe.
-      // Here we assume direct audio for best compatibility, or try iframe as fallback.
       const isDirectAudio = currentTrack.url.match(/\.(mp3|wav|ogg|m4a)$/i);
       
       if (isDirectAudio) {
@@ -519,8 +579,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
         </div>
 
-        {/* TOP BAR */}
-        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group">
+        {/* TOP BAR - Fixed Scale relative to viewport height/width or just keep it static and scalable via wrapper */}
+        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group shrink-0">
             <div className="flex items-center gap-6">
                 <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl p-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] border border-white/20">
                     <img src={config.competitionLogo} className="w-full h-full object-contain drop-shadow-md" />
@@ -536,14 +596,18 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         </span>
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
                         {currentTrack ? (
-                            <div className="flex items-center gap-2 ml-4 bg-white/10 px-3 py-1 rounded-full cursor-pointer hover:bg-white/20 transition" onClick={toggleMute}>
+                            <div className={`flex items-center gap-2 ml-4 bg-white/10 px-3 py-1 rounded-full cursor-pointer hover:bg-white/20 transition ${!isPlaying ? 'opacity-50 grayscale' : ''}`} onClick={toggleMute}>
                                 {/* Audio Visualizer Animation */}
-                                <div className="flex gap-0.5 items-end h-3">
-                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.5s_infinite]' : 'h-1'}`}></span>
-                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.7s_infinite]' : 'h-1'}`}></span>
-                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.4s_infinite]' : 'h-1'}`}></span>
-                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.6s_infinite]' : 'h-1'}`}></span>
-                                </div>
+                                {isPlaying ? (
+                                    <div className="flex gap-0.5 items-end h-3">
+                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.5s_infinite]' : 'h-1'}`}></span>
+                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.7s_infinite]' : 'h-1'}`}></span>
+                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.4s_infinite]' : 'h-1'}`}></span>
+                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.6s_infinite]' : 'h-1'}`}></span>
+                                    </div>
+                                ) : (
+                                    <Pause className="w-3 h-3 text-yellow-400" />
+                                )}
                                 <span className="text-xs text-indigo-300 max-w-[150px] truncate font-mono">{currentTrack.name}</span>
                                 {isMuted ? <VolumeX className="w-3 h-3 text-red-400 ml-1" /> : <Volume2 className="w-3 h-3 text-green-400 ml-1" />}
                             </div>
@@ -583,8 +647,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
         </div>
 
-        {/* MAIN CONTENT AREA */}
-        <div className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4">
+        {/* MAIN CONTENT AREA with Dynamic Scaling for Large Screens */}
+        <div 
+            className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300"
+            style={{ 
+                transform: `scale(${uiScale})`,
+                width: `${100 / uiScale}%`,
+                height: `${100 / uiScale}%`,
+                marginLeft: `${(100 - (100/uiScale)) / 2}%` // Center correction
+            }}
+        >
             
             {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
@@ -983,7 +1055,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         </div>
 
         {/* BOTTOM TICKER & SPONSORS */}
-        <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200">
+        <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
             <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
                 <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-2xl relative z-10 drop-shadow-md">
