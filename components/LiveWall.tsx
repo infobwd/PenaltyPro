@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode } from 'lucide-react';
 import { fetchContests } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -31,6 +31,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const announcements = useMemo(() => {
       return config.announcement ? config.announcement.split('|').filter(s => s.trim() !== '') : [];
   }, [config.announcement]);
+
+  // Current URL for QR Code
+  const currentUrl = window.location.href.split('?')[0];
 
   // --- Initial Data Fetch for Highlights ---
   useEffect(() => {
@@ -217,10 +220,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 3000);
     }
 
-    // STEALTH REFRESH TRIGGER
+    // STEALTH REFRESH TRIGGER WITH JITTER
+    // Add random delay between 0-5 seconds to prevent thundering herd if multiple screens are open
     if (currentSlide === 6) {
-        console.log("Stealth Refresh Triggered");
-        onRefresh(true); // Call refresh silently
+        const jitter = Math.random() * 5000;
+        const refreshTimer = setTimeout(() => {
+            console.log("Stealth Refresh Triggered");
+            onRefresh(true);
+        }, jitter);
+        return () => clearTimeout(refreshTimer);
     }
 
     return () => {
@@ -266,6 +274,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
             
             <div className="flex items-center gap-8">
+                {/* QR CODE OVERLAY - SCAN TO JOIN */}
+                <div className="bg-white p-1 rounded-lg shadow-lg flex items-center gap-2 pr-3">
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
+                    <div className="text-slate-900 leading-tight">
+                        <div className="text-[10px] font-bold uppercase">Scan to</div>
+                        <div className="text-sm font-black">PLAY NOW</div>
+                    </div>
+                </div>
+
+                <div className="h-12 w-[1px] bg-slate-700"></div>
+
                 <div className="text-right">
                     <div className="text-5xl font-black font-mono leading-none tracking-widest text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.6)]">
                         {currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
@@ -559,7 +578,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         </div>
 
-        {/* BOTTOM TICKER */}
+        {/* BOTTOM TICKER & SPONSORS */}
         <div className="h-16 bg-white text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)]">
             <div className="bg-red-600 h-full px-8 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-4 shadow-lg z-20">
                 <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-xl">
@@ -578,8 +597,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     )}
                 </div>
             </div>
-            <div className="bg-slate-900 h-full px-8 flex items-center justify-center shrink-0 text-white z-20 shadow-[-10px_0_20px_rgba(0,0,0,0.2)]">
-                <span className="text-xs font-bold opacity-50 tracking-widest">POWERED BY PENALTY PRO</span>
+            
+            {/* SPONSOR MOCKUP (Replace with real logic if needed) */}
+            <div className="h-full bg-slate-100 flex items-center px-6 gap-4 z-20 border-l border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">Official Partners</span>
+                <div className="flex gap-4 opacity-50 grayscale hover:grayscale-0 transition">
+                    {/* Placeholder Icons for Sponsors */}
+                    <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
+                    <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
+                    <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
+                </div>
             </div>
         </div>
 
