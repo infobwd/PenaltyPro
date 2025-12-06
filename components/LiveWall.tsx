@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, AlertTriangle, Info, Swords, Timer, Lock, MessageSquare } from 'lucide-react';
-import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack } from '../services/sheetService';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock } from 'lucide-react';
+import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
   matches: Match[];
@@ -45,12 +45,6 @@ const compressImage = async (file: File): Promise<File> => {
         reader.onerror = (error) => reject(error);
     });
 };
-
-interface AlertConfig {
-    isActive: boolean;
-    message: string;
-    type: 'info' | 'warning' | 'urgent';
-}
 
 const SettingsManagerModal: React.FC<{ 
     isOpen: boolean, 
@@ -198,113 +192,6 @@ const SettingsManagerModal: React.FC<{
     );
 };
 
-const AlertControlModal: React.FC<{ 
-    isOpen: boolean; 
-    onClose: () => void; 
-    alertConfig: AlertConfig; 
-    setAlertConfig: (config: AlertConfig) => void;
-    adminPin: string;
-}> = ({ isOpen, onClose, alertConfig, setAlertConfig, adminPin }) => {
-    const [pinInput, setPinInput] = useState('');
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [error, setError] = useState(false);
-
-    useEffect(() => {
-        if (isOpen) {
-            setPinInput('');
-            setIsAuthenticated(false);
-            setError(false);
-        }
-    }, [isOpen]);
-
-    if (!isOpen) return null;
-
-    const handlePinSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (pinInput === adminPin || pinInput === '1234') { // Fallback to 1234
-            setIsAuthenticated(true);
-        } else {
-            setError(true);
-            setPinInput('');
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-4 border-b bg-indigo-900 text-white">
-                    <h3 className="font-bold text-lg flex items-center gap-2"><Megaphone className="w-5 h-5"/> Breaking News Control</h3>
-                    <button onClick={onClose}><X className="w-5 h-5 text-indigo-200 hover:text-white"/></button>
-                </div>
-
-                <div className="p-6">
-                    {!isAuthenticated ? (
-                        <div className="text-center">
-                            <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
-                                <Lock className="w-6 h-6"/>
-                            </div>
-                            <h4 className="font-bold text-slate-800 mb-2">Admin Access Required</h4>
-                            <form onSubmit={handlePinSubmit}>
-                                <input 
-                                    type="password" 
-                                    value={pinInput}
-                                    onChange={e => { setPinInput(e.target.value); setError(false); }}
-                                    className={`w-full p-3 text-center text-xl tracking-widest font-mono border rounded-xl mb-3 focus:outline-none focus:ring-2 ${error ? 'border-red-300 bg-red-50 focus:ring-red-200' : 'border-slate-200 focus:ring-indigo-500'}`}
-                                    placeholder="Enter PIN"
-                                    autoFocus
-                                />
-                                {error && <p className="text-xs text-red-500 mb-3 font-bold">Incorrect PIN</p>}
-                                <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700">Unlock</button>
-                            </form>
-                        </div>
-                    ) : (
-                        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Message</label>
-                                <textarea 
-                                    className="w-full p-3 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-slate-50" 
-                                    rows={3} 
-                                    placeholder="Type urgent announcement here..."
-                                    value={alertConfig.message}
-                                    onChange={e => setAlertConfig({...alertConfig, message: e.target.value})}
-                                ></textarea>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Alert Type</label>
-                                <div className="flex gap-2">
-                                    {['info', 'warning', 'urgent'].map(t => (
-                                        <button 
-                                            key={t}
-                                            onClick={() => setAlertConfig({...alertConfig, type: t as any})}
-                                            className={`flex-1 py-2 rounded-lg text-xs font-bold capitalize transition-all ${
-                                                alertConfig.type === t 
-                                                ? (t === 'urgent' ? 'bg-red-600 text-white' : t === 'warning' ? 'bg-orange-500 text-white' : 'bg-indigo-600 text-white')
-                                                : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
-                                            }`}
-                                        >
-                                            {t}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <button 
-                                onClick={() => setAlertConfig({...alertConfig, isActive: !alertConfig.isActive})}
-                                className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-all shadow-lg ${
-                                    alertConfig.isActive 
-                                    ? 'bg-slate-800 hover:bg-slate-900' 
-                                    : 'bg-green-600 hover:bg-green-700'
-                                }`}
-                            >
-                                {alertConfig.isActive ? <><Monitor className="w-5 h-5"/> HIDE OVERLAY</> : <><Monitor className="w-5 h-5"/> SHOW OVERLAY</>}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
 const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -319,13 +206,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // Sponsors
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-
-  // Admin Alerts
-  const [alertConfig, setAlertConfig] = useState<AlertConfig>({ isActive: false, message: '', type: 'info' });
-  const [isAlertControlOpen, setIsAlertControlOpen] = useState(false);
-
-  // Side Panel State
-  const [sidePanelIndex, setSidePanelIndex] = useState(0);
 
   // Music System
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
@@ -345,13 +225,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   }, [config.announcement]);
 
   const currentUrl = window.location.href.split('?')[0];
-
-  // QR Code Panel Data
-  const qrCodes = [
-      { label: 'Join Prediction', desc: 'Scan to Play', url: `${currentUrl}?view=schedule`, icon: Zap, color: 'text-yellow-400' },
-      { label: 'Photo Contest', desc: 'Share your moments', url: `${currentUrl}?view=contest`, icon: Camera, color: 'text-pink-400' },
-      { label: 'Live Standings', desc: 'Check results', url: `${currentUrl}?view=standings`, icon: Activity, color: 'text-green-400' }
-  ];
 
   const loadExtras = async () => {
       try {
@@ -383,14 +256,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       handleResize(); // Init
       
       return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // --- SIDE PANEL ROTATION ---
-  useEffect(() => {
-      const interval = setInterval(() => {
-          setSidePanelIndex(prev => (prev + 1) % qrCodes.length);
-      }, 15000); // Change every 15s
-      return () => clearInterval(interval);
   }, []);
 
   // --- AUDIO LOGIC ---
@@ -708,8 +573,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       );
   };
 
-  const CurrentIcon = qrCodes[sidePanelIndex].icon;
-
   if (!hasInteracted) {
       return (
           <div className="fixed inset-0 z-[5000] bg-slate-950 flex flex-col items-center justify-center cursor-pointer" onClick={handleStartExperience}>
@@ -736,77 +599,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             onPlayMusic={handlePlayMusic}
         />
 
-        <AlertControlModal 
-            isOpen={isAlertControlOpen}
-            onClose={() => setIsAlertControlOpen(false)}
-            alertConfig={alertConfig}
-            setAlertConfig={setAlertConfig}
-            adminPin={String(config.adminPin || "1234")}
-        />
-
         {renderMusicPlayer()}
-
-        {/* ALERT OVERLAY */}
-        {alertConfig.isActive && (
-            <div className={`fixed top-24 left-0 right-0 z-[6000] p-4 flex justify-center animate-in slide-in-from-top-10 duration-500`}>
-                <div className={`
-                    max-w-4xl w-full rounded-2xl shadow-2xl border-l-8 p-6 flex items-start gap-4 backdrop-blur-md
-                    ${alertConfig.type === 'urgent' ? 'bg-red-600/90 border-red-800 text-white animate-pulse' : 
-                      alertConfig.type === 'warning' ? 'bg-orange-500/90 border-orange-700 text-white' : 
-                      'bg-indigo-600/90 border-indigo-800 text-white'}
-                `}>
-                    <div className="bg-white/20 p-3 rounded-full shrink-0">
-                        {alertConfig.type === 'urgent' ? <Megaphone className="w-8 h-8 animate-bounce" /> : <Info className="w-8 h-8" />}
-                    </div>
-                    <div>
-                        <h3 className="font-black text-xl uppercase tracking-widest mb-1">
-                            {alertConfig.type === 'urgent' ? 'BREAKING NEWS' : alertConfig.type === 'warning' ? 'ANNOUNCEMENT' : 'UPDATE'}
-                        </h3>
-                        <p className="text-lg font-medium leading-relaxed opacity-95">{alertConfig.message}</p>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* FLOATING ALERT CONTROL BUTTON */}
-        <button 
-            onClick={() => setIsAlertControlOpen(true)}
-            className="fixed bottom-28 left-4 z-[7000] bg-white/10 hover:bg-white/30 backdrop-blur-sm p-3 rounded-full text-slate-300 hover:text-white transition group border border-white/10 shadow-lg"
-            title="Manage Alert"
-        >
-            <MessageSquare className="w-6 h-6 group-hover:scale-110 transition-transform" />
-        </button>
 
         {/* ANIMATED BACKGROUND */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-black animate-slow-spin opacity-50"></div>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-        </div>
-
-        {/* SIDE PANEL (Rotating QR) */}
-        <div className="absolute right-0 top-24 bottom-24 w-24 md:w-32 z-40 flex flex-col items-center justify-center pointer-events-none pr-4">
-            <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-2xl p-3 flex flex-col items-center gap-3 shadow-2xl animate-in slide-in-from-right duration-700">
-                <div className={`p-2 rounded-full bg-white/10 ${qrCodes[sidePanelIndex].color} animate-pulse`}>
-                    <CurrentIcon className="w-6 h-6" />
-                </div>
-                <div className="bg-white p-1 rounded-lg">
-                    <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrCodes[sidePanelIndex].url)}`} 
-                        className="w-20 h-20 md:w-24 md:h-24 object-contain"
-                    />
-                </div>
-                <div className="text-center">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{qrCodes[sidePanelIndex].desc}</div>
-                    <div className="text-xs font-black text-white leading-tight">{qrCodes[sidePanelIndex].label}</div>
-                </div>
-                {/* Progress Indicator */}
-                <div className="flex gap-1 mt-2">
-                    {qrCodes.map((_, idx) => (
-                        <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${idx === sidePanelIndex ? 'bg-white scale-125' : 'bg-slate-600'}`}></div>
-                    ))}
-                </div>
-            </div>
         </div>
 
         {/* TOP BAR - Fixed Scale relative to viewport height/width or just keep it static and scalable via wrapper */}

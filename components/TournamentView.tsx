@@ -450,9 +450,9 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                 </button>
             )}
 
-            {/* LIVE WALL BUTTON (NEW) */}
+            {/* LIVE WALL BUTTON (Hidden on Mobile) */}
             {onOpenLiveWall && (
-                <button onClick={onOpenLiveWall} className="flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition text-xs font-bold whitespace-nowrap shadow-sm">
+                <button onClick={onOpenLiveWall} className="hidden md:flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition text-xs font-bold whitespace-nowrap shadow-sm">
                     <Monitor className="w-4 h-4" /> Live Wall
                 </button>
             )}
