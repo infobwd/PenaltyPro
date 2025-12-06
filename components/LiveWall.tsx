@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, MessageSquare } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -193,6 +193,11 @@ const SettingsManagerModal: React.FC<{
 };
 
 const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh }) => {
+  // Auth State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+
   const [currentSlide, setCurrentSlide] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [standingsPage, setStandingsPage] = useState(0);
@@ -243,20 +248,22 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   };
 
   useEffect(() => {
-      loadExtras();
-      // Responsive Scaling Logic
-      const handleResize = () => {
-          const width = window.innerWidth;
-          // Base scale on 1920px width. If wider, scale up.
-          const newScale = Math.max(1, width / 1920);
-          setUiScale(newScale);
-      };
-      
-      window.addEventListener('resize', handleResize);
-      handleResize(); // Init
-      
-      return () => window.removeEventListener('resize', handleResize);
-  }, []);
+      if (isAuthenticated) {
+          loadExtras();
+          // Responsive Scaling Logic
+          const handleResize = () => {
+              const width = window.innerWidth;
+              // Base scale on 1920px width. If wider, scale up.
+              const newScale = Math.max(1, width / 1920);
+              setUiScale(newScale);
+          };
+          
+          window.addEventListener('resize', handleResize);
+          handleResize(); // Init
+          
+          return () => window.removeEventListener('resize', handleResize);
+      }
+  }, [isAuthenticated]);
 
   // --- AUDIO LOGIC ---
   const handlePlayMusic = (track: MusicTrack) => {
@@ -318,12 +325,27 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               case 'KeyS':
                   setIsSettingsOpen(prev => !prev);
                   break;
+              case 'Escape':
+                  onClose();
+                  break;
           }
       };
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentTrack, isPlaying, musicTracks, isMuted]);
+
+  const handlePinSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      const correctPin = config.adminPin || "1234";
+      if (pinInput.trim() === correctPin) {
+          setIsAuthenticated(true);
+          setPinError(false);
+      } else {
+          setPinError(true);
+          setPinInput('');
+      }
+  };
 
   const handleStartExperience = () => {
       setHasInteracted(true);
@@ -484,6 +506,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const slideTimerRef = useRef<any>(null);
   
   useEffect(() => {
+      if (!isAuthenticated) return;
       const rotate = () => {
           setCurrentSlide(prev => {
               const next = (prev + 1) % totalSlides;
@@ -496,10 +519,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return () => {
           if (slideTimerRef.current) clearInterval(slideTimerRef.current);
       };
-  }, [totalSlides]); // Only depends on totalSlides, NOT data.
+  }, [totalSlides, isAuthenticated]); // Only depends on totalSlides, NOT data.
 
   // Sub-rotation for paginated content (Standings, Highlights)
   useEffect(() => {
+      if (!isAuthenticated) return;
       let subTimer: any;
       if (currentSlide === 1 && standingsGroups.length > 1) {
           subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000);
@@ -517,7 +541,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return () => {
           if (subTimer) clearInterval(subTimer);
       };
-  }, [currentSlide, standingsGroups.length, contestEntries.length]);
+  }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated]);
 
   // --- RENDER MUSIC PLAYER ---
   const renderMusicPlayer = () => {
@@ -572,6 +596,59 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           </div>
       );
   };
+
+  // --- AUTHENTICATION SCREEN ---
+  if (!isAuthenticated) {
+      return (
+          <div className="fixed inset-0 z-[6000] bg-slate-950 flex flex-col items-center justify-center font-kanit">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+              
+              <div className="relative z-10 w-full max-w-sm bg-white/10 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-white/10 flex flex-col items-center animate-in zoom-in duration-300">
+                  <div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(99,102,241,0.5)]">
+                      <Lock className="w-8 h-8 text-white" />
+                  </div>
+                  
+                  <h2 className="text-2xl font-black text-white mb-2 tracking-wide">LOCKED</h2>
+                  <p className="text-slate-400 text-sm mb-6 text-center">กรุณากรอกรหัส PIN เพื่อเข้าสู่ Live Wall</p>
+                  
+                  <form onSubmit={handlePinSubmit} className="w-full flex flex-col gap-4">
+                      <input 
+                          type="password" 
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={pinInput}
+                          onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
+                          className={`w-full p-4 text-center text-3xl tracking-[0.5em] font-mono bg-black/40 border rounded-xl text-white focus:outline-none focus:ring-2 transition ${pinError ? 'border-red-500 focus:ring-red-500' : 'border-white/20 focus:ring-indigo-500'}`}
+                          placeholder="••••"
+                          autoFocus
+                          maxLength={6}
+                      />
+                      
+                      {pinError && (
+                          <div className="text-red-400 text-xs font-bold text-center bg-red-900/20 p-2 rounded animate-pulse">
+                              รหัสผ่านไม่ถูกต้อง
+                          </div>
+                      )}
+                      
+                      <button 
+                          type="submit" 
+                          className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg transition transform active:scale-95 mt-2"
+                      >
+                          UNLOCK
+                      </button>
+                  </form>
+                  
+                  <button onClick={onClose} className="mt-6 text-slate-500 hover:text-white text-xs flex items-center gap-1 transition">
+                      <X className="w-3 h-3"/> ยกเลิก
+                  </button>
+              </div>
+              
+              <div className="absolute bottom-8 text-slate-600 text-xs font-mono">
+                  Penalty Pro Arena Live System
+              </div>
+          </div>
+      );
+  }
 
   if (!hasInteracted) {
       return (
