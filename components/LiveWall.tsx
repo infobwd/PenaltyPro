@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, AlertTriangle, Info, Swords, Timer } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, AlertTriangle, Info, Swords, Timer, Lock, MessageSquare } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -60,10 +60,8 @@ const SettingsManagerModal: React.FC<{
     musicTracks: MusicTrack[], 
     onUpdateMusic: () => void, 
     onPlayMusic: (track: MusicTrack) => void,
-    alertConfig: AlertConfig,
-    setAlertConfig: (config: AlertConfig) => void
-}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic, alertConfig, setAlertConfig }) => {
-    const [tab, setTab] = useState<'sponsors' | 'music' | 'alerts'>('alerts');
+}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic }) => {
+    const [tab, setTab] = useState<'sponsors' | 'music'>('sponsors');
     const [name, setName] = useState('');
     const [file, setFile] = useState<File | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -136,47 +134,11 @@ const SettingsManagerModal: React.FC<{
                 </div>
                 
                 <div className="flex border-b bg-slate-50">
-                    <button onClick={() => setTab('alerts')} className={`flex-1 py-3 font-bold text-sm ${tab==='alerts' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:bg-slate-100'}`}>Alerts</button>
                     <button onClick={() => setTab('sponsors')} className={`flex-1 py-3 font-bold text-sm ${tab==='sponsors' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:bg-slate-100'}`}>Sponsors</button>
-                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm ${tab==='music' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:bg-slate-100'}`}>Music</button>
+                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm ${tab==='music' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:bg-slate-100'}`}>Music Player</button>
                 </div>
 
                 <div className="p-4 overflow-y-auto flex-1">
-                    {tab === 'alerts' && (
-                        <div className="space-y-4">
-                            <div className="p-3 bg-slate-50 rounded border">
-                                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Live Message Control</label>
-                                <textarea 
-                                    className="w-full p-3 border rounded text-sm mb-3 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                    rows={3} 
-                                    placeholder="Enter urgent message here..."
-                                    value={alertConfig.message}
-                                    onChange={e => setAlertConfig({...alertConfig, message: e.target.value})}
-                                ></textarea>
-                                <div className="flex gap-2 mb-3">
-                                    {['info', 'warning', 'urgent'].map(t => (
-                                        <button 
-                                            key={t}
-                                            onClick={() => setAlertConfig({...alertConfig, type: t as any})}
-                                            className={`flex-1 py-1 rounded text-xs font-bold capitalize ${alertConfig.type === t ? 'bg-indigo-600 text-white shadow-md' : 'bg-white border text-slate-500 hover:bg-slate-100'}`}
-                                        >
-                                            {t}
-                                        </button>
-                                    ))}
-                                </div>
-                                <button 
-                                    onClick={() => setAlertConfig({...alertConfig, isActive: !alertConfig.isActive})}
-                                    className={`w-full py-3 rounded font-bold text-white flex items-center justify-center gap-2 transition ${alertConfig.isActive ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-500 hover:bg-green-600'}`}
-                                >
-                                    {alertConfig.isActive ? <><Monitor className="w-4 h-4"/> HIDE ALERT</> : <><Monitor className="w-4 h-4"/> SHOW ALERT</>}
-                                </button>
-                            </div>
-                            <p className="text-xs text-slate-400 text-center">
-                                * This message will overlay on top of any slide immediately.
-                            </p>
-                        </div>
-                    )}
-
                     {tab === 'sponsors' && (
                         <>
                             <div className="space-y-3 mb-6 p-3 bg-slate-50 rounded border">
@@ -236,6 +198,113 @@ const SettingsManagerModal: React.FC<{
     );
 };
 
+const AlertControlModal: React.FC<{ 
+    isOpen: boolean; 
+    onClose: () => void; 
+    alertConfig: AlertConfig; 
+    setAlertConfig: (config: AlertConfig) => void;
+    adminPin: string;
+}> = ({ isOpen, onClose, alertConfig, setAlertConfig, adminPin }) => {
+    const [pinInput, setPinInput] = useState('');
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            setPinInput('');
+            setIsAuthenticated(false);
+            setError(false);
+        }
+    }, [isOpen]);
+
+    if (!isOpen) return null;
+
+    const handlePinSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (pinInput === adminPin || pinInput === '1234') { // Fallback to 1234
+            setIsAuthenticated(true);
+        } else {
+            setError(true);
+            setPinInput('');
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-4 border-b bg-indigo-900 text-white">
+                    <h3 className="font-bold text-lg flex items-center gap-2"><Megaphone className="w-5 h-5"/> Breaking News Control</h3>
+                    <button onClick={onClose}><X className="w-5 h-5 text-indigo-200 hover:text-white"/></button>
+                </div>
+
+                <div className="p-6">
+                    {!isAuthenticated ? (
+                        <div className="text-center">
+                            <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4 text-indigo-600">
+                                <Lock className="w-6 h-6"/>
+                            </div>
+                            <h4 className="font-bold text-slate-800 mb-2">Admin Access Required</h4>
+                            <form onSubmit={handlePinSubmit}>
+                                <input 
+                                    type="password" 
+                                    value={pinInput}
+                                    onChange={e => { setPinInput(e.target.value); setError(false); }}
+                                    className={`w-full p-3 text-center text-xl tracking-widest font-mono border rounded-xl mb-3 focus:outline-none focus:ring-2 ${error ? 'border-red-300 bg-red-50 focus:ring-red-200' : 'border-slate-200 focus:ring-indigo-500'}`}
+                                    placeholder="Enter PIN"
+                                    autoFocus
+                                />
+                                {error && <p className="text-xs text-red-500 mb-3 font-bold">Incorrect PIN</p>}
+                                <button type="submit" className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700">Unlock</button>
+                            </form>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Message</label>
+                                <textarea 
+                                    className="w-full p-3 border rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-slate-50" 
+                                    rows={3} 
+                                    placeholder="Type urgent announcement here..."
+                                    value={alertConfig.message}
+                                    onChange={e => setAlertConfig({...alertConfig, message: e.target.value})}
+                                ></textarea>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Alert Type</label>
+                                <div className="flex gap-2">
+                                    {['info', 'warning', 'urgent'].map(t => (
+                                        <button 
+                                            key={t}
+                                            onClick={() => setAlertConfig({...alertConfig, type: t as any})}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold capitalize transition-all ${
+                                                alertConfig.type === t 
+                                                ? (t === 'urgent' ? 'bg-red-600 text-white' : t === 'warning' ? 'bg-orange-500 text-white' : 'bg-indigo-600 text-white')
+                                                : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setAlertConfig({...alertConfig, isActive: !alertConfig.isActive})}
+                                className={`w-full py-4 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-all shadow-lg ${
+                                    alertConfig.isActive 
+                                    ? 'bg-slate-800 hover:bg-slate-900' 
+                                    : 'bg-green-600 hover:bg-green-700'
+                                }`}
+                            >
+                                {alertConfig.isActive ? <><Monitor className="w-5 h-5"/> HIDE OVERLAY</> : <><Monitor className="w-5 h-5"/> SHOW OVERLAY</>}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -253,6 +322,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   // Admin Alerts
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({ isActive: false, message: '', type: 'info' });
+  const [isAlertControlOpen, setIsAlertControlOpen] = useState(false);
+
+  // Side Panel State
+  const [sidePanelIndex, setSidePanelIndex] = useState(0);
 
   // Music System
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
@@ -272,6 +345,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   }, [config.announcement]);
 
   const currentUrl = window.location.href.split('?')[0];
+
+  // QR Code Panel Data
+  const qrCodes = [
+      { label: 'Join Prediction', desc: 'Scan to Play', url: `${currentUrl}?view=schedule`, icon: Zap, color: 'text-yellow-400' },
+      { label: 'Photo Contest', desc: 'Share your moments', url: `${currentUrl}?view=contest`, icon: Camera, color: 'text-pink-400' },
+      { label: 'Live Standings', desc: 'Check results', url: `${currentUrl}?view=standings`, icon: Activity, color: 'text-green-400' }
+  ];
 
   const loadExtras = async () => {
       try {
@@ -305,6 +385,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // --- SIDE PANEL ROTATION ---
+  useEffect(() => {
+      const interval = setInterval(() => {
+          setSidePanelIndex(prev => (prev + 1) % qrCodes.length);
+      }, 15000); // Change every 15s
+      return () => clearInterval(interval);
+  }, []);
+
   // --- AUDIO LOGIC ---
   const handlePlayMusic = (track: MusicTrack) => {
       setCurrentTrack(track);
@@ -328,6 +416,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   const toggleMute = () => {
       setIsMuted(!isMuted);
+  };
+
+  const enterFullScreen = () => {
+      const elem = document.documentElement;
+      if (elem.requestFullscreen) {
+          elem.requestFullscreen();
+          // Auto play logic on user interaction
+          if (!isPlaying && musicTracks.length > 0) {
+              handlePlayMusic(musicTracks[0]);
+          }
+      }
   };
 
   // --- KEYBOARD SHORTCUTS ---
@@ -555,11 +654,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       };
   }, [currentSlide, standingsGroups.length, contestEntries.length]);
 
-  const enterFullScreen = () => {
-      const elem = document.documentElement;
-      if (elem.requestFullscreen) elem.requestFullscreen();
-  };
-
   // --- RENDER MUSIC PLAYER ---
   const renderMusicPlayer = () => {
       if (!currentTrack || !isPlaying) return null;
@@ -614,6 +708,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       );
   };
 
+  const CurrentIcon = qrCodes[sidePanelIndex].icon;
+
   if (!hasInteracted) {
       return (
           <div className="fixed inset-0 z-[5000] bg-slate-950 flex flex-col items-center justify-center cursor-pointer" onClick={handleStartExperience}>
@@ -638,8 +734,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             musicTracks={musicTracks}
             onUpdateMusic={loadExtras}
             onPlayMusic={handlePlayMusic}
+        />
+
+        <AlertControlModal 
+            isOpen={isAlertControlOpen}
+            onClose={() => setIsAlertControlOpen(false)}
             alertConfig={alertConfig}
             setAlertConfig={setAlertConfig}
+            adminPin={String(config.adminPin || "1234")}
         />
 
         {renderMusicPlayer()}
@@ -666,11 +768,45 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
         )}
 
+        {/* FLOATING ALERT CONTROL BUTTON */}
+        <button 
+            onClick={() => setIsAlertControlOpen(true)}
+            className="fixed bottom-28 left-4 z-[7000] bg-white/10 hover:bg-white/30 backdrop-blur-sm p-3 rounded-full text-slate-300 hover:text-white transition group border border-white/10 shadow-lg"
+            title="Manage Alert"
+        >
+            <MessageSquare className="w-6 h-6 group-hover:scale-110 transition-transform" />
+        </button>
+
         {/* ANIMATED BACKGROUND */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-black animate-slow-spin opacity-50"></div>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+        </div>
+
+        {/* SIDE PANEL (Rotating QR) */}
+        <div className="absolute right-0 top-24 bottom-24 w-24 md:w-32 z-40 flex flex-col items-center justify-center pointer-events-none pr-4">
+            <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-2xl p-3 flex flex-col items-center gap-3 shadow-2xl animate-in slide-in-from-right duration-700">
+                <div className={`p-2 rounded-full bg-white/10 ${qrCodes[sidePanelIndex].color} animate-pulse`}>
+                    <CurrentIcon className="w-6 h-6" />
+                </div>
+                <div className="bg-white p-1 rounded-lg">
+                    <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrCodes[sidePanelIndex].url)}`} 
+                        className="w-20 h-20 md:w-24 md:h-24 object-contain"
+                    />
+                </div>
+                <div className="text-center">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{qrCodes[sidePanelIndex].desc}</div>
+                    <div className="text-xs font-black text-white leading-tight">{qrCodes[sidePanelIndex].label}</div>
+                </div>
+                {/* Progress Indicator */}
+                <div className="flex gap-1 mt-2">
+                    {qrCodes.map((_, idx) => (
+                        <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${idx === sidePanelIndex ? 'bg-white scale-125' : 'bg-slate-600'}`}></div>
+                    ))}
+                </div>
+            </div>
         </div>
 
         {/* TOP BAR - Fixed Scale relative to viewport height/width or just keep it static and scalable via wrapper */}
@@ -809,8 +945,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 1-7: [Omitted for brevity, kept exactly as previous logic] */}
-            {/* ... (Standings, Results, Scorers, Keepers, Prediction, Highlights logic remains identical) ... */}
+            {/* SLIDE 1: STANDINGS */}
             {currentSlide === 1 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
                     <div className="flex items-center justify-between mb-8">
@@ -861,17 +996,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                 </div>
             )}
-            
-            {/* Same logic for slide 2-6 (Results, Scorers, Keepers, Prediction, Highlights) */}
-            {/* ... (Kept brief for this XML block, assuming previous implementations persist or user can merge) ... */}
-            
-            {/* Slide 2: Recent Results */}
+
+            {/* SLIDE 2: RECENT RESULTS */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                     </div>
+                    
                     {recentResults.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 flex-1 content-center">
                             {recentResults.map((m) => {
@@ -879,23 +1012,34 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 const tB = resolveTeam(m.teamB);
                                 const winnerA = m.winner === 'A' || m.winner === tA.name;
                                 const winnerB = m.winner === 'B' || m.winner === tB.name;
+
                                 return (
                                     <div key={m.id} className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500">
                                         <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400">
                                             <span>{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})}</span>
                                             <span className="uppercase tracking-widest">{m.roundLabel?.split(':')[0] || 'Match'}</span>
                                         </div>
+                                        
                                         <div className="p-6 flex items-center justify-between">
+                                            {/* Team A */}
                                             <div className={`flex flex-col items-center gap-3 flex-1 ${winnerA ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
                                                 <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerA ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
                                                     {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tA.name.substring(0,1)}</div>}
                                                 </div>
                                                 <span className={`text-sm font-bold text-center leading-tight ${winnerA ? 'text-white' : 'text-slate-400'}`}>{tA.name}</span>
                                             </div>
+
+                                            {/* Score */}
                                             <div className="flex flex-col items-center px-4">
-                                                <div className="text-5xl font-black font-mono text-white tracking-tighter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">{m.scoreA}-{m.scoreB}</div>
-                                                <div className="mt-2 bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-yellow-500/30 uppercase tracking-widest">Full Time</div>
+                                                <div className="text-5xl font-black font-mono text-white tracking-tighter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">
+                                                    {m.scoreA}-{m.scoreB}
+                                                </div>
+                                                <div className="mt-2 bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-yellow-500/30 uppercase tracking-widest">
+                                                    Full Time
+                                                </div>
                                             </div>
+
+                                            {/* Team B */}
                                             <div className={`flex flex-col items-center gap-3 flex-1 ${winnerB ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
                                                 <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerB ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
                                                     {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tB.name.substring(0,1)}</div>}
@@ -907,44 +1051,235 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 );
                             })}
                         </div>
-                    ) : ( <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No finished matches yet</div> )}
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No finished matches yet</div>
+                    )}
                 </div>
             )}
-            
-            {/* Slide 3,4,5,6 Logic Omitted to save space but should be present in real code */}
-            {/* ... */}
 
-            {/* SLIDE 7: SPONSORS */}
+            {/* SLIDE 3: TOP SCORERS */}
+            {currentSlide === 3 && (
+                <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000">
+                    <div className="text-center mb-8">
+                        <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
+                        <p className="text-slate-400 font-bold uppercase tracking-widest mt-1">Top Goal Scorers</p>
+                    </div>
+                    {topScorers.length > 0 ? (
+                        <div className="flex-1 flex items-end justify-center gap-8 pb-12">
+                            {/* 2nd */}
+                            {topScorers[1] && (
+                                <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-100">
+                                    <div className="w-32 h-32 bg-slate-800 rounded-full mb-4 border-4 border-slate-600 overflow-hidden shadow-2xl">
+                                        {topScorers[1].photoUrl ? <img src={topScorers[1].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-slate-600"/>}
+                                    </div>
+                                    <div className="bg-slate-800 w-full p-4 rounded-t-2xl text-center border-t-4 border-slate-500 relative">
+                                        <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-slate-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-slate-800">2</div>
+                                        <h3 className="font-bold text-lg truncate mt-2">{topScorers[1].name}</h3>
+                                        <p className="text-xs text-slate-400 uppercase mb-2">{topScorers[1].team}</p>
+                                        <div className="text-4xl font-black text-white">{topScorers[1].goals}</div>
+                                        <div className="text-[10px] uppercase font-bold text-slate-500">Goals</div>
+                                    </div>
+                                    <div className="h-32 w-full bg-slate-800/50 rounded-b-lg"></div>
+                                </div>
+                            )}
+                            {/* 1st */}
+                            {topScorers[0] && (
+                                <div className="flex flex-col items-center w-72 z-10 animate-in slide-in-from-bottom-32 duration-1000">
+                                    <Trophy className="w-16 h-16 text-yellow-400 mb-4 animate-bounce" />
+                                    <div className="w-40 h-40 bg-yellow-500 rounded-full mb-4 border-4 border-yellow-300 overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.4)]">
+                                        {topScorers[0].photoUrl ? <img src={topScorers[0].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-8 text-yellow-800"/>}
+                                    </div>
+                                    <div className="bg-gradient-to-b from-yellow-600 to-yellow-700 w-full p-6 rounded-t-3xl text-center border-t-4 border-yellow-300 relative shadow-2xl">
+                                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 w-12 h-12 rounded-full flex items-center justify-center font-black text-2xl border-4 border-yellow-600">1</div>
+                                        <h3 className="font-black text-2xl truncate mt-2 text-white">{topScorers[0].name}</h3>
+                                        <p className="text-sm text-yellow-200 uppercase mb-3 font-bold">{topScorers[0].team}</p>
+                                        <div className="text-6xl font-black text-white drop-shadow-md">{topScorers[0].goals}</div>
+                                        <div className="text-xs uppercase font-bold text-yellow-200/80 tracking-widest">Goals Scored</div>
+                                    </div>
+                                    <div className="h-48 w-full bg-yellow-800/50 rounded-b-lg"></div>
+                                </div>
+                            )}
+                            {/* 3rd */}
+                            {topScorers[2] && (
+                                <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-200">
+                                    <div className="w-32 h-32 bg-orange-800 rounded-full mb-4 border-4 border-orange-600 overflow-hidden shadow-2xl">
+                                        {topScorers[2].photoUrl ? <img src={topScorers[2].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-orange-600"/>}
+                                    </div>
+                                    <div className="bg-orange-900 w-full p-4 rounded-t-2xl text-center border-t-4 border-orange-600 relative">
+                                        <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-orange-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-orange-900">3</div>
+                                        <h3 className="font-bold text-lg truncate mt-2 text-orange-100">{topScorers[2].name}</h3>
+                                        <p className="text-xs text-orange-400 uppercase mb-2">{topScorers[2].team}</p>
+                                        <div className="text-4xl font-black text-white">{topScorers[2].goals}</div>
+                                        <div className="text-[10px] uppercase font-bold text-orange-400">Goals</div>
+                                    </div>
+                                    <div className="h-24 w-full bg-orange-950/50 rounded-b-lg"></div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No Goalscorers Yet</div>
+                    )}
+                </div>
+            )}
+
+            {/* SLIDE 4: TOP KEEPERS */}
+            {currentSlide === 4 && (
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                        {topKeepers.length > 0 ? topKeepers.map((k, idx) => (
+                            <div key={idx} className="bg-slate-900/80 border border-blue-500/20 rounded-2xl p-6 flex items-center justify-between shadow-lg">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : 'bg-slate-700 text-white'}`}>{idx+1}</div>
+                                    <div>
+                                        <h3 className="text-xl font-bold">{k.teamName}</h3>
+                                        <p className="text-xs text-blue-400 uppercase font-bold">Goalkeeper</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-4 text-center">
+                                    <div>
+                                        <div className="text-3xl font-black text-white">{k.cleanSheets}</div>
+                                        <div className="text-[10px] uppercase text-slate-500 font-bold">Clean Sheets</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-3xl font-black text-blue-400">{k.saves}</div>
+                                        <div className="text-[10px] uppercase text-slate-500 font-bold">PK Saves</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )) : <div className="col-span-2 flex items-center justify-center h-64 text-slate-500 text-2xl font-bold">No Goalkeeper Data</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 5: FAN PREDICTION */}
+            {currentSlide === 5 && (
+                <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000 relative">
+                    <div className="text-center mb-8">
+                        <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2>
+                    </div>
+                    <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
+                        {fanRankings.length > 0 ? fanRankings.map((fan, idx) => (
+                            <div key={idx} className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 flex items-center justify-center font-black rounded-full ${idx < 3 ? 'bg-white text-black' : 'bg-slate-700 text-slate-400'}`}>
+                                        {idx + 1}
+                                    </div>
+                                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20">
+                                        {fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-slate-500 bg-slate-800"/>}
+                                    </div>
+                                    <span className="text-xl font-bold">{fan.name}</span>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-3xl font-black text-purple-400">{fan.points} <span className="text-sm text-slate-500 font-bold">PTS</span></div>
+                                    <div className="text-xs text-slate-400">Correct: {fan.correct}</div>
+                                </div>
+                            </div>
+                        )) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Predictions Yet</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 6: HIGHLIGHTS */}
+            {currentSlide === 6 && (
+                contestEntries.length > 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl">
+                        <div className="absolute inset-0 z-0">
+                            <img 
+                                src={contestEntries[highlightIndex].photoUrl} 
+                                className="w-full h-full object-cover blur-3xl opacity-30 scale-110" 
+                            />
+                        </div>
+                        <div className="relative z-10 flex flex-col items-center animate-in zoom-in duration-1000 w-full max-w-4xl">
+                            <div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 group">
+                                <img 
+                                    src={contestEntries[highlightIndex].photoUrl} 
+                                    className="w-full h-full object-cover transform scale-105 transition-transform duration-[20s] ease-linear" 
+                                />
+                                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8">
+                                    <div className="flex items-center gap-4">
+                                        <img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white" />
+                                        <div>
+                                            <h3 className="text-2xl font-bold text-white">{contestEntries[highlightIndex].caption}</h3>
+                                            <p className="text-slate-300 font-medium">By {contestEntries[highlightIndex].userDisplayName}</p>
+                                        </div>
+                                        <div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full">
+                                            <Heart className="w-5 h-5 fill-white" />
+                                            <span className="font-bold text-xl">{contestEntries[highlightIndex].likeCount}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <h2 className="text-3xl font-black text-white uppercase tracking-widest mt-8 flex items-center gap-3">
+                                <Camera className="w-8 h-8 text-pink-500" /> Photo Contest Highlights
+                            </h2>
+                        </div>
+                    </div>
+                ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Photos Yet</div>
+            )}
+
+            {/* SLIDE 7: SPONSORS (SPECTACULAR REDESIGN) */}
             {currentSlide === 7 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden">
+                    {/* Background Effects */}
                     <div className="absolute inset-0 bg-slate-900">
                         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
                         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-gradient-to-b from-indigo-900/50 via-slate-900 to-black pointer-events-none"></div>
+                        {/* Moving Spotlights */}
                         <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,rgba(99,102,241,0.1)_60deg,transparent_120deg)] animate-slow-spin opacity-50"></div>
                     </div>
+
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
+                        
                         <div className="text-center mb-16 animate-in slide-in-from-top-10 duration-1000">
                             <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-md px-6 py-2 rounded-full border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4">
                                 <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
                                 <span className="text-sm font-bold text-white tracking-widest uppercase">Premium Partners</span>
                                 <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
                             </div>
-                            <h2 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-indigo-100 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">Official Sponsors</h2>
+                            <h2 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-indigo-100 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
+                                Official Sponsors
+                            </h2>
                         </div>
+
+                        {/* Sponsor Showcase Grid - 3D Perspective */}
                         {sponsors.length > 0 ? (
                             <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
                                 {sponsors.map((s, idx) => (
-                                    <div key={s.id} className="relative aspect-video bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 animate-in zoom-in slide-in-from-bottom-10 fill-mode-backwards animate-pulse-slow" style={{ animationDelay: `${idx * 200}ms` }}>
+                                    <div 
+                                        key={s.id} 
+                                        className="relative aspect-video bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 animate-in zoom-in slide-in-from-bottom-10 fill-mode-backwards animate-pulse-slow"
+                                        style={{ animationDelay: `${idx * 200}ms` }}
+                                    >
                                         <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-50 rounded-3xl"></div>
-                                        <div className="absolute -top-2 -right-2 opacity-80"><Sparkles className="w-8 h-8 text-yellow-300 animate-pulse" /></div>
-                                        <img src={s.logoUrl} className="w-full h-full object-contain filter drop-shadow-xl" alt={s.name} />
-                                        <div className="absolute bottom-4 left-0 right-0 text-center"><span className="text-sm font-bold text-white bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">{s.name}</span></div>
+                                        {/* Sparkle Effect */}
+                                        <div className="absolute -top-2 -right-2 opacity-80">
+                                            <Sparkles className="w-8 h-8 text-yellow-300 animate-pulse" />
+                                        </div>
+                                        
+                                        <img 
+                                            src={s.logoUrl} 
+                                            className="w-full h-full object-contain filter drop-shadow-xl" 
+                                            alt={s.name} 
+                                        />
+                                        
+                                        {/* Name Label */}
+                                        <div className="absolute bottom-4 left-0 right-0 text-center">
+                                            <span className="text-sm font-bold text-white bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">
+                                                {s.name}
+                                            </span>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
                             <div className="flex flex-col items-center animate-pulse">
-                                <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4"><Zap className="w-12 h-12 text-yellow-400" /></div>
+                                <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                                    <Zap className="w-12 h-12 text-yellow-400" />
+                                </div>
                                 <div className="text-3xl font-bold text-slate-500">Become a Partner</div>
                             </div>
                         )}
