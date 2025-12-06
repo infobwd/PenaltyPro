@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -13,9 +13,8 @@ interface LiveWallProps {
   onRefresh: (silent?: boolean) => void;
 }
 
-// Increased duration to prevent flashing and allow reading
-const BASE_SLIDE_DURATION = 15000; 
-const HIGHLIGHT_SLIDE_DURATION = 12000;
+// Consistent duration to prevent "speed up" feeling
+const SLIDE_DURATION = 15000; 
 
 const compressImage = async (file: File): Promise<File> => {
     if (file.type === 'application/pdf') return file; 
@@ -154,12 +153,10 @@ const SettingsManagerModal: React.FC<{ isOpen: boolean, onClose: () => void, spo
                             <div className="space-y-3 mb-6 p-3 bg-slate-50 rounded border">
                                 <h4 className="text-xs font-bold text-slate-500 uppercase">Add Track Link</h4>
                                 <input type="text" placeholder="Track Name" className="w-full p-2 border rounded text-sm" value={musicName} onChange={e => setMusicName(e.target.value)} />
-                                <input type="text" placeholder="URL (Youtube/Spotify/Suno/MP3)" className="w-full p-2 border rounded text-sm" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} />
+                                <input type="text" placeholder="URL (YouTube / Suno / MP3)" className="w-full p-2 border rounded text-sm" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} />
                                 <select className="w-full p-2 border rounded text-sm bg-white" value={musicType} onChange={(e:any) => setMusicType(e.target.value)}>
                                     <option value="Youtube">YouTube</option>
-                                    <option value="Spotify">Spotify</option>
-                                    <option value="Suno">Suno / Direct Audio</option>
-                                    <option value="Other">Other</option>
+                                    <option value="Suno">Suno / Web / MP3</option>
                                 </select>
                                 <button onClick={handleAddMusic} disabled={isSubmitting || !musicName || !musicUrl} className="w-full py-2 bg-pink-600 text-white rounded font-bold flex items-center justify-center gap-2 text-sm">
                                     {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Track</>}
@@ -203,7 +200,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // Music System
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
   const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  
+  const audioRef = useRef<HTMLAudioElement>(null);
   
   // Slides Configuration
   const slides = [
@@ -237,22 +235,19 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       loadExtras();
   }, []);
 
-  // Music Player Handler
+  // --- AUDIO LOGIC ---
   const handlePlayMusic = (track: MusicTrack) => {
-      setHasInteracted(true);
       setCurrentTrack(track);
-      setIsPlaying(true);
-      setIsMuted(false);
+      setIsMuted(false); // Auto unmute on manual change
   };
 
   const handleNextTrack = () => {
       if (musicTracks.length === 0) return;
-      if (!currentTrack) {
-          handlePlayMusic(musicTracks[0]);
-          return;
+      let nextIdx = 0;
+      if (currentTrack) {
+          const idx = musicTracks.findIndex(t => t.id === currentTrack.id);
+          nextIdx = (idx + 1) % musicTracks.length;
       }
-      const idx = musicTracks.findIndex(t => t.id === currentTrack.id);
-      const nextIdx = (idx + 1) % musicTracks.length;
       handlePlayMusic(musicTracks[nextIdx]);
   };
 
@@ -262,14 +257,20 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   const handleStartExperience = () => {
       setHasInteracted(true);
-      if (musicTracks.length > 0 && !isPlaying) {
+      // Play default track if none selected
+      if (musicTracks.length > 0 && !currentTrack) {
           handlePlayMusic(musicTracks[0]);
+      }
+      // Force audio context for HTML5 audio
+      if (audioRef.current) {
+          audioRef.current.play().catch(e => console.log("Audio play caught", e));
       }
   };
 
   // Helper to resolve Team Object
   const resolveTeam = (t: string | Team) => typeof t === 'string' ? (teams.find(x => x.name === t) || {name: t, logoUrl:''} as Team) : t;
 
+  // --- DATA PROCESSING MEMOS ---
   const upcomingMatches = useMemo(() => {
       const live = matches.filter(m => m.livestreamUrl && !m.winner);
       const scheduled = matches
@@ -305,18 +306,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               else { tA.points++; tB.points++; }
           }
       });
-      
       const groups: Record<string, Standing[]> = {};
       Object.values(map).forEach(s => {
           if (!groups[s.group]) groups[s.group] = [];
           groups[s.group].push(s);
       });
-      
       const sortedKeys = Object.keys(groups).sort();
       sortedKeys.forEach(k => {
           groups[k].sort((a,b) => b.points - a.points || (b.goalsFor-b.goalsAgainst) - (a.goalsFor-a.goalsAgainst) || b.goalsFor - a.goalsFor);
       });
-
       const chunkSize = 4;
       const pages = [];
       for (let i = 0; i < sortedKeys.length; i += chunkSize) {
@@ -333,7 +331,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               const pName = String(player).split('(')[0].replace(/[#0-9]/g,'').trim();
               const teamName = teamId === 'A' || (typeof m.teamA==='string'?m.teamA:m.teamA.name) === teamId ? (typeof m.teamA==='string'?m.teamA:m.teamA.name) : (typeof m.teamB==='string'?m.teamB:m.teamB.name);
               const key = `${pName}_${teamName}`;
-              
               if (!scores[key]) {
                   const teamObj = teams.find(t => t.name === teamName);
                   const playerObj = players.find(p => p.teamId === teamObj?.id && p.name.includes(pName));
@@ -341,7 +338,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               }
               scores[key].goals++;
           };
-
           m.events?.forEach(e => { if (e.type === 'GOAL') processGoal(e.player, e.teamId); });
           m.kicks?.forEach(k => { if (k.result === KickResult.GOAL) processGoal(k.player, k.teamId); });
       });
@@ -350,18 +346,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   const topKeepers = useMemo(() => {
       const savesMap: Record<string, { teamName: string, saves: number, cleanSheets: number, logoUrl?: string }> = {};
-      teams.forEach(t => {
-          if(t.status === 'Approved') savesMap[t.name] = { teamName: t.name, saves: 0, cleanSheets: 0, logoUrl: t.logoUrl };
-      });
-
+      teams.forEach(t => { if(t.status === 'Approved') savesMap[t.name] = { teamName: t.name, saves: 0, cleanSheets: 0, logoUrl: t.logoUrl }; });
       matches.forEach(m => {
           if (!m.winner) return;
           const tA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
           const tB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
-
           if (savesMap[tA] && m.scoreB === 0) savesMap[tA].cleanSheets++;
           if (savesMap[tB] && m.scoreA === 0) savesMap[tB].cleanSheets++;
-
           m.kicks?.forEach(k => {
               if (k.result === KickResult.SAVED) {
                   const saverTeam = (k.teamId === 'A' || tA === k.teamId) ? tB : tA;
@@ -369,21 +360,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               }
           });
       });
-
-      return Object.values(savesMap)
-        .filter(k => k.saves > 0 || k.cleanSheets > 0)
-        .sort((a, b) => (b.saves * 2 + b.cleanSheets * 5) - (a.saves * 2 + a.cleanSheets * 5))
-        .slice(0, 5);
+      return Object.values(savesMap).filter(k => k.saves > 0 || k.cleanSheets > 0).sort((a, b) => (b.saves * 2 + b.cleanSheets * 5) - (a.saves * 2 + a.cleanSheets * 5)).slice(0, 5);
   }, [matches, teams]);
 
   const fanRankings = useMemo(() => {
       const scores: Record<string, { name: string, pic: string, points: number, correct: number }> = {};
       const results: Record<string, string> = {};
-      matches.forEach(m => {
-          if (m.winner) {
-              results[m.id] = m.winner === 'A' || m.winner === (typeof m.teamA==='string'?m.teamA:m.teamA.name) ? 'A' : 'B';
-          }
-      });
+      matches.forEach(m => { if (m.winner) { results[m.id] = m.winner === 'A' || m.winner === (typeof m.teamA==='string'?m.teamA:m.teamA.name) ? 'A' : 'B'; } });
       predictions.forEach(p => {
           if (results[p.matchId] && results[p.matchId] === p.prediction) {
               if (!scores[p.userId]) scores[p.userId] = { name: p.userDisplayName || 'User', pic: p.userPictureUrl || '', points: 0, correct: 0 };
@@ -394,46 +377,49 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 5);
   }, [matches, predictions]);
 
+  // --- TIMER & SLIDE LOGIC ---
   useEffect(() => {
     const clockTimer = setInterval(() => setCurrentTime(new Date()), 1000);
-    const rotateSlide = () => {
-        setCurrentSlide(prev => {
-            const next = (prev + 1) % totalSlides;
-            if (next === 1) setStandingsPage(0); 
-            if (next === 6) setHighlightIndex(0);
-            return next;
-        });
-    };
+    return () => clearInterval(clockTimer);
+  }, []);
 
-    let duration = BASE_SLIDE_DURATION;
-    if (currentSlide === 1) duration = Math.max(BASE_SLIDE_DURATION, standingsGroups.length * 8000); 
-    if (currentSlide === 6) duration = HIGHLIGHT_SLIDE_DURATION;
-    if (currentSlide === 7) duration = 10000; // Sponsors
+  // Decoupled timer logic to prevent speed up on re-render
+  const slideTimerRef = useRef<any>(null);
+  
+  useEffect(() => {
+      const rotate = () => {
+          setCurrentSlide(prev => {
+              const next = (prev + 1) % totalSlides;
+              if (next === 1) setStandingsPage(0); // Reset standing page on entry
+              return next;
+          });
+      };
 
-    const slideTimer = setInterval(rotateSlide, duration);
+      slideTimerRef.current = setInterval(rotate, SLIDE_DURATION);
+      return () => {
+          if (slideTimerRef.current) clearInterval(slideTimerRef.current);
+      };
+  }, [totalSlides]); // Only depends on totalSlides, NOT data.
 
-    let subTimer: any;
-    if (currentSlide === 1 && standingsGroups.length > 1) {
-        subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 8000);
-    }
-    if (currentSlide === 6 && contestEntries.length > 1) {
-        subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 3000);
-    }
+  // Sub-rotation for paginated content (Standings, Highlights)
+  useEffect(() => {
+      let subTimer: any;
+      if (currentSlide === 1 && standingsGroups.length > 1) {
+          subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000);
+      }
+      if (currentSlide === 6 && contestEntries.length > 1) {
+          subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
+      }
+      
+      // Auto-refresh data logic (Only on specific slides to be less intrusive)
+      if (currentSlide === 0) {
+          onRefresh(true);
+          loadExtras();
+      }
 
-    if (currentSlide === 6) {
-        const jitter = Math.random() * 5000;
-        const refreshTimer = setTimeout(() => {
-            onRefresh(true);
-            loadExtras();
-        }, jitter);
-        return () => clearTimeout(refreshTimer);
-    }
-
-    return () => {
-      clearInterval(clockTimer);
-      clearInterval(slideTimer);
-      if (subTimer) clearInterval(subTimer);
-    };
+      return () => {
+          if (subTimer) clearInterval(subTimer);
+      };
   }, [currentSlide, standingsGroups.length, contestEntries.length]);
 
   const enterFullScreen = () => {
@@ -441,47 +427,59 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (elem.requestFullscreen) elem.requestFullscreen();
   };
 
-  // Music Player Component
-  const MusicPlayer = () => {
-      if (!currentTrack || !isPlaying) return null;
-      
-      // If manually muted by user via UI, we just don't render or mute via API
-      // But standard HTML audio doesn't support 'muted' prop in React easily without ref
-      // so for iframe we use API, for Audio tag we use ref or conditional rendering (re-render might restart song though)
-      // Best approach for background audio is keeping it rendered but using API to mute.
-      
-      let embedCode = null;
-      if (currentTrack.type === 'Youtube') {
+  // --- RENDER MUSIC PLAYER ---
+  const renderMusicPlayer = () => {
+      if (!currentTrack) return null;
+
+      if (currentTrack.type === 'Youtube' || (currentTrack.url && currentTrack.url.includes('youtu'))) {
+          // Convert regular link to embed
           let videoId = '';
           if (currentTrack.url.includes('v=')) videoId = currentTrack.url.split('v=')[1].split('&')[0];
           else if (currentTrack.url.includes('youtu.be/')) videoId = currentTrack.url.split('youtu.be/')[1].split('?')[0];
+          else videoId = currentTrack.url; // Assume ID if no URL pattern match
+
+          // Params: autoplay=1, loop=1, playlist=ID (required for loop), enablejsapi=1 (control)
+          const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${videoId}&controls=0&showinfo=0&modestbranding=1&enablejsapi=1`;
           
-          if (videoId) {
-              // Added allow="autoplay" and mute=0. Note: Browsers might still block if not clicked.
-              const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&playlist=${videoId}&enablejsapi=1&controls=0&showinfo=0&mute=${isMuted ? 1 : 0}`;
-              embedCode = (
-                <iframe 
-                    width="1" 
-                    height="1" 
-                    src={src} 
-                    frameBorder="0" 
-                    allow="autoplay; encrypted-media" 
-                    title="bg-music"
-                    style={{opacity:0, pointerEvents:'none'}} 
-                />
-              );
-          }
-      } else if (currentTrack.type === 'Spotify') {
-          const spotifyUrl = currentTrack.url.replace('https://open.spotify.com/', 'https://open.spotify.com/embed/');
-          embedCode = <iframe src={spotifyUrl} width="1" height="1" frameBorder="0" allow="encrypted-media" style={{opacity:0, pointerEvents:'none'}} />;
-      } else {
-          // Standard Audio
-          embedCode = <audio src={currentTrack.url} autoPlay loop muted={isMuted} style={{display:'none'}} onError={handleNextTrack} />;
+          return (
+              <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
+                  <iframe 
+                      width="100%" 
+                      height="100%" 
+                      src={src} 
+                      title="bg-music"
+                      frameBorder="0" 
+                      allow="autoplay; encrypted-media" 
+                      allowFullScreen
+                  />
+              </div>
+          );
+      } 
+      
+      // HTML5 Audio for Direct MP3 or Suno (if direct link available)
+      // Note: Suno sharing links (suno.com/s/...) are pages, not audio files.
+      // Ideally, users should use the direct link or we try to embed via iframe.
+      // Here we assume direct audio for best compatibility, or try iframe as fallback.
+      const isDirectAudio = currentTrack.url.match(/\.(mp3|wav|ogg|m4a)$/i);
+      
+      if (isDirectAudio) {
+          return (
+              <audio 
+                  ref={audioRef}
+                  src={currentTrack.url} 
+                  autoPlay 
+                  loop 
+                  muted={isMuted} 
+                  onError={handleNextTrack}
+                  className="hidden"
+              />
+          );
       }
 
+      // Fallback iframe for other web players (Suno share pages)
       return (
-          <div className="absolute top-0 left-0 w-0 h-0 overflow-hidden">
-              {embedCode}
+          <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
+             <iframe src={currentTrack.url} allow="autoplay" />
           </div>
       );
   };
@@ -489,11 +487,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   if (!hasInteracted) {
       return (
           <div className="fixed inset-0 z-[5000] bg-slate-950 flex flex-col items-center justify-center cursor-pointer" onClick={handleStartExperience}>
-              <div className="animate-pulse mb-4">
+              <div className="animate-pulse mb-4 p-6 bg-white/10 rounded-full">
                   <Play className="w-20 h-20 text-indigo-500 fill-indigo-500" />
               </div>
               <h1 className="text-3xl font-black text-white uppercase tracking-widest mb-2">{config.competitionName}</h1>
-              <p className="text-slate-400 font-bold">CLICK ANYWHERE TO START LIVE WALL</p>
+              <p className="text-slate-400 font-bold text-lg animate-bounce">CLICK ANYWHERE TO START</p>
+              <p className="text-xs text-slate-600 mt-4">Enabling Audio & Visuals</p>
           </div>
       );
   }
@@ -511,7 +510,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             onPlayMusic={handlePlayMusic}
         />
 
-        <MusicPlayer />
+        {renderMusicPlayer()}
 
         {/* ANIMATED BACKGROUND */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -536,14 +535,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                           <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                         </span>
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
-                        {isPlaying && currentTrack ? (
-                            <div className="flex items-center gap-2 ml-4 bg-white/10 px-2 py-1 rounded-full cursor-pointer hover:bg-white/20 transition" onClick={toggleMute}>
-                                <span className="flex gap-0.5 items-end h-3">
-                                    <span className={`w-1 bg-indigo-400 ${!isMuted ? 'animate-[bounce_1s_infinite]' : 'h-1'} h-2`}></span>
-                                    <span className={`w-1 bg-indigo-400 ${!isMuted ? 'animate-[bounce_1.2s_infinite]' : 'h-1'} h-3`}></span>
-                                    <span className={`w-1 bg-indigo-400 ${!isMuted ? 'animate-[bounce_0.8s_infinite]' : 'h-1'} h-1.5`}></span>
-                                </span>
-                                <span className="text-xs text-indigo-300 max-w-[150px] truncate">{currentTrack.name}</span>
+                        {currentTrack ? (
+                            <div className="flex items-center gap-2 ml-4 bg-white/10 px-3 py-1 rounded-full cursor-pointer hover:bg-white/20 transition" onClick={toggleMute}>
+                                {/* Audio Visualizer Animation */}
+                                <div className="flex gap-0.5 items-end h-3">
+                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.5s_infinite]' : 'h-1'}`}></span>
+                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.7s_infinite]' : 'h-1'}`}></span>
+                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.4s_infinite]' : 'h-1'}`}></span>
+                                    <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.6s_infinite]' : 'h-1'}`}></span>
+                                </div>
+                                <span className="text-xs text-indigo-300 max-w-[150px] truncate font-mono">{currentTrack.name}</span>
                                 {isMuted ? <VolumeX className="w-3 h-3 text-red-400 ml-1" /> : <Volume2 className="w-3 h-3 text-green-400 ml-1" />}
                             </div>
                         ) : (
@@ -575,7 +576,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     <button onClick={() => setIsSettingsOpen(true)} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><Settings className="w-6 h-6"/></button>
-                    {isPlaying && <button onClick={handleNextTrack} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><SkipForward className="w-6 h-6"/></button>}
+                    {currentTrack && <button onClick={handleNextTrack} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><SkipForward className="w-6 h-6"/></button>}
                     <button onClick={enterFullScreen} className="p-3 bg-white/5 hover:bg-white/10 rounded-full text-slate-300 hover:text-white transition backdrop-blur-sm"><Maximize2 className="w-6 h-6"/></button>
                     <button onClick={onClose} className="p-3 bg-red-500/10 hover:bg-red-500/20 rounded-full text-red-400 hover:text-red-300 transition backdrop-blur-sm"><X className="w-6 h-6"/></button>
                 </div>
@@ -600,12 +601,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                     const tB = resolveTeam(m.teamB);
                                     const isLive = m.livestreamUrl && !m.winner;
                                     return (
-                                        <div key={m.id} className={`relative group bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10 hover:border-indigo-500/30'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100 opacity-90'}`}>
+                                        <div key={m.id} className={`relative bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100 opacity-90'}`}>
                                             <div className="flex items-center gap-6 w-[40%]">
                                                 <div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">
                                                     {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tA.name.substring(0,1)}</div>}
                                                 </div>
-                                                <span className="text-3xl font-bold truncate">{tA.name}</span>
+                                                <span className="text-3xl font-bold truncate text-white">{tA.name}</span>
                                             </div>
                                             <div className="flex flex-col items-center w-[20%] relative">
                                                 {isLive ? (
@@ -623,7 +624,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                                 <div className="text-indigo-400 font-bold text-sm tracking-widest mt-2">{m.roundLabel?.split(':')[0]}</div>
                                             </div>
                                             <div className="flex items-center gap-6 w-[40%] justify-end">
-                                                <span className="text-3xl font-bold truncate text-right">{tB.name}</span>
+                                                <span className="text-3xl font-bold truncate text-right text-white">{tB.name}</span>
                                                 <div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">
                                                     {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tB.name.substring(0,1)}</div>}
                                                 </div>
@@ -694,7 +695,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: RECENT RESULTS (REDESIGNED) */}
+            {/* SLIDE 2: RECENT RESULTS */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000">
                     <div className="flex items-center gap-4 mb-8">
@@ -711,14 +712,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 const winnerB = m.winner === 'B' || m.winner === tB.name;
 
                                 return (
-                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl hover:border-indigo-500/50 transition-all duration-500">
-                                        {/* Date Header */}
+                                    <div key={m.id} className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500">
                                         <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400">
                                             <span>{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})}</span>
                                             <span className="uppercase tracking-widest">{m.roundLabel?.split(':')[0] || 'Match'}</span>
                                         </div>
                                         
-                                        {/* Content */}
                                         <div className="p-6 flex items-center justify-between">
                                             {/* Team A */}
                                             <div className={`flex flex-col items-center gap-3 flex-1 ${winnerA ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
@@ -892,7 +891,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         <div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 group">
                             <img 
                                 src={contestEntries[highlightIndex].photoUrl} 
-                                className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-10000 ease-linear" 
+                                className="w-full h-full object-cover transform scale-105 transition-transform duration-[20s] ease-linear" 
                             />
                             <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8">
                                 <div className="flex items-center gap-4">
@@ -915,25 +914,69 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 7: SPONSORS (NEW) */}
+            {/* SLIDE 7: SPONSORS (SPECTACULAR REDESIGN) */}
             {currentSlide === 7 && (
-                <div className="h-full flex flex-col items-center justify-center animate-in fade-in zoom-in duration-1000">
-                    <div className="text-center mb-12">
-                        <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 uppercase tracking-tight drop-shadow-lg mb-2">Official Partners</h2>
-                        <div className="h-1 w-32 bg-indigo-500 mx-auto rounded-full"></div>
+                <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden">
+                    {/* Background Effects */}
+                    <div className="absolute inset-0 bg-slate-900">
+                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-gradient-to-b from-indigo-900/50 via-slate-900 to-black pointer-events-none"></div>
+                        {/* Moving Spotlights */}
+                        <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,rgba(99,102,241,0.1)_60deg,transparent_120deg)] animate-slow-spin opacity-50"></div>
                     </div>
-                    
-                    {sponsors.length > 0 ? (
-                        <div className="grid grid-cols-4 gap-12 max-w-7xl mx-auto items-center">
-                            {sponsors.map((s, idx) => (
-                                <div key={s.id} className="bg-white/5 border border-white/10 rounded-3xl p-8 flex items-center justify-center aspect-video shadow-[0_0_30px_rgba(255,255,255,0.05)] hover:bg-white/10 hover:scale-105 transition-all duration-500">
-                                    <img src={s.logoUrl} className="w-full h-full object-contain filter drop-shadow-xl" alt={s.name} />
-                                </div>
-                            ))}
+
+                    <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
+                        
+                        <div className="text-center mb-16 animate-in slide-in-from-top-10 duration-1000">
+                            <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-md px-6 py-2 rounded-full border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4">
+                                <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
+                                <span className="text-sm font-bold text-white tracking-widest uppercase">Premium Partners</span>
+                                <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
+                            </div>
+                            <h2 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-indigo-100 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
+                                Official Sponsors
+                            </h2>
                         </div>
-                    ) : (
-                        <div className="text-slate-600 text-2xl font-bold animate-pulse">Contact us to become a sponsor</div>
-                    )}
+
+                        {/* Sponsor Showcase Grid - 3D Perspective */}
+                        {sponsors.length > 0 ? (
+                            <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
+                                {sponsors.map((s, idx) => (
+                                    <div 
+                                        key={s.id} 
+                                        className="relative aspect-video bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 animate-in zoom-in slide-in-from-bottom-10 fill-mode-backwards animate-pulse-slow"
+                                        style={{ animationDelay: `${idx * 200}ms` }}
+                                    >
+                                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-50 rounded-3xl"></div>
+                                        {/* Sparkle Effect */}
+                                        <div className="absolute -top-2 -right-2 opacity-80">
+                                            <Sparkles className="w-8 h-8 text-yellow-300 animate-pulse" />
+                                        </div>
+                                        
+                                        <img 
+                                            src={s.logoUrl} 
+                                            className="w-full h-full object-contain filter drop-shadow-xl" 
+                                            alt={s.name} 
+                                        />
+                                        
+                                        {/* Name Label */}
+                                        <div className="absolute bottom-4 left-0 right-0 text-center">
+                                            <span className="text-sm font-bold text-white bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">
+                                                {s.name}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center animate-pulse">
+                                <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                                    <Zap className="w-12 h-12 text-yellow-400" />
+                                </div>
+                                <div className="text-3xl font-bold text-slate-500">Become a Partner</div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -967,7 +1010,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     <div className="flex gap-8 items-center overflow-hidden w-full justify-end">
                         <div className="flex gap-8 animate-marquee-sponsors items-center">
                             {[...sponsors, ...sponsors].map((s, i) => (
-                                <img key={i} src={s.logoUrl} className="h-12 object-contain grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition duration-300" title={s.name} />
+                                <img key={i} src={s.logoUrl} className="h-12 object-contain grayscale opacity-60 transition duration-300" title={s.name} />
                             ))}
                         </div>
                     </div>
@@ -995,7 +1038,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .animate-marquee { animation: marquee 30s linear infinite; }
             @keyframes marquee-sponsors { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
             .animate-marquee-sponsors { animation: marquee-sponsors 20s linear infinite; display: flex; width: max-content; }
+            
+            @keyframes pulse-slow {
+                0%, 100% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.02); opacity: 0.95; }
+            }
+            .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
+
             ::-webkit-scrollbar { display: none; }
+            .perspective-1000 { perspective: 1000px; }
+            .fill-mode-backwards { animation-fill-mode: backwards; }
         `}</style>
     </div>
   );
