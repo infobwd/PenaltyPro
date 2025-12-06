@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, MessageSquare } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -328,12 +328,21 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               case 'Escape':
                   onClose();
                   break;
+              // Manual Slide Navigation
+              case 'ArrowLeft':
+                  setCurrentSlide(prev => (prev - 1 + totalSlides) % totalSlides);
+                  break;
+              case 'ArrowUp':
+              case 'ArrowDown':
+                  // Trigger next slide
+                  setCurrentSlide(prev => (prev + 1) % totalSlides);
+                  break;
           }
       };
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTrack, isPlaying, musicTracks, isMuted]);
+  }, [currentTrack, isPlaying, musicTracks, isMuted, totalSlides]);
 
   const handlePinSubmit = (e: React.FormEvent) => {
       e.preventDefault();
@@ -401,7 +410,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const recentResults = useMemo(() => {
       return matches
         .filter(m => m.winner)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .sort((a, b) => {
+             // Priority 1: Date/Time
+             const timeA = new Date(a.date).getTime();
+             const timeB = new Date(b.date).getTime();
+             if (timeA !== timeB) return timeB - timeA;
+             
+             // Priority 2: ID (Assuming created later = higher ID usually, or lex order)
+             // This fixes issues where matches on same day shuffle randomly
+             if (a.id && b.id) return b.id.localeCompare(a.id);
+             return 0;
+        })
         .slice(0, 6);
   }, [matches]);
 
@@ -678,9 +697,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         {renderMusicPlayer()}
 
-        {/* ANIMATED BACKGROUND */}
-        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-black animate-slow-spin opacity-50"></div>
+        {/* ANIMATED BACKGROUND - Dynamic Colors based on Slide */}
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-1000">
+            <div className={`absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] ${currentSlide === 7 ? 'from-yellow-900/40 via-slate-950' : 'from-indigo-900/40 via-slate-950'} to-black animate-slow-spin opacity-50`}></div>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
         </div>
@@ -725,15 +744,33 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
             
             <div className="flex items-center gap-8">
-                <div className="bg-white p-1 rounded-lg shadow-lg flex items-center gap-2 pr-3">
-                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
+                {/* QR CODE - RESTORED */}
+                <div className="hidden md:flex bg-white p-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.3)] items-center gap-2 pr-3 transition hover:scale-105">
+                    <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUrl)}`} className="w-10 h-10 md:w-12 md:h-12" />
                     <div className="text-slate-900 leading-tight">
                         <div className="text-[10px] font-bold uppercase">Scan to</div>
-                        <div className="text-sm font-black">PLAY NOW</div>
+                        <div className="text-xs md:text-sm font-black">PLAY NOW</div>
                     </div>
                 </div>
 
-                <div className="h-12 w-[1px] bg-slate-700"></div>
+                {/* NEXT MATCH TEASER - NEW FEATURE */}
+                {nextMatch && (
+                    <div className="hidden xl:flex flex-col items-end bg-black/40 backdrop-blur-md px-4 py-2 rounded-lg border border-white/5">
+                        <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
+                            <Clock className="w-3 h-3"/> Next Match
+                        </div>
+                        <div className="text-sm font-bold text-white flex items-center gap-2">
+                             <span>{resolveTeam(nextMatch.teamA).shortName || 'TBA'}</span>
+                             <span className="text-slate-400 text-xs">vs</span>
+                             <span>{resolveTeam(nextMatch.teamB).shortName || 'TBA'}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                             {new Date(nextMatch.scheduledTime || nextMatch.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}
+                        </div>
+                    </div>
+                )}
+
+                <div className="h-12 w-[1px] bg-slate-700 hidden lg:block"></div>
 
                 <div className="text-right">
                     <div className="text-5xl font-black font-mono leading-none tracking-widest text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.6)]">
@@ -755,7 +792,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         {/* MAIN CONTENT AREA with Dynamic Scaling for Large Screens */}
         <div 
-            className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300"
+            className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300 md:pr-4"
             style={{ 
                 transform: `scale(${uiScale})`,
                 width: `${100 / uiScale}%`,
@@ -1283,6 +1320,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     )) : (
                         <span className="pl-6 text-slate-300 font-bold uppercase tracking-widest">OFFICIAL TOURNAMENT SYSTEM</span>
                     )}
+                </div>
+                
+                {/* Slide Indicators - Centered at bottom over the ticker */}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-30 bg-white/80 px-2 py-1 rounded-full backdrop-blur-sm border border-slate-200">
+                    {slides.map((_, idx) => (
+                        <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${currentSlide === idx ? 'bg-indigo-600 w-3' : 'bg-slate-300'}`}></div>
+                    ))}
                 </div>
             </div>
             
