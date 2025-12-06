@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2 } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -14,8 +13,8 @@ interface LiveWallProps {
   onRefresh: (silent?: boolean) => void;
 }
 
-const BASE_SLIDE_DURATION = 12000;
-const HIGHLIGHT_SLIDE_DURATION = 15000;
+const BASE_SLIDE_DURATION = 10000;
+const HIGHLIGHT_SLIDE_DURATION = 8000;
 
 const compressImage = async (file: File): Promise<File> => {
     if (file.type === 'application/pdf') return file; 
@@ -193,6 +192,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [standingsPage, setStandingsPage] = useState(0);
   const [contestEntries, setContestEntries] = useState<ContestEntry[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [hasInteracted, setHasInteracted] = useState(false);
   
   // Sponsors
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
@@ -203,9 +203,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  // Slides: 
-  // 0=Matches, 1=Standings, 2=Results, 3=TopScorers, 4=TopKeepers, 5=FanPrediction, 6=Highlights, 7=Sponsors
-  const totalSlides = 8;
+  // Slides Configuration
+  const slides = [
+      'Matches', 'Standings', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors'
+  ];
+  const totalSlides = slides.length;
 
   const announcements = useMemo(() => {
       return config.announcement ? config.announcement.split('|').filter(s => s.trim() !== '') : [];
@@ -235,6 +237,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   // Music Player Handler
   const handlePlayMusic = (track: MusicTrack) => {
+      setHasInteracted(true);
       setCurrentTrack(track);
       setIsPlaying(true);
   };
@@ -248,6 +251,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       const idx = musicTracks.findIndex(t => t.id === currentTrack.id);
       const nextIdx = (idx + 1) % musicTracks.length;
       handlePlayMusic(musicTracks[nextIdx]);
+  };
+
+  const handleStartExperience = () => {
+      setHasInteracted(true);
+      if (musicTracks.length > 0 && !isPlaying) {
+          handlePlayMusic(musicTracks[0]);
+      }
   };
 
   // Helper to resolve Team Object
@@ -434,13 +444,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           if (currentTrack.url.includes('v=')) videoId = currentTrack.url.split('v=')[1].split('&')[0];
           else if (currentTrack.url.includes('youtu.be/')) videoId = currentTrack.url.split('youtu.be/')[1].split('?')[0];
           if (videoId) {
-              embedCode = <iframe width="1" height="1" src={`https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&playlist=${videoId}`} frameBorder="0" allow="autoplay" style={{opacity:0, pointerEvents:'none'}} />;
+              embedCode = <iframe width="1" height="1" src={`https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&playlist=${videoId}&enablejsapi=1`} frameBorder="0" allow="autoplay" style={{opacity:0, pointerEvents:'none'}} />;
           }
       } else if (currentTrack.type === 'Spotify') {
           const spotifyUrl = currentTrack.url.replace('https://open.spotify.com/', 'https://open.spotify.com/embed/');
           embedCode = <iframe src={spotifyUrl} width="1" height="1" frameBorder="0" allow="encrypted-media" style={{opacity:0, pointerEvents:'none'}} />;
       } else {
-          // Direct Audio or Suno (assuming Suno gives a direct audio/mp3 link or page)
           embedCode = <audio src={currentTrack.url} autoPlay loop style={{display:'none'}} onError={handleNextTrack} />;
       }
 
@@ -450,6 +459,18 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           </div>
       );
   };
+
+  if (!hasInteracted) {
+      return (
+          <div className="fixed inset-0 z-[5000] bg-slate-950 flex flex-col items-center justify-center cursor-pointer" onClick={handleStartExperience}>
+              <div className="animate-pulse mb-4">
+                  <Play className="w-20 h-20 text-indigo-500 fill-indigo-500" />
+              </div>
+              <h1 className="text-3xl font-black text-white uppercase tracking-widest mb-2">{config.competitionName}</h1>
+              <p className="text-slate-400 font-bold">CLICK ANYWHERE TO START LIVE WALL</p>
+          </div>
+      );
+  }
 
   return (
     <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
@@ -489,10 +510,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                           <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                         </span>
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
-                        {isPlaying && currentTrack && (
-                            <span className="flex items-center gap-1 text-xs text-indigo-300 bg-indigo-900/50 px-2 py-0.5 rounded-full border border-indigo-500/30 ml-2 animate-pulse">
-                                <Volume2 className="w-3 h-3" /> {currentTrack.name}
-                            </span>
+                        {isPlaying && currentTrack ? (
+                            <div className="flex items-center gap-2 ml-4">
+                                <span className="flex gap-0.5 items-end h-3">
+                                    <span className="w-1 bg-indigo-400 animate-[bounce_1s_infinite] h-2"></span>
+                                    <span className="w-1 bg-indigo-400 animate-[bounce_1.2s_infinite] h-3"></span>
+                                    <span className="w-1 bg-indigo-400 animate-[bounce_0.8s_infinite] h-1.5"></span>
+                                </span>
+                                <span className="text-xs text-indigo-300 max-w-[150px] truncate">{currentTrack.name}</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-1 ml-4 text-xs text-slate-500"><VolumeX className="w-3 h-3"/> Audio Off</div>
                         )}
                     </div>
                 </div>
@@ -639,9 +667,197 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2, 3, 4, 5, 6 (Results, Scorers, Keepers, Prediction, Highlights - Similar to before, truncated for brevity) */}
-            {/* ... Only critical changes for new slides below ... */}
-            
+            {/* SLIDE 2: RECENT RESULTS */}
+            {currentSlide === 2 && (
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-700">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Recent Results</h2>
+                    </div>
+                    <div className="flex-1 grid grid-cols-2 gap-6">
+                        {recentResults.map((m) => {
+                            const tA = resolveTeam(m.teamA);
+                            const tB = resolveTeam(m.teamB);
+                            return (
+                                <div key={m.id} className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 flex items-center justify-between">
+                                    <div className={`flex items-center gap-4 w-[40%] ${m.winner === 'A' || m.winner === tA.name ? 'text-green-400' : 'text-slate-400'}`}>
+                                        <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center p-1">{tA.logoUrl && <img src={tA.logoUrl} className="w-full h-full object-contain"/>}</div>
+                                        <span className="text-xl font-bold truncate">{tA.name}</span>
+                                    </div>
+                                    <div className="bg-slate-950 px-6 py-2 rounded-lg font-mono text-3xl font-black text-white shadow-inner">
+                                        {m.scoreA} - {m.scoreB}
+                                    </div>
+                                    <div className={`flex items-center gap-4 w-[40%] justify-end ${m.winner === 'B' || m.winner === tB.name ? 'text-green-400' : 'text-slate-400'}`}>
+                                        <span className="text-xl font-bold truncate">{tB.name}</span>
+                                        <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center p-1">{tB.logoUrl && <img src={tB.logoUrl} className="w-full h-full object-contain"/>}</div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {recentResults.length === 0 && <div className="col-span-2 text-center text-slate-500 text-2xl font-bold">No results yet</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 3: TOP SCORERS */}
+            {currentSlide === 3 && (
+                <div className="h-full flex flex-col animate-in zoom-in-95 duration-700">
+                    <div className="text-center mb-8">
+                        <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
+                        <p className="text-slate-400 font-bold uppercase tracking-widest mt-1">Top Goal Scorers</p>
+                    </div>
+                    <div className="flex-1 flex items-end justify-center gap-8 pb-12">
+                        {/* 2nd */}
+                        {topScorers[1] && (
+                            <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-100">
+                                <div className="w-32 h-32 bg-slate-800 rounded-full mb-4 border-4 border-slate-600 overflow-hidden shadow-2xl">
+                                    {topScorers[1].photoUrl ? <img src={topScorers[1].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-slate-600"/>}
+                                </div>
+                                <div className="bg-slate-800 w-full p-4 rounded-t-2xl text-center border-t-4 border-slate-500 relative">
+                                    <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-slate-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-slate-800">2</div>
+                                    <h3 className="font-bold text-lg truncate mt-2">{topScorers[1].name}</h3>
+                                    <p className="text-xs text-slate-400 uppercase mb-2">{topScorers[1].team}</p>
+                                    <div className="text-4xl font-black text-white">{topScorers[1].goals}</div>
+                                    <div className="text-[10px] uppercase font-bold text-slate-500">Goals</div>
+                                </div>
+                                <div className="h-32 w-full bg-slate-800/50 rounded-b-lg"></div>
+                            </div>
+                        )}
+                        {/* 1st */}
+                        {topScorers[0] && (
+                            <div className="flex flex-col items-center w-72 z-10 animate-in slide-in-from-bottom-32 duration-1000">
+                                <Trophy className="w-16 h-16 text-yellow-400 mb-4 animate-bounce" />
+                                <div className="w-40 h-40 bg-yellow-500 rounded-full mb-4 border-4 border-yellow-300 overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.4)]">
+                                    {topScorers[0].photoUrl ? <img src={topScorers[0].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-8 text-yellow-800"/>}
+                                </div>
+                                <div className="bg-gradient-to-b from-yellow-600 to-yellow-700 w-full p-6 rounded-t-3xl text-center border-t-4 border-yellow-300 relative shadow-2xl">
+                                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 w-12 h-12 rounded-full flex items-center justify-center font-black text-2xl border-4 border-yellow-600">1</div>
+                                    <h3 className="font-black text-2xl truncate mt-2 text-white">{topScorers[0].name}</h3>
+                                    <p className="text-sm text-yellow-200 uppercase mb-3 font-bold">{topScorers[0].team}</p>
+                                    <div className="text-6xl font-black text-white drop-shadow-md">{topScorers[0].goals}</div>
+                                    <div className="text-xs uppercase font-bold text-yellow-200/80 tracking-widest">Goals Scored</div>
+                                </div>
+                                <div className="h-48 w-full bg-yellow-800/50 rounded-b-lg"></div>
+                            </div>
+                        )}
+                        {/* 3rd */}
+                        {topScorers[2] && (
+                            <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-200">
+                                <div className="w-32 h-32 bg-orange-800 rounded-full mb-4 border-4 border-orange-600 overflow-hidden shadow-2xl">
+                                    {topScorers[2].photoUrl ? <img src={topScorers[2].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-orange-600"/>}
+                                </div>
+                                <div className="bg-orange-900 w-full p-4 rounded-t-2xl text-center border-t-4 border-orange-600 relative">
+                                    <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-orange-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-orange-900">3</div>
+                                    <h3 className="font-bold text-lg truncate mt-2 text-orange-100">{topScorers[2].name}</h3>
+                                    <p className="text-xs text-orange-400 uppercase mb-2">{topScorers[2].team}</p>
+                                    <div className="text-4xl font-black text-white">{topScorers[2].goals}</div>
+                                    <div className="text-[10px] uppercase font-bold text-orange-400">Goals</div>
+                                </div>
+                                <div className="h-24 w-full bg-orange-950/50 rounded-b-lg"></div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 4: TOP KEEPERS */}
+            {currentSlide === 4 && (
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-700">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                        {topKeepers.map((k, idx) => (
+                            <div key={idx} className="bg-slate-900/80 border border-blue-500/20 rounded-2xl p-6 flex items-center justify-between shadow-lg">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : 'bg-slate-700 text-white'}`}>{idx+1}</div>
+                                    <div>
+                                        <h3 className="text-xl font-bold">{k.teamName}</h3>
+                                        <p className="text-xs text-blue-400 uppercase font-bold">Goalkeeper</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-4 text-center">
+                                    <div>
+                                        <div className="text-3xl font-black text-white">{k.cleanSheets}</div>
+                                        <div className="text-[10px] uppercase text-slate-500 font-bold">Clean Sheets</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-3xl font-black text-blue-400">{k.saves}</div>
+                                        <div className="text-[10px] uppercase text-slate-500 font-bold">PK Saves</div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        {topKeepers.length === 0 && <div className="col-span-2 text-center text-slate-500 text-2xl">No data available</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 5: FAN PREDICTION */}
+            {currentSlide === 5 && (
+                <div className="h-full flex flex-col animate-in zoom-in-95 duration-700 relative">
+                    <div className="text-center mb-8">
+                        <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2>
+                    </div>
+                    <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
+                        {fanRankings.map((fan, idx) => (
+                            <div key={idx} className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 flex items-center justify-center font-black rounded-full ${idx < 3 ? 'bg-white text-black' : 'bg-slate-700 text-slate-400'}`}>
+                                        {idx + 1}
+                                    </div>
+                                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20">
+                                        {fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-slate-500 bg-slate-800"/>}
+                                    </div>
+                                    <span className="text-xl font-bold">{fan.name}</span>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-3xl font-black text-purple-400">{fan.points} <span className="text-sm text-slate-500 font-bold">PTS</span></div>
+                                    <div className="text-xs text-slate-400">Correct: {fan.correct}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 6: HIGHLIGHTS */}
+            {currentSlide === 6 && contestEntries.length > 0 && (
+                <div className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl">
+                    <div className="absolute inset-0 z-0">
+                        <img 
+                            src={contestEntries[highlightIndex].photoUrl} 
+                            className="w-full h-full object-cover blur-3xl opacity-30 scale-110" 
+                        />
+                    </div>
+                    <div className="relative z-10 flex flex-col items-center animate-in zoom-in duration-1000 w-full max-w-4xl">
+                        <div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 group">
+                            <img 
+                                src={contestEntries[highlightIndex].photoUrl} 
+                                className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-10000 ease-linear" 
+                            />
+                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8">
+                                <div className="flex items-center gap-4">
+                                    <img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white" />
+                                    <div>
+                                        <h3 className="text-2xl font-bold text-white">{contestEntries[highlightIndex].caption}</h3>
+                                        <p className="text-slate-300 font-medium">By {contestEntries[highlightIndex].userDisplayName}</p>
+                                    </div>
+                                    <div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full">
+                                        <Heart className="w-5 h-5 fill-white" />
+                                        <span className="font-bold text-xl">{contestEntries[highlightIndex].likeCount}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <h2 className="text-3xl font-black text-white uppercase tracking-widest mt-8 flex items-center gap-3">
+                            <Camera className="w-8 h-8 text-pink-500" /> Photo Contest Highlights
+                        </h2>
+                    </div>
+                </div>
+            )}
+
             {/* SLIDE 7: SPONSORS (NEW) */}
             {currentSlide === 7 && (
                 <div className="h-full flex flex-col items-center justify-center animate-in fade-in zoom-in duration-1000">
