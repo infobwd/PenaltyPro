@@ -22,6 +22,8 @@ function doGet(e) {
       return getComments(e.parameter.entryId);
     } else if (action === 'getSponsors') {
       return getSponsors();
+    } else if (action === 'getMusicTracks') {
+      return getMusicTracks();
     }
     
     return successResponse({ status: 'running', message: 'Penalty Pro API is active' });
@@ -69,6 +71,8 @@ function doPost(e) {
     else if (action === 'submitPrediction') return submitPrediction(data);
     // Sponsor Logic
     else if (action === 'manageSponsor') return manageSponsor(data);
+    // Music Logic
+    else if (action === 'manageMusicTrack') return manageMusicTrack(data);
     
     return errorResponse("Unknown action: " + action);
     
@@ -423,6 +427,55 @@ function manageSponsor(data) {
     }
     const id = "SPN_" + Date.now();
     sheet.appendRow([id, data.name, logoUrl, data.type || 'Main']);
+  } else if (data.subAction === 'delete') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    }
+  }
+  return successResponse({ status: 'success' });
+}
+
+// ... MUSIC TRACK FUNCTIONS ...
+
+function getMusicTracks() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("MusicTracks");
+  if (!sheet) {
+    sheet = ss.insertSheet("MusicTracks");
+    sheet.appendRow(["ID", "Name", "URL", "Type"]);
+    return successResponse({ tracks: [] });
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  const tracks = [];
+  for (let i = 1; i < data.length; i++) {
+    if(data[i][0]) {
+      tracks.push({
+        id: String(data[i][0]),
+        name: data[i][1],
+        url: data[i][2],
+        type: data[i][3] || 'Other'
+      });
+    }
+  }
+  return successResponse({ tracks });
+}
+
+function manageMusicTrack(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("MusicTracks");
+  if (!sheet) {
+    sheet = ss.insertSheet("MusicTracks");
+    sheet.appendRow(["ID", "Name", "URL", "Type"]);
+  }
+  
+  if (data.subAction === 'add') {
+    const id = "MSC_" + Date.now();
+    sheet.appendRow([id, data.name, data.url, data.type]);
   } else if (data.subAction === 'delete') {
     const rows = sheet.getDataRange().getValues();
     for (let i = 1; i < rows.length; i++) {

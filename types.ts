@@ -343,3 +343,10 @@ export interface Sponsor {
   logoUrl: string;
   type?: 'Main' | 'Support';
 }
+
+export interface MusicTrack {
+  id: string;
+  name: string;
+  url: string;
+  type: 'Youtube' | 'Spotify' | 'Suno' | 'Other';
+}
