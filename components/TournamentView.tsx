@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Team, Match, KickResult } from '../types';
-import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus, Download, Image as ImageIcon } from 'lucide-react';
+import { Trophy, Edit2, Check, ArrowRight, UserX, ShieldAlert, Sparkles, GripVertical, PlayCircle, AlertCircle, Lock, Eraser, MapPin, Clock, Calendar, RefreshCw, Minimize2, Maximize2, X, Share2, Info, LayoutGrid, List, Medal, Save, Loader2, Trash2, Plus, Download, Image as ImageIcon, Monitor } from 'lucide-react';
 import { scheduleMatch, saveMatchToSheet, deleteMatch } from '../services/sheetService';
 import { shareMatch } from '../services/liffService';
 import html2canvas from 'html2canvas';
@@ -17,9 +17,10 @@ interface TournamentViewProps {
   isLoading?: boolean;
   showNotification?: (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
   tournamentId: string;
+  onOpenLiveWall?: () => void;
 }
 
-const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelectMatch, onBack, isAdmin, onRefresh, onLoginClick, isLoading, showNotification, tournamentId }) => {
+const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelectMatch, onBack, isAdmin, onRefresh, onLoginClick, isLoading, showNotification, tournamentId, onOpenLiveWall }) => {
   const [editMode, setEditMode] = useState(false);
   const [localMatches, setLocalMatches] = useState<Match[]>([]);
   const [isLargeBracket, setIsLargeBracket] = useState(false);
@@ -446,6 +447,13 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
                 >
                     <Save className="w-4 h-4"/>
                     บันทึก ({pendingUpdates.size + pendingDeletes.size})
+                </button>
+            )}
+
+            {/* LIVE WALL BUTTON (NEW) */}
+            {onOpenLiveWall && (
+                <button onClick={onOpenLiveWall} className="flex items-center gap-2 px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition text-xs font-bold whitespace-nowrap shadow-sm">
+                    <Monitor className="w-4 h-4" /> Live Wall
                 </button>
             )}
 
