@@ -13,8 +13,9 @@ interface LiveWallProps {
   onRefresh: (silent?: boolean) => void;
 }
 
-const BASE_SLIDE_DURATION = 10000;
-const HIGHLIGHT_SLIDE_DURATION = 8000;
+// Increased duration to prevent flashing and allow reading
+const BASE_SLIDE_DURATION = 15000; 
+const HIGHLIGHT_SLIDE_DURATION = 12000;
 
 const compressImage = async (file: File): Promise<File> => {
     if (file.type === 'application/pdf') return file; 
@@ -193,6 +194,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [contestEntries, setContestEntries] = useState<ContestEntry[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   
   // Sponsors
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
@@ -240,6 +242,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       setHasInteracted(true);
       setCurrentTrack(track);
       setIsPlaying(true);
+      setIsMuted(false);
   };
 
   const handleNextTrack = () => {
@@ -251,6 +254,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       const idx = musicTracks.findIndex(t => t.id === currentTrack.id);
       const nextIdx = (idx + 1) % musicTracks.length;
       handlePlayMusic(musicTracks[nextIdx]);
+  };
+
+  const toggleMute = () => {
+      setIsMuted(!isMuted);
   };
 
   const handleStartExperience = () => {
@@ -437,24 +444,43 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // Music Player Component
   const MusicPlayer = () => {
       if (!currentTrack || !isPlaying) return null;
-
+      
+      // If manually muted by user via UI, we just don't render or mute via API
+      // But standard HTML audio doesn't support 'muted' prop in React easily without ref
+      // so for iframe we use API, for Audio tag we use ref or conditional rendering (re-render might restart song though)
+      // Best approach for background audio is keeping it rendered but using API to mute.
+      
       let embedCode = null;
       if (currentTrack.type === 'Youtube') {
           let videoId = '';
           if (currentTrack.url.includes('v=')) videoId = currentTrack.url.split('v=')[1].split('&')[0];
           else if (currentTrack.url.includes('youtu.be/')) videoId = currentTrack.url.split('youtu.be/')[1].split('?')[0];
+          
           if (videoId) {
-              embedCode = <iframe width="1" height="1" src={`https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&playlist=${videoId}&enablejsapi=1`} frameBorder="0" allow="autoplay" style={{opacity:0, pointerEvents:'none'}} />;
+              // Added allow="autoplay" and mute=0. Note: Browsers might still block if not clicked.
+              const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&playlist=${videoId}&enablejsapi=1&controls=0&showinfo=0&mute=${isMuted ? 1 : 0}`;
+              embedCode = (
+                <iframe 
+                    width="1" 
+                    height="1" 
+                    src={src} 
+                    frameBorder="0" 
+                    allow="autoplay; encrypted-media" 
+                    title="bg-music"
+                    style={{opacity:0, pointerEvents:'none'}} 
+                />
+              );
           }
       } else if (currentTrack.type === 'Spotify') {
           const spotifyUrl = currentTrack.url.replace('https://open.spotify.com/', 'https://open.spotify.com/embed/');
           embedCode = <iframe src={spotifyUrl} width="1" height="1" frameBorder="0" allow="encrypted-media" style={{opacity:0, pointerEvents:'none'}} />;
       } else {
-          embedCode = <audio src={currentTrack.url} autoPlay loop style={{display:'none'}} onError={handleNextTrack} />;
+          // Standard Audio
+          embedCode = <audio src={currentTrack.url} autoPlay loop muted={isMuted} style={{display:'none'}} onError={handleNextTrack} />;
       }
 
       return (
-          <div className="absolute">
+          <div className="absolute top-0 left-0 w-0 h-0 overflow-hidden">
               {embedCode}
           </div>
       );
@@ -511,13 +537,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         </span>
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
                         {isPlaying && currentTrack ? (
-                            <div className="flex items-center gap-2 ml-4">
+                            <div className="flex items-center gap-2 ml-4 bg-white/10 px-2 py-1 rounded-full cursor-pointer hover:bg-white/20 transition" onClick={toggleMute}>
                                 <span className="flex gap-0.5 items-end h-3">
-                                    <span className="w-1 bg-indigo-400 animate-[bounce_1s_infinite] h-2"></span>
-                                    <span className="w-1 bg-indigo-400 animate-[bounce_1.2s_infinite] h-3"></span>
-                                    <span className="w-1 bg-indigo-400 animate-[bounce_0.8s_infinite] h-1.5"></span>
+                                    <span className={`w-1 bg-indigo-400 ${!isMuted ? 'animate-[bounce_1s_infinite]' : 'h-1'} h-2`}></span>
+                                    <span className={`w-1 bg-indigo-400 ${!isMuted ? 'animate-[bounce_1.2s_infinite]' : 'h-1'} h-3`}></span>
+                                    <span className={`w-1 bg-indigo-400 ${!isMuted ? 'animate-[bounce_0.8s_infinite]' : 'h-1'} h-1.5`}></span>
                                 </span>
                                 <span className="text-xs text-indigo-300 max-w-[150px] truncate">{currentTrack.name}</span>
+                                {isMuted ? <VolumeX className="w-3 h-3 text-red-400 ml-1" /> : <Volume2 className="w-3 h-3 text-green-400 ml-1" />}
                             </div>
                         ) : (
                             <div className="flex items-center gap-1 ml-4 text-xs text-slate-500"><VolumeX className="w-3 h-3"/> Audio Off</div>
@@ -560,7 +587,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             
             {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
-                <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-700">
+                <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-1000">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-red-600 p-2 rounded-lg shadow-[0_0_20px_rgba(220,38,38,0.5)]"><Activity className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Center</h2>
@@ -617,7 +644,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 1: STANDINGS */}
             {currentSlide === 1 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-700">
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
                     <div className="flex items-center justify-between mb-8">
                         <div className="flex items-center gap-4">
                             <div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div>
@@ -633,7 +660,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                     <div className="flex-1 relative">
                         {standingsGroups.length > 0 ? (
-                            <div className="grid grid-cols-2 gap-8 content-start animate-in fade-in zoom-in-95 duration-500 key={standingsPage}">
+                            <div className="grid grid-cols-2 gap-8 content-start animate-in fade-in zoom-in-95 duration-1000 key={standingsPage}">
                                 {standingsGroups[standingsPage]?.map(group => (
                                     <div key={group.name} className="bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl">
                                         <div className="bg-gradient-to-r from-indigo-900/50 to-slate-900/50 px-6 py-4 border-b border-white/5 flex justify-between items-center">
@@ -667,41 +694,71 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: RECENT RESULTS */}
+            {/* SLIDE 2: RECENT RESULTS (REDESIGNED) */}
             {currentSlide === 2 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-700">
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
-                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Recent Results</h2>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                     </div>
-                    <div className="flex-1 grid grid-cols-2 gap-6">
-                        {recentResults.map((m) => {
-                            const tA = resolveTeam(m.teamA);
-                            const tB = resolveTeam(m.teamB);
-                            return (
-                                <div key={m.id} className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 flex items-center justify-between">
-                                    <div className={`flex items-center gap-4 w-[40%] ${m.winner === 'A' || m.winner === tA.name ? 'text-green-400' : 'text-slate-400'}`}>
-                                        <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center p-1">{tA.logoUrl && <img src={tA.logoUrl} className="w-full h-full object-contain"/>}</div>
-                                        <span className="text-xl font-bold truncate">{tA.name}</span>
+                    
+                    {recentResults.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 flex-1 content-center">
+                            {recentResults.map((m) => {
+                                const tA = resolveTeam(m.teamA);
+                                const tB = resolveTeam(m.teamB);
+                                const winnerA = m.winner === 'A' || m.winner === tA.name;
+                                const winnerB = m.winner === 'B' || m.winner === tB.name;
+
+                                return (
+                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl hover:border-indigo-500/50 transition-all duration-500">
+                                        {/* Date Header */}
+                                        <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400">
+                                            <span>{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})}</span>
+                                            <span className="uppercase tracking-widest">{m.roundLabel?.split(':')[0] || 'Match'}</span>
+                                        </div>
+                                        
+                                        {/* Content */}
+                                        <div className="p-6 flex items-center justify-between">
+                                            {/* Team A */}
+                                            <div className={`flex flex-col items-center gap-3 flex-1 ${winnerA ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
+                                                <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerA ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
+                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tA.name.substring(0,1)}</div>}
+                                                </div>
+                                                <span className={`text-sm font-bold text-center leading-tight ${winnerA ? 'text-white' : 'text-slate-400'}`}>{tA.name}</span>
+                                            </div>
+
+                                            {/* Score */}
+                                            <div className="flex flex-col items-center px-4">
+                                                <div className="text-5xl font-black font-mono text-white tracking-tighter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">
+                                                    {m.scoreA}-{m.scoreB}
+                                                </div>
+                                                <div className="mt-2 bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-yellow-500/30 uppercase tracking-widest">
+                                                    Full Time
+                                                </div>
+                                            </div>
+
+                                            {/* Team B */}
+                                            <div className={`flex flex-col items-center gap-3 flex-1 ${winnerB ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
+                                                <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerB ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
+                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tB.name.substring(0,1)}</div>}
+                                                </div>
+                                                <span className={`text-sm font-bold text-center leading-tight ${winnerB ? 'text-white' : 'text-slate-400'}`}>{tB.name}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="bg-slate-950 px-6 py-2 rounded-lg font-mono text-3xl font-black text-white shadow-inner">
-                                        {m.scoreA} - {m.scoreB}
-                                    </div>
-                                    <div className={`flex items-center gap-4 w-[40%] justify-end ${m.winner === 'B' || m.winner === tB.name ? 'text-green-400' : 'text-slate-400'}`}>
-                                        <span className="text-xl font-bold truncate">{tB.name}</span>
-                                        <div className="w-12 h-12 bg-white/5 rounded-xl flex items-center justify-center p-1">{tB.logoUrl && <img src={tB.logoUrl} className="w-full h-full object-contain"/>}</div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                        {recentResults.length === 0 && <div className="col-span-2 text-center text-slate-500 text-2xl font-bold">No results yet</div>}
-                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No finished matches yet</div>
+                    )}
                 </div>
             )}
 
             {/* SLIDE 3: TOP SCORERS */}
             {currentSlide === 3 && (
-                <div className="h-full flex flex-col animate-in zoom-in-95 duration-700">
+                <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000">
                     <div className="text-center mb-8">
                         <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
                         <p className="text-slate-400 font-bold uppercase tracking-widest mt-1">Top Goal Scorers</p>
@@ -762,7 +819,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 4: TOP KEEPERS */}
             {currentSlide === 4 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-700">
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
@@ -796,7 +853,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 5: FAN PREDICTION */}
             {currentSlide === 5 && (
-                <div className="h-full flex flex-col animate-in zoom-in-95 duration-700 relative">
+                <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000 relative">
                     <div className="text-center mb-8">
                         <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2>
                     </div>
