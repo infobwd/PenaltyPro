@@ -27,6 +27,12 @@ export interface AppSettings {
   liffId?: string;
   pwaStartUrl?: string;
   pwaScope?: string;
+  // Support Configs
+  coffeeSupportPhone?: string;
+  educationSupportQrUrl?: string;
+  educationSupportAccountName?: string;
+  educationSupportBankName?: string;
+  educationSupportAccountNumber?: string;
 }
 
 export interface NewsItem {

@@ -17,13 +17,14 @@ import ScheduleList from './components/ScheduleList';
 import NewsFeed from './components/NewsFeed'; 
 import TournamentSelector from './components/TournamentSelector';
 import DonationDialog from './components/DonationDialog';
+import SupportDialog from './components/SupportDialog';
 import TeamEditModal from './components/TeamEditModal';
 import ContestGallery from './components/ContestGallery';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -129,6 +130,7 @@ export default function App() {
   const [isDonationOpen, setIsDonationOpen] = useState(false);
   const [isDonorListOpen, setIsDonorListOpen] = useState(false); 
   const [activeImageMode, setActiveImageMode] = useState<'before' | 'after'>('before');
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   
   // Team Edit Modal State
   const [isTeamEditModalOpen, setIsTeamEditModalOpen] = useState(false);
@@ -481,6 +483,25 @@ export default function App() {
         currentUser={currentUser}
       />
       
+      <SupportDialog 
+        isOpen={isSupportOpen} 
+        onClose={() => setIsSupportOpen(false)} 
+        config={effectiveSettings} 
+        currentUser={currentUser}
+        onRefresh={() => loadData(true)}
+      />
+
+      {/* Floating Support Button - Adjusted Position */}
+      <button
+        onClick={() => setIsSupportOpen(true)}
+        className="fixed bottom-24 right-4 md:right-8 md:bottom-24 z-[90] bg-gradient-to-r from-orange-500 to-pink-500 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform duration-300 group border-4 border-white/20 animate-in slide-in-from-bottom-10"
+      >
+        <Gift className="w-6 h-6 animate-pulse" />
+        <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 bg-white text-slate-800 text-xs font-bold px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
+          Support Us
+        </span>
+      </button>
+      
       {/* Team Edit Modal for Users */}
       {isTeamEditModalOpen && teamToEdit && (
           <TeamEditModal
@@ -611,48 +632,49 @@ export default function App() {
         <div className="min-h-screen bg-slate-100">
           {connectionError && <div className="bg-red-50 border-b border-red-200 p-3 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-red-700 text-sm font-bold"><WifiOff className="w-4 h-4" /><span>{connectionError}</span></div><button onClick={() => loadData(true)} className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50">ลองใหม่</button></div>}
           
-          <div className="bg-white sticky top-0 z-40 border-b border-slate-200 shadow-sm px-4 py-3 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                  <img src={effectiveSettings.competitionLogo || "https://via.placeholder.com/40"} className="w-8 h-8 object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
-                  <h1 className="font-bold text-slate-800 truncate max-w-[100px] sm:max-w-[200px] text-sm sm:text-base">
+          {/* Top Navbar Optimized for Mobile */}
+          <div className="bg-white sticky top-0 z-40 border-b border-slate-200 shadow-sm px-3 py-2 flex justify-between items-center h-16">
+              <div className="flex items-center gap-2 min-w-0">
+                  <img src={effectiveSettings.competitionLogo || "https://via.placeholder.com/40"} className="w-8 h-8 object-contain shrink-0" onError={(e) => e.currentTarget.style.display = 'none'} />
+                  <h1 className="font-bold text-slate-800 truncate text-sm sm:text-base">
                       {activeTournament ? activeTournament.name : appConfig.competitionName}
                   </h1>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
                   <button 
                     onClick={() => setCurrentView('contest')} 
-                    className="flex items-center gap-1 text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-3 py-1.5 rounded-full transition shadow-sm font-bold mr-1"
+                    className="flex items-center gap-1 text-[10px] sm:text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-2 py-1.5 rounded-full transition shadow-sm font-bold"
                   >
-                      <Camera className="w-3 h-3"/> ประกวดภาพถ่าย
+                      <Camera className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">ประกวดภาพ</span>
                   </button>
-                  <button onClick={() => setCurrentTournamentId(null)} className="hidden md:flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1.5 rounded-full transition">
-                      <ArrowLeftRight className="w-3 h-3"/> เปลี่ยนรายการ
+                  <button onClick={() => setCurrentTournamentId(null)} className="flex items-center gap-1 text-[10px] sm:text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1.5 rounded-full transition">
+                      <ArrowLeftRight className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">เปลี่ยนรายการ</span>
                   </button>
                   <button 
                     onClick={handleRegisterClick} 
-                    className={`text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                    className={`text-white px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
                     disabled={isRegistrationFull}
                   >
                       {isRegistrationFull ? (
-                          <>เต็มแล้ว</>
+                          <>เต็ม</>
                       ) : (
-                          <><UserPlus className="w-3 h-3" /> สมัครแข่ง</>
+                          <><UserPlus className="w-3 h-3 sm:w-3 sm:h-3" /> <span className="hidden sm:inline">สมัครแข่ง</span></>
                       )}
                   </button>
                   {currentUser ? (
-                      <div className="flex items-center gap-2 pl-2 ml-2 border-l border-slate-200">
+                      <div className="flex items-center gap-1 pl-1 ml-1 border-l border-slate-200">
                           {currentUser.pictureUrl ? (
-                              <img src={currentUser.pictureUrl} className="w-8 h-8 rounded-full border border-slate-200" />
+                              <img src={currentUser.pictureUrl} className="w-7 h-7 rounded-full border border-slate-200" />
                           ) : (
-                              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
                                   {String(currentUser.displayName || 'U').charAt(0)}
                               </div>
                           )}
-                          <button onClick={handleLogout} className="ml-1 text-slate-400 hover:text-red-500"><LogOut className="w-4 h-4" /></button>
+                          <button onClick={handleLogout} className="text-slate-400 hover:text-red-500"><LogOut className="w-4 h-4" /></button>
                       </div>
                   ) : (
-                      <button onClick={() => setIsUserLoginOpen(true)} className="text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 ml-1">
-                          <LogIn className="w-3 h-3" /> เข้าสู่ระบบ
+                      <button onClick={() => setIsUserLoginOpen(true)} className="text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 ml-1">
+                          <LogIn className="w-3 h-3" /> <span className="hidden sm:inline">Login</span>
                       </button>
                   )}
               </div>
@@ -931,6 +953,11 @@ export default function App() {
               )}
 
               <div className="pt-2">
+                  <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                          <Megaphone className="w-5 h-5 text-indigo-600" /> ข่าวสารและประกาศ
+                      </h3>
+                  </div>
                   <NewsFeed 
                       news={newsItems} 
                       isLoading={isLoadingData} 

@@ -113,7 +113,20 @@ function getData() {
   if(!ss.getSheetByName("Predictions")) { const s = ss.insertSheet("Predictions"); s.appendRow(["ID", "MatchID", "UserID", "UserDisplayName", "UserPic", "Prediction", "Timestamp", "TournamentID"]); }
   
   let configSheet = ss.getSheetByName("Config"); let config = {};
-  if (configSheet) { const data = configSheet.getDataRange().getValues(); if (data.length > 1) { const r = data[1]; config = { competitionName: r[0], competitionLogo: toLh3Link(r[1]), bankName: r[2], bankAccount: r[3], accountName: r[4], locationName: r[5], locationLink: r[6], announcement: r[7], adminPin: String(r[8] || '1234'), locationLat: r[9] || 0, locationLng: r[10] || 0, registrationFee: r[11] || 0, fundraisingGoal: r[12] || 0, objectiveTitle: r[13] || '', objectiveDescription: r[14] || '', objectiveImageUrl: toLh3Link(r[15] || ''), liffId: r[16] || '', pwaStartUrl: r[17] || '', pwaScope: r[18] || '' }; } }
+  if (configSheet) { 
+    const data = configSheet.getDataRange().getValues(); 
+    if (data.length > 1) { 
+      const r = data[1]; 
+      config = { 
+        competitionName: r[0], competitionLogo: toLh3Link(r[1]), bankName: r[2], bankAccount: r[3], accountName: r[4], locationName: r[5], locationLink: r[6], announcement: r[7], adminPin: String(r[8] || '1234'), locationLat: r[9] || 0, locationLng: r[10] || 0, registrationFee: r[11] || 0, fundraisingGoal: r[12] || 0, objectiveTitle: r[13] || '', objectiveDescription: r[14] || '', objectiveImageUrl: toLh3Link(r[15] || ''), liffId: r[16] || '', pwaStartUrl: r[17] || '', pwaScope: r[18] || '',
+        coffeeSupportPhone: r[19] || '0836645989',
+        educationSupportQrUrl: toLh3Link(r[20] || ''),
+        educationSupportAccountName: r[21] || '',
+        educationSupportBankName: r[22] || '',
+        educationSupportAccountNumber: r[23] || ''
+      }; 
+    } 
+  }
 
   const read = (name) => { const s = ss.getSheetByName(name); return s ? s.getDataRange().getValues() : []; };
   
@@ -426,7 +439,37 @@ function saveMatch(data) { const ss = getSpreadsheet(); let sheet = ss.getSheetB
 function saveKicks(kicks) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("Kicks"); if (!sheet) { sheet = ss.insertSheet("Kicks"); sheet.appendRow(["MatchID", "Round", "Team", "Player", "Result", "Timestamp", "TournamentID"]); } const matchId = kicks[0].matchId; if(!matchId) return successResponse({ status: 'success' }); kicks.forEach(k => { sheet.appendRow([ k.matchId, k.round, k.teamId, k.player, k.result, k.timestamp, k.tournamentId || 'default' ]); }); return successResponse({ status: 'success' }); }
 function handleAuth(data) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("Users"); if (!sheet) { sheet = ss.insertSheet("Users"); sheet.appendRow(["ID", "Username", "Password", "DisplayName", "Role", "Phone", "PictureUrl", "LineUserId", "LastLogin"]); } if (data.authType === 'line') { const rows = sheet.getDataRange().getValues(); for (let i = 1; i < rows.length; i++) { if (String(rows[i][7]) === String(data.lineUserId)) { sheet.getRange(i+1, 9).setValue(new Date()); return successResponse({ userId: String(rows[i][0]), username: rows[i][1], displayName: rows[i][3], role: rows[i][4], phoneNumber: rows[i][5], pictureUrl: rows[i][6] }); } } const newId = 'U_' + Date.now(); sheet.appendRow([newId, data.lineUserId, '', data.displayName, 'user', '', data.pictureUrl, data.lineUserId, new Date()]); return successResponse({ userId: newId, username: data.lineUserId, displayName: data.displayName, role: 'user', phoneNumber: '', pictureUrl: data.pictureUrl }); } else if (data.authType === 'login') { const rows = sheet.getDataRange().getValues(); for (let i = 1; i < rows.length; i++) { if (String(rows[i][1]).trim() === String(data.username).trim() && String(rows[i][2]).trim() === String(data.password).trim()) { sheet.getRange(i+1, 9).setValue(new Date()); return successResponse({ userId: String(rows[i][0]), username: rows[i][1], displayName: rows[i][3], role: rows[i][4], phoneNumber: rows[i][5], pictureUrl: rows[i][6] }); } } return errorResponse("Invalid username or password"); } else if (data.authType === 'register') { const rows = sheet.getDataRange().getValues(); for (let i = 1; i < rows.length; i++) { if (String(rows[i][1]).trim() === String(data.username).trim()) return errorResponse("Username already exists"); } const newId = 'U_' + Date.now(); sheet.appendRow([newId, data.username, data.password, data.displayName, 'user', data.phone, '', '', new Date()]); return successResponse({ userId: newId, username: data.username, displayName: data.displayName, role: 'user', phoneNumber: data.phone, pictureUrl: '' }); } }
 function saveMatchEvents(events) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("MatchEvents"); if (!sheet) { sheet = ss.insertSheet("MatchEvents"); sheet.appendRow(["ID", "MatchID", "TournamentID", "Minute", "Type", "Player", "TeamID", "Timestamp"]); } if (events && events.length > 0) { events.forEach(e => { sheet.appendRow([e.id, e.matchId, e.tournamentId, e.minute, e.type, e.player, e.teamId, e.timestamp]); }); } return successResponse({ status: 'success' }); }
-function saveSettings(settings) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("Config"); if (!sheet) { sheet = ss.insertSheet("Config"); sheet.appendRow(["CompName","Logo","BankName","BankAccount","AccountName","Location","Link","Announcement","PIN","Lat","Lng","Fee","Goal","ObjTitle","ObjDesc","ObjImg","LiffID","StartUrl","Scope"]); } let logoUrl = settings.competitionLogo; if (logoUrl && logoUrl.startsWith('data:')) logoUrl = saveFileToDrive(logoUrl, 'comp_logo_' + Date.now()); let objImgUrl = settings.objectiveImageUrl; if (objImgUrl && objImgUrl.startsWith('data:')) objImgUrl = saveFileToDrive(objImgUrl, 'obj_img_' + Date.now()); const rowData = [ settings.competitionName, logoUrl, settings.bankName, settings.bankAccount, settings.accountName, settings.locationName, settings.locationLink, settings.announcement, settings.adminPin, settings.locationLat, settings.locationLng, settings.registrationFee, settings.fundraisingGoal, settings.objectiveTitle, settings.objectiveDescription, objImgUrl, settings.liffId || '', settings.pwaStartUrl || '', settings.pwaScope || '' ]; if (sheet.getLastRow() < 2) sheet.appendRow(rowData); else sheet.getRange(2, 1, 1, rowData.length).setValues([rowData]); return successResponse({ status: 'success' }); }
+function saveSettings(settings) { 
+  const ss = getSpreadsheet(); 
+  let sheet = ss.getSheetByName("Config"); 
+  if (!sheet) { 
+    sheet = ss.insertSheet("Config"); 
+    sheet.appendRow(["CompName","Logo","BankName","BankAccount","AccountName","Location","Link","Announcement","PIN","Lat","Lng","Fee","Goal","ObjTitle","ObjDesc","ObjImg","LiffID","StartUrl","Scope", "CoffeePhone", "EduQR", "EduName", "EduBank", "EduNum"]); 
+  } 
+  
+  let logoUrl = settings.competitionLogo; 
+  if (logoUrl && logoUrl.startsWith('data:')) logoUrl = saveFileToDrive(logoUrl, 'comp_logo_' + Date.now()); 
+  
+  let objImgUrl = settings.objectiveImageUrl; 
+  if (objImgUrl && objImgUrl.startsWith('data:')) objImgUrl = saveFileToDrive(objImgUrl, 'obj_img_' + Date.now());
+  
+  let eduQrUrl = settings.educationSupportQrUrl;
+  if (eduQrUrl && eduQrUrl.startsWith('data:')) eduQrUrl = saveFileToDrive(eduQrUrl, 'edu_qr_' + Date.now());
+
+  const rowData = [ 
+    settings.competitionName, logoUrl, settings.bankName, settings.bankAccount, settings.accountName, settings.locationName, settings.locationLink, settings.announcement, settings.adminPin, settings.locationLat, settings.locationLng, settings.registrationFee, settings.fundraisingGoal, settings.objectiveTitle, settings.objectiveDescription, objImgUrl, settings.liffId || '', settings.pwaStartUrl || '', settings.pwaScope || '',
+    settings.coffeeSupportPhone || '0836645989',
+    eduQrUrl || '',
+    settings.educationSupportAccountName || '',
+    settings.educationSupportBankName || '',
+    settings.educationSupportAccountNumber || ''
+  ]; 
+  
+  if (sheet.getLastRow() < 2) sheet.appendRow(rowData); 
+  else sheet.getRange(2, 1, 1, rowData.length).setValues([rowData]); 
+  
+  return successResponse({ status: 'success' }); 
+}
 function scheduleMatch(data) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("Matches"); if (!sheet) { sheet = ss.insertSheet("Matches"); sheet.appendRow(["MatchID","TeamA","TeamB","ScoreA","ScoreB","Winner","Date","Summary","Round","Status","Venue","ScheduledTime","LiveURL","LiveCover","TournamentID"]); } const rows = sheet.getDataRange().getValues(); let rowIndex = -1; let matchId = data.matchId; for (let i = 1; i < rows.length; i++) { if (String(rows[i][0]) === String(matchId)) { rowIndex = i + 1; break; } } if (rowIndex === -1 && data.roundLabel) { const reqTId = data.tournamentId ? String(data.tournamentId) : 'default'; for (let i = 1; i < rows.length; i++) { const rowTId = rows[i][14] ? String(rows[i][14]) : 'default'; if (String(rows[i][8]) === String(data.roundLabel) && rowTId === reqTId) { rowIndex = i + 1; matchId = String(rows[i][0]); break; } } } let coverUrl = ""; if (data.livestreamCover && data.livestreamCover.startsWith("data:")) coverUrl = saveFileToDrive(data.livestreamCover, `cover_${matchId}`); else if (data.livestreamCover !== undefined) coverUrl = data.livestreamCover; if (rowIndex === -1) { if (!matchId || matchId.includes('TEMP')) matchId = "M_" + Date.now(); sheet.appendRow([ matchId, data.teamA !== undefined ? data.teamA : '', data.teamB !== undefined ? data.teamB : '', 0, 0, '', new Date().toISOString(), '', data.roundLabel || '', 'Scheduled', data.venue || '', data.scheduledTime || '', data.livestreamUrl || '', coverUrl, data.tournamentId || 'default' ]); } else { if(data.teamA !== undefined) sheet.getRange(rowIndex, 2).setValue(data.teamA); if(data.teamB !== undefined) sheet.getRange(rowIndex, 3).setValue(data.teamB); if(data.roundLabel !== undefined) sheet.getRange(rowIndex, 9).setValue(data.roundLabel); if(data.venue !== undefined) sheet.getRange(rowIndex, 11).setValue(data.venue); if(data.scheduledTime !== undefined) sheet.getRange(rowIndex, 12).setValue(data.scheduledTime); if(data.livestreamUrl !== undefined) sheet.getRange(rowIndex, 13).setValue(data.livestreamUrl); if (coverUrl !== "") sheet.getRange(rowIndex, 14).setValue(coverUrl); if (data.tournamentId !== undefined) sheet.getRange(rowIndex, 15).setValue(data.tournamentId); } return successResponse({ status: 'success', matchId: matchId }); }
 function deleteMatch(matchId) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("Matches"); const rows = sheet.getDataRange().getValues(); for (let i = 1; i < rows.length; i++) { if (String(rows[i][0]) === String(matchId)) { sheet.deleteRow(i + 1); return successResponse({ status: 'success' }); } } return errorResponse("Match not found"); }
 function updateUserRole(userId, role) { const ss = getSpreadsheet(); let sheet = ss.getSheetByName("Users"); const data = sheet.getDataRange().getValues(); for (let i = 1; i < data.length; i++) { if (String(data[i][0]) === String(userId)) { sheet.getRange(i + 1, 5).setValue(role); return successResponse({ status: 'success' }); } } return errorResponse("User not found"); }
