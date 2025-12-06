@@ -1,6 +1,6 @@
 
 // ... existing imports ...
-import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction } from '../types';
+import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction, Sponsor } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
@@ -174,6 +174,31 @@ export const incrementShareCount = async (entryId: string): Promise<boolean> => 
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ action: 'incrementShareCount', entryId })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
+// --- SPONSOR FUNCTIONS ---
+
+export const fetchSponsors = async (): Promise<Sponsor[]> => {
+    try {
+        const response = await fetch(`${API_URL}?action=getSponsors&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data.sponsors || [];
+    } catch (error) {
+        return [];
+    }
+};
+
+export const manageSponsor = async (data: { subAction: 'add' | 'delete', id?: string, name?: string, logoFile?: string, type?: string }): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'manageSponsor', ...data })
         });
         return true;
     } catch (e) { return false; }

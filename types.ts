@@ -336,3 +336,10 @@ export interface Prediction {
   timestamp: string;
   tournamentId?: string;
 }
+
+export interface Sponsor {
+  id: string;
+  name: string;
+  logoUrl: string;
+  type?: 'Main' | 'Support';
+}

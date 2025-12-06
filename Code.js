@@ -20,6 +20,8 @@ function doGet(e) {
       return getContests();
     } else if (action === 'getComments') {
       return getComments(e.parameter.entryId);
+    } else if (action === 'getSponsors') {
+      return getSponsors();
     }
     
     return successResponse({ status: 'running', message: 'Penalty Pro API is active' });
@@ -65,6 +67,8 @@ function doPost(e) {
     else if (action === 'incrementShareCount') return incrementShareCount(data.entryId);
     // Prediction Logic
     else if (action === 'submitPrediction') return submitPrediction(data);
+    // Sponsor Logic
+    else if (action === 'manageSponsor') return manageSponsor(data);
     
     return errorResponse("Unknown action: " + action);
     
@@ -376,6 +380,59 @@ function submitContestComment(data) {
   ]);
   
   return successResponse({ status: 'success', id });
+}
+
+// ... SPONSOR FUNCTIONS ...
+
+function getSponsors() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("Sponsors");
+  if (!sheet) {
+    sheet = ss.insertSheet("Sponsors");
+    sheet.appendRow(["ID", "Name", "LogoURL", "Type"]);
+    return successResponse({ sponsors: [] });
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  const sponsors = [];
+  for (let i = 1; i < data.length; i++) {
+    if(data[i][0]) {
+      sponsors.push({
+        id: String(data[i][0]),
+        name: data[i][1],
+        logoUrl: toLh3Link(data[i][2]),
+        type: data[i][3] || 'Main'
+      });
+    }
+  }
+  return successResponse({ sponsors });
+}
+
+function manageSponsor(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("Sponsors");
+  if (!sheet) {
+    sheet = ss.insertSheet("Sponsors");
+    sheet.appendRow(["ID", "Name", "LogoURL", "Type"]);
+  }
+  
+  if (data.subAction === 'add') {
+    let logoUrl = "";
+    if (data.logoFile && data.logoFile.startsWith('data:')) {
+      logoUrl = saveFileToDrive(data.logoFile, `sponsor_${Date.now()}`);
+    }
+    const id = "SPN_" + Date.now();
+    sheet.appendRow([id, data.name, logoUrl, data.type || 'Main']);
+  } else if (data.subAction === 'delete') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    }
+  }
+  return successResponse({ status: 'success' });
 }
 
 // ... PREDICTION FUNCTIONS ...

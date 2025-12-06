@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode } from 'lucide-react';
-import { fetchContests } from '../services/sheetService';
+import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor } from '../types';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save } from 'lucide-react';
+import { fetchContests, fetchSponsors, manageSponsor, fileToBase64 } from '../services/sheetService';
 
 interface LiveWallProps {
   matches: Match[];
@@ -17,6 +17,103 @@ interface LiveWallProps {
 const BASE_SLIDE_DURATION = 12000; // 12 Seconds per standard slide
 const HIGHLIGHT_SLIDE_DURATION = 15000; // Give more time for highlights/loading
 
+// Reusing Image compression for sponsors
+const compressImage = async (file: File): Promise<File> => {
+    if (file.type === 'application/pdf') return file; 
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 512; // Sponsors usually small
+                const scaleSize = MAX_WIDTH / img.width;
+                const width = (scaleSize < 1) ? MAX_WIDTH : img.width;
+                const height = (scaleSize < 1) ? img.height * scaleSize : img.height;
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        const newFile = new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() });
+                        resolve(newFile);
+                    } else reject(new Error('Canvas is empty'));
+                }, 'image/jpeg', 0.8);
+            };
+        };
+        reader.onerror = (error) => reject(error);
+    });
+};
+
+const SponsorManagerModal: React.FC<{ isOpen: boolean, onClose: () => void, sponsors: Sponsor[], onUpdate: () => void }> = ({ isOpen, onClose, sponsors, onUpdate }) => {
+    const [name, setName] = useState('');
+    const [file, setFile] = useState<File | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    if (!isOpen) return null;
+
+    const handleAdd = async () => {
+        if (!name || !file) return;
+        setIsSubmitting(true);
+        try {
+            const compressed = await compressImage(file);
+            const base64 = await fileToBase64(compressed);
+            await manageSponsor({ subAction: 'add', name, logoFile: base64 });
+            onUpdate();
+            setName('');
+            setFile(null);
+        } catch (e) {
+            console.error(e);
+            alert("Error adding sponsor");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!confirm("Remove this sponsor?")) return;
+        setIsSubmitting(true);
+        try {
+            await manageSponsor({ subAction: 'delete', id });
+            onUpdate();
+        } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-white rounded-2xl w-full max-w-md p-6 text-slate-800" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg flex items-center gap-2"><Settings className="w-5 h-5"/> Manage Sponsors</h3>
+                    <button onClick={onClose}><X className="w-5 h-5"/></button>
+                </div>
+                
+                <div className="space-y-3 mb-6">
+                    <input type="text" placeholder="Sponsor Name" className="w-full p-2 border rounded" value={name} onChange={e => setName(e.target.value)} />
+                    <input type="file" accept="image/*" onChange={e => setFile(e.target.files?.[0] || null)} className="text-sm" />
+                    <button onClick={handleAdd} disabled={isSubmitting || !name || !file} className="w-full py-2 bg-indigo-600 text-white rounded font-bold flex items-center justify-center gap-2">
+                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Sponsor</>}
+                    </button>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto space-y-2 border-t pt-4">
+                    {sponsors.length === 0 ? <p className="text-center text-slate-400 text-sm">No sponsors yet.</p> : sponsors.map(s => (
+                        <div key={s.id} className="flex items-center justify-between p-2 bg-slate-50 rounded border">
+                            <div className="flex items-center gap-2">
+                                <img src={s.logoUrl} className="w-8 h-8 object-contain bg-white rounded p-0.5 border" />
+                                <span className="font-bold text-sm truncate w-32">{s.name}</span>
+                            </div>
+                            <button onClick={() => handleDelete(s.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4"/></button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -24,6 +121,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [contestEntries, setContestEntries] = useState<ContestEntry[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(0);
   
+  // Sponsors
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [isSponsorModalOpen, setIsSponsorModalOpen] = useState(false);
+
   // Slides: 
   // 0=Matches, 1=Standings, 2=Results, 3=TopScorers, 4=TopKeepers, 5=FanPrediction, 6=Highlights(Load)
   const totalSlides = 7;
@@ -35,18 +136,23 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // Current URL for QR Code
   const currentUrl = window.location.href.split('?')[0];
 
-  // --- Initial Data Fetch for Highlights ---
+  // --- Initial Data Fetch ---
+  const loadExtras = async () => {
+      try {
+          const [contestData, sponsorData] = await Promise.all([
+              fetchContests(),
+              fetchSponsors()
+          ]);
+          // Filter only unique photos
+          const uniquePhotos = contestData.entries.filter((e, i, a) => a.findIndex(t => t.photoUrl === e.photoUrl) === i);
+          setContestEntries(uniquePhotos);
+          setSponsors(sponsorData);
+      } catch (e) {
+          console.error("Failed to load live wall extras");
+      }
+  };
+
   useEffect(() => {
-      const loadExtras = async () => {
-          try {
-              const data = await fetchContests();
-              // Filter only approved or active if needed, for now take all unique photos
-              const uniquePhotos = data.entries.filter((e, i, a) => a.findIndex(t => t.photoUrl === e.photoUrl) === i);
-              setContestEntries(uniquePhotos);
-          } catch (e) {
-              console.error("Failed to load live wall extras");
-          }
-      };
       loadExtras();
   }, []);
 
@@ -221,12 +327,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
     }
 
     // STEALTH REFRESH TRIGGER WITH JITTER
-    // Add random delay between 0-5 seconds to prevent thundering herd if multiple screens are open
     if (currentSlide === 6) {
         const jitter = Math.random() * 5000;
         const refreshTimer = setTimeout(() => {
-            console.log("Stealth Refresh Triggered");
             onRefresh(true);
+            loadExtras(); // Refresh sponsors too
         }, jitter);
         return () => clearTimeout(refreshTimer);
     }
@@ -246,6 +351,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   return (
     <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
         
+        <SponsorManagerModal isOpen={isSponsorModalOpen} onClose={() => setIsSponsorModalOpen(false)} sponsors={sponsors} onUpdate={loadExtras} />
+
         {/* ANIMATED BACKGROUND */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-black animate-slow-spin opacity-50"></div>
@@ -254,7 +361,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         </div>
 
         {/* TOP BAR */}
-        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4">
+        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group">
             <div className="flex items-center gap-6">
                 <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl p-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] border border-white/20">
                     <img src={config.competitionLogo} className="w-full h-full object-contain drop-shadow-md" />
@@ -293,8 +400,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         {currentTime.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                     </div>
                 </div>
-                <div className="h-16 w-[1px] bg-gradient-to-b from-transparent via-white/20 to-transparent"></div>
-                <div className="flex gap-2">
+                
+                {/* HIDDEN ACTIONS (Visible on Hover/Interaction) */}
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <button onClick={() => setIsSponsorModalOpen(true)} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><Settings className="w-6 h-6"/></button>
                     <button onClick={enterFullScreen} className="p-3 bg-white/5 hover:bg-white/10 rounded-full text-slate-300 hover:text-white transition backdrop-blur-sm"><Maximize2 className="w-6 h-6"/></button>
                     <button onClick={onClose} className="p-3 bg-red-500/10 hover:bg-red-500/20 rounded-full text-red-400 hover:text-red-300 transition backdrop-blur-sm"><X className="w-6 h-6"/></button>
                 </div>
@@ -538,7 +647,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 6: HIGHLIGHTS (STEALTH REFRESH) */}
+            {/* SLIDE 6: HIGHLIGHTS */}
             {currentSlide === 6 && (
                 <div className="h-full flex flex-col animate-in fade-in duration-1000">
                     <div className="flex items-center gap-4 mb-4">
@@ -578,35 +687,48 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         </div>
 
-        {/* BOTTOM TICKER & SPONSORS */}
-        <div className="h-16 bg-white text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)]">
-            <div className="bg-red-600 h-full px-8 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-4 shadow-lg z-20">
-                <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-xl">
-                    <Megaphone className="w-6 h-6 animate-bounce" /> UPDATE
+        {/* BOTTOM TICKER & SPONSORS - ENHANCED */}
+        <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200">
+            <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+                <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-2xl relative z-10 drop-shadow-md">
+                    <Megaphone className="w-8 h-8 animate-bounce" /> UPDATE
                 </span>
             </div>
-            <div className="flex-1 overflow-hidden relative h-full flex items-center bg-white z-10">
-                <div className="absolute whitespace-nowrap animate-marquee px-4 text-2xl font-bold text-slate-800 uppercase tracking-wide flex items-center">
+            
+            <div className="flex-1 overflow-hidden relative h-full flex items-center z-10">
+                <div className="absolute whitespace-nowrap animate-marquee px-4 text-3xl font-black text-slate-800 uppercase tracking-wide flex items-center">
                     {announcements.length > 0 ? announcements.map((a, i) => (
                         <React.Fragment key={i}>
-                            <span className="mx-8">{a}</span>
+                            <span className="mx-12">{a}</span>
                             <span className="text-red-500 text-3xl">•</span>
                         </React.Fragment>
                     )) : (
-                        <span className="pl-6 text-slate-400 font-bold uppercase tracking-widest">PENALTY PRO ARENA - OFFICIAL TOURNAMENT SYSTEM - LIVE SCORING & STATISTICS</span>
+                        <span className="pl-6 text-slate-300 font-bold uppercase tracking-widest">OFFICIAL TOURNAMENT SYSTEM - LIVE SCORING & STATISTICS</span>
                     )}
                 </div>
             </div>
             
-            {/* SPONSOR MOCKUP (Replace with real logic if needed) */}
-            <div className="h-full bg-slate-100 flex items-center px-6 gap-4 z-20 border-l border-slate-200">
-                <span className="text-[10px] text-slate-400 font-bold uppercase">Official Partners</span>
-                <div className="flex gap-4 opacity-50 grayscale hover:grayscale-0 transition">
-                    {/* Placeholder Icons for Sponsors */}
-                    <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
-                    <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
-                    <div className="w-8 h-8 bg-slate-300 rounded-full"></div>
-                </div>
+            {/* DYNAMIC SPONSOR BAR */}
+            <div className="h-full bg-gradient-to-l from-slate-100 to-white flex items-center px-8 gap-6 z-20 border-l border-slate-200 min-w-[300px] justify-end relative overflow-hidden">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest absolute top-2 right-4">Official Partners</span>
+                {sponsors.length > 0 ? (
+                    <div className="flex gap-8 items-center overflow-hidden w-full justify-end">
+                        <div className="flex gap-8 animate-marquee-sponsors items-center">
+                            {[...sponsors, ...sponsors].map((s, i) => (
+                                <img key={i} src={s.logoUrl} className="h-12 object-contain grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition duration-300" title={s.name} />
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex gap-4 opacity-30 grayscale">
+                        {/* Placeholders */}
+                        <div className="w-10 h-10 bg-slate-400 rounded-full"></div>
+                        <div className="w-10 h-10 bg-slate-400 rounded-full"></div>
+                        <div className="w-10 h-10 bg-slate-400 rounded-full"></div>
+                    </div>
+                )}
             </div>
         </div>
 
@@ -623,6 +745,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .animate-slow-spin { animation: slow-spin 60s linear infinite; }
             @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
             .animate-marquee { animation: marquee 30s linear infinite; }
+            @keyframes marquee-sponsors { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+            .animate-marquee-sponsors { animation: marquee-sponsors 20s linear infinite; display: flex; width: max-content; }
             ::-webkit-scrollbar { display: none; }
         `}</style>
     </div>
