@@ -1,39 +1,63 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Match, Team, Standing, Player, KickResult, AppSettings } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry } from '../types';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User } from 'lucide-react';
+import { fetchContests } from '../services/sheetService';
 
 interface LiveWallProps {
   matches: Match[];
   teams: Team[];
   players: Player[];
   config: AppSettings;
+  predictions: Prediction[];
   onClose: () => void;
-  onRefresh: () => void;
+  onRefresh: (silent?: boolean) => void;
 }
 
-const BASE_SLIDE_DURATION = 15000; // 15 Seconds per main slide
-const DATA_REFRESH_INTERVAL = 60000; // 1 Minute
+const BASE_SLIDE_DURATION = 12000; // 12 Seconds per standard slide
+const HIGHLIGHT_SLIDE_DURATION = 15000; // Give more time for highlights/loading
 
-const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, onClose, onRefresh }) => {
+const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [standingsPage, setStandingsPage] = useState(0);
+  const [contestEntries, setContestEntries] = useState<ContestEntry[]>([]);
+  const [highlightIndex, setHighlightIndex] = useState(0);
   
-  // Slides configuration: 0=Matches, 1=Standings, 2=Results, 3=Stats
-  const totalSlides = 4;
+  // Slides: 
+  // 0=Matches, 1=Standings, 2=Results, 3=TopScorers, 4=TopKeepers, 5=FanPrediction, 6=Highlights(Load)
+  const totalSlides = 7;
 
-  // --- Data Processing ---
+  const announcements = useMemo(() => {
+      return config.announcement ? config.announcement.split('|').filter(s => s.trim() !== '') : [];
+  }, [config.announcement]);
+
+  // --- Initial Data Fetch for Highlights ---
+  useEffect(() => {
+      const loadExtras = async () => {
+          try {
+              const data = await fetchContests();
+              // Filter only approved or active if needed, for now take all unique photos
+              const uniquePhotos = data.entries.filter((e, i, a) => a.findIndex(t => t.photoUrl === e.photoUrl) === i);
+              setContestEntries(uniquePhotos);
+          } catch (e) {
+              console.error("Failed to load live wall extras");
+          }
+      };
+      loadExtras();
+  }, []);
+
+  // --- Data Processing Helpers ---
+
+  const resolveTeam = (t: string | Team) => typeof t === 'string' ? (teams.find(x => x.name === t) || {name: t, logoUrl:''} as Team) : t;
 
   // 1. Matches (Live or Next)
   const upcomingMatches = useMemo(() => {
-      // Prioritize LIVE matches first
       const live = matches.filter(m => m.livestreamUrl && !m.winner);
       const scheduled = matches
         .filter(m => !m.winner && !m.livestreamUrl)
         .sort((a, b) => new Date(a.scheduledTime || a.date).getTime() - new Date(b.scheduledTime || b.date).getTime());
-      
-      return [...live, ...scheduled].slice(0, 4); // Show top 4 matches
+      return [...live, ...scheduled].slice(0, 4);
   }, [matches]);
 
   // 2. Recent Results
@@ -41,10 +65,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
       return matches
         .filter(m => m.winner)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-        .slice(0, 6); // Top 6 results
+        .slice(0, 6);
   }, [matches]);
 
-  // 3. Standings & Grouping Logic
+  // 3. Standings
   const standingsGroups = useMemo(() => {
       const map: Record<string, Standing> = {};
       teams.forEach(t => {
@@ -72,97 +96,139 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
           groups[s.group].push(s);
       });
       
-      // Sort keys (Group A, B, C...)
       const sortedKeys = Object.keys(groups).sort();
-      
-      // Sort teams within groups
       sortedKeys.forEach(k => {
           groups[k].sort((a,b) => b.points - a.points || (b.goalsFor-b.goalsAgainst) - (a.goalsFor-a.goalsAgainst) || b.goalsFor - a.goalsFor);
       });
 
-      // Pagination Logic: Chunk groups into sets of 4
       const chunkSize = 4;
       const pages = [];
       for (let i = 0; i < sortedKeys.length; i += chunkSize) {
           const groupKeys = sortedKeys.slice(i, i + chunkSize);
           pages.push(groupKeys.map(k => ({ name: k, teams: groups[k] })));
       }
-      
-      return pages; // Returns [[{name:'A', teams:[]}, ...], ...]
+      return pages;
   }, [matches, teams]);
 
-  // 4. Top Scorers
+  // 4. Top Scorers (With Photo Lookup)
   const topScorers = useMemo(() => {
-      const scores: Record<string, {name: string, team: string, goals: number, pic?: string}> = {};
+      const scores: Record<string, {name: string, team: string, goals: number, photoUrl?: string}> = {};
       matches.forEach(m => {
-          m.events?.forEach(e => {
-              if (e.type === 'GOAL') {
-                  const key = `${e.player}_${e.teamId}`;
-                  if (!scores[key]) scores[key] = { name: e.player, team: e.teamId === 'A' ? (typeof m.teamA==='string'?m.teamA:m.teamA.name) : (typeof m.teamB==='string'?m.teamB:m.teamB.name), goals: 0 };
-                  scores[key].goals++;
+          const processGoal = (player: string, teamId: string) => {
+              const pName = String(player).split('(')[0].replace(/[#0-9]/g,'').trim();
+              const teamName = teamId === 'A' || (typeof m.teamA==='string'?m.teamA:m.teamA.name) === teamId ? (typeof m.teamA==='string'?m.teamA:m.teamA.name) : (typeof m.teamB==='string'?m.teamB:m.teamB.name);
+              const key = `${pName}_${teamName}`;
+              
+              if (!scores[key]) {
+                  // Find Player Photo
+                  const teamObj = teams.find(t => t.name === teamName);
+                  const playerObj = players.find(p => p.teamId === teamObj?.id && p.name.includes(pName));
+                  scores[key] = { name: pName, team: teamName, goals: 0, photoUrl: playerObj?.photoUrl };
               }
-          });
+              scores[key].goals++;
+          };
+
+          m.events?.forEach(e => { if (e.type === 'GOAL') processGoal(e.player, e.teamId); });
+          m.kicks?.forEach(k => { if (k.result === KickResult.GOAL) processGoal(k.player, k.teamId); });
+      });
+      return Object.values(scores).sort((a,b) => b.goals - a.goals).slice(0, 5);
+  }, [matches, teams, players]);
+
+  // 5. Top Keepers (Clean Sheets & Saves)
+  const topKeepers = useMemo(() => {
+      const savesMap: Record<string, { teamName: string, saves: number, cleanSheets: number, logoUrl?: string }> = {};
+      teams.forEach(t => {
+          if(t.status === 'Approved') savesMap[t.name] = { teamName: t.name, saves: 0, cleanSheets: 0, logoUrl: t.logoUrl };
+      });
+
+      matches.forEach(m => {
+          if (!m.winner) return;
+          const tA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
+          const tB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
+
+          if (savesMap[tA] && m.scoreB === 0) savesMap[tA].cleanSheets++;
+          if (savesMap[tB] && m.scoreA === 0) savesMap[tB].cleanSheets++;
+
           m.kicks?.forEach(k => {
-              if (k.result === KickResult.GOAL) {
-                  const pName = String(k.player).split('(')[0].trim();
-                  const key = `${pName}_${k.teamId}`;
-                  const teamName = k.teamId === 'A' || (typeof m.teamA==='string'?m.teamA:m.teamA.name) === k.teamId ? (typeof m.teamA==='string'?m.teamA:m.teamA.name) : (typeof m.teamB==='string'?m.teamB:m.teamB.name);
-                  if (!scores[key]) scores[key] = { name: pName, team: teamName, goals: 0 };
-                  scores[key].goals++;
+              if (k.result === KickResult.SAVED) {
+                  const saverTeam = (k.teamId === 'A' || tA === k.teamId) ? tB : tA; // Opposite of kicker
+                  if (savesMap[saverTeam]) savesMap[saverTeam].saves++;
               }
           });
       });
-      return Object.values(scores).sort((a,b) => b.goals - a.goals).slice(0, 5);
-  }, [matches]);
 
-  // --- Effects ---
+      return Object.values(savesMap)
+        .filter(k => k.saves > 0 || k.cleanSheets > 0)
+        .sort((a, b) => (b.saves * 2 + b.cleanSheets * 5) - (a.saves * 2 + a.cleanSheets * 5))
+        .slice(0, 5);
+  }, [matches, teams]);
+
+  // 6. Fan Predictions
+  const fanRankings = useMemo(() => {
+      const scores: Record<string, { name: string, pic: string, points: number, correct: number }> = {};
+      const results: Record<string, string> = {};
+      
+      matches.forEach(m => {
+          if (m.winner) {
+              results[m.id] = m.winner === 'A' || m.winner === (typeof m.teamA==='string'?m.teamA:m.teamA.name) ? 'A' : 'B';
+          }
+      });
+
+      predictions.forEach(p => {
+          if (results[p.matchId] && results[p.matchId] === p.prediction) {
+              if (!scores[p.userId]) scores[p.userId] = { name: p.userDisplayName || 'User', pic: p.userPictureUrl || '', points: 0, correct: 0 };
+              scores[p.userId].points += 10;
+              scores[p.userId].correct++;
+          }
+      });
+
+      return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 5);
+  }, [matches, predictions]);
+
+  // --- Timers & Rotation ---
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    const refreshTimer = setInterval(onRefresh, DATA_REFRESH_INTERVAL);
+    const clockTimer = setInterval(() => setCurrentTime(new Date()), 1000);
     
-    // Custom slide rotation logic
-    let slideInterval: any;
-    
+    // Slide Rotation
     const rotateSlide = () => {
         setCurrentSlide(prev => {
             const next = (prev + 1) % totalSlides;
-            // If going back to Standings (Slide 1), reset page
-            if (next === 1) setStandingsPage(0);
+            // Reset sub-pages when leaving their main slide
+            if (next === 1) setStandingsPage(0); 
+            if (next === 6) setHighlightIndex(0);
             return next;
         });
     };
 
-    // Dynamic duration based on content
     let duration = BASE_SLIDE_DURATION;
-    if (currentSlide === 1) {
-        // If showing standings, we need time to cycle through all pages
-        // Give 8 seconds per page
-        duration = Math.max(BASE_SLIDE_DURATION, standingsGroups.length * 8000);
+    if (currentSlide === 1) duration = Math.max(BASE_SLIDE_DURATION, standingsGroups.length * 8000); // Standings pagination
+    if (currentSlide === 6) duration = HIGHLIGHT_SLIDE_DURATION; // Highlights (Loading time)
+
+    const slideTimer = setInterval(rotateSlide, duration);
+
+    // Sub-rotations
+    let subTimer: any;
+    if (currentSlide === 1 && standingsGroups.length > 1) {
+        subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 8000);
+    }
+    if (currentSlide === 6 && contestEntries.length > 1) {
+        // Faster rotation for images
+        subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 3000);
     }
 
-    slideInterval = setInterval(rotateSlide, duration);
+    // STEALTH REFRESH TRIGGER
+    if (currentSlide === 6) {
+        console.log("Stealth Refresh Triggered");
+        onRefresh(true); // Call refresh silently
+    }
 
     return () => {
-      clearInterval(timer);
-      clearInterval(refreshTimer);
-      clearInterval(slideInterval);
+      clearInterval(clockTimer);
+      clearInterval(slideTimer);
+      if (subTimer) clearInterval(subTimer);
     };
-  }, [currentSlide, standingsGroups.length]);
-
-  // Rotate Standings Pages internally
-  useEffect(() => {
-      if (currentSlide === 1 && standingsGroups.length > 1) {
-          const pageInterval = setInterval(() => {
-              setStandingsPage(prev => (prev + 1) % standingsGroups.length);
-          }, 8000); // Rotate page every 8 seconds
-          return () => clearInterval(pageInterval);
-      }
-  }, [currentSlide, standingsGroups.length]);
-
-  // Helper
-  const resolveTeam = (t: string | Team) => typeof t === 'string' ? (teams.find(x => x.name === t) || {name: t, logoUrl:''} as Team) : t;
-  const announcements = config.announcement ? config.announcement.split('|').filter(s => s.trim()) : [];
+  }, [currentSlide, standingsGroups.length, contestEntries.length]);
 
   const enterFullScreen = () => {
       const elem = document.documentElement;
@@ -170,13 +236,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
   };
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
+    <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
         
         {/* ANIMATED BACKGROUND */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900/40 via-slate-950 to-black animate-slow-spin opacity-50"></div>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
-            {/* Grid Lines */}
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
         </div>
 
@@ -220,7 +285,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
         {/* MAIN CONTENT AREA */}
         <div className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4">
             
-            {/* SLIDE 1: MATCH CENTER */}
+            {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
                 <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-700">
                     <div className="flex items-center gap-4 mb-8">
@@ -237,16 +302,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                                     const isLive = m.livestreamUrl && !m.winner;
                                     return (
                                         <div key={m.id} className={`relative group bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10 hover:border-indigo-500/30'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100 opacity-90'}`}>
-                                            
-                                            {/* Left Team */}
                                             <div className="flex items-center gap-6 w-[40%]">
                                                 <div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">
                                                     {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tA.name.substring(0,1)}</div>}
                                                 </div>
                                                 <span className="text-3xl font-bold truncate">{tA.name}</span>
                                             </div>
-                                            
-                                            {/* Score / Time */}
                                             <div className="flex flex-col items-center w-[20%] relative">
                                                 {isLive ? (
                                                     <div className="absolute -top-10 bg-red-600 text-white px-3 py-0.5 rounded text-xs font-bold uppercase tracking-wider animate-pulse shadow-lg">Live</div>
@@ -255,7 +316,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                                                         {new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}
                                                     </div>
                                                 )}
-                                                
                                                 <div className="flex items-center gap-4 text-6xl font-black font-mono tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                                                     <span>{m.scoreA}</span>
                                                     <span className="text-slate-600 text-4xl">:</span>
@@ -263,8 +323,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                                                 </div>
                                                 <div className="text-indigo-400 font-bold text-sm tracking-widest mt-2">{m.roundLabel?.split(':')[0]}</div>
                                             </div>
-
-                                            {/* Right Team */}
                                             <div className="flex items-center gap-6 w-[40%] justify-end">
                                                 <span className="text-3xl font-bold truncate text-right">{tB.name}</span>
                                                 <div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">
@@ -277,18 +335,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                             </div>
                         ) : (
                             <div className="text-center opacity-40 flex flex-col items-center">
-                                <div className="w-32 h-32 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                                    <Clock className="w-16 h-16 text-slate-400" />
-                                </div>
+                                <div className="w-32 h-32 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse"><Clock className="w-16 h-16 text-slate-400" /></div>
                                 <h3 className="text-4xl font-black tracking-widest">NO MATCHES NOW</h3>
-                                <p className="text-xl mt-2 text-slate-400">Stay tuned for upcoming games</p>
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            {/* SLIDE 2: STANDINGS */}
+            {/* SLIDE 1: STANDINGS */}
             {currentSlide === 1 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-700">
                     <div className="flex items-center justify-between mb-8">
@@ -304,27 +359,18 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                             </div>
                         )}
                     </div>
-                    
-                    {/* Content Area with Pagination */}
                     <div className="flex-1 relative">
                         {standingsGroups.length > 0 ? (
                             <div className="grid grid-cols-2 gap-8 content-start animate-in fade-in zoom-in-95 duration-500 key={standingsPage}">
                                 {standingsGroups[standingsPage]?.map(group => (
                                     <div key={group.name} className="bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl">
                                         <div className="bg-gradient-to-r from-indigo-900/50 to-slate-900/50 px-6 py-4 border-b border-white/5 flex justify-between items-center">
-                                            <h3 className="font-black text-2xl text-white flex items-center gap-2">
-                                                <span className="text-indigo-400">GROUP</span> {group.name}
-                                            </h3>
+                                            <h3 className="font-black text-2xl text-white flex items-center gap-2"><span className="text-indigo-400">GROUP</span> {group.name}</h3>
                                             <div className="text-xs font-bold text-slate-500 bg-white/5 px-2 py-1 rounded">Top 2 Qualify</div>
                                         </div>
                                         <table className="w-full text-lg">
                                             <thead className="bg-white/5 text-slate-400 text-sm uppercase tracking-wider font-bold">
-                                                <tr>
-                                                    <th className="p-3 text-left pl-6 w-[50%]">Team</th>
-                                                    <th className="p-3 text-center">P</th>
-                                                    <th className="p-3 text-center">GD</th>
-                                                    <th className="p-3 text-center text-white bg-white/5">PTS</th>
-                                                </tr>
+                                                <tr><th className="p-3 text-left pl-6 w-[50%]">Team</th><th className="p-3 text-center">P</th><th className="p-3 text-center">GD</th><th className="p-3 text-center text-white bg-white/5">PTS</th></tr>
                                             </thead>
                                             <tbody className="divide-y divide-white/5">
                                                 {group.teams.map((team, idx) => (
@@ -339,30 +385,24 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                                                         <td className="p-3 text-center font-black text-yellow-400 text-2xl bg-white/5">{team.points}</td>
                                                     </tr>
                                                 ))}
-                                                {/* Fill empty rows to keep height consistent if needed */}
-                                                {Array.from({ length: Math.max(0, 4 - group.teams.length) }).map((_, i) => (
-                                                    <tr key={`empty-${i}`} className="h-[60px]"><td colSpan={4}></td></tr>
-                                                ))}
+                                                {Array.from({ length: Math.max(0, 4 - group.teams.length) }).map((_, i) => <tr key={`empty-${i}`} className="h-[60px]"><td colSpan={4}></td></tr>)}
                                             </tbody>
                                         </table>
                                     </div>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">Waiting for standings data...</div>
-                        )}
+                        ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">Waiting for standings...</div>}
                     </div>
                 </div>
             )}
 
-            {/* SLIDE 3: RESULTS */}
+            {/* SLIDE 2: RESULTS */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-700">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Calendar className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Full Time Results</h2>
                     </div>
-                    
                     <div className="grid grid-cols-2 gap-6 content-start">
                         {recentResults.map(m => {
                             const tA = resolveTeam(m.teamA);
@@ -395,37 +435,124 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
                 </div>
             )}
 
-            {/* SLIDE 4: TOP SCORERS */}
+            {/* SLIDE 3: TOP SCORERS */}
             {currentSlide === 3 && (
                 <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-700">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-yellow-500 p-2 rounded-lg shadow-[0_0_20px_rgba(234,179,8,0.5)]"><Award className="w-8 h-8 text-white" /></div>
-                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Boot Race</h2>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Boot</h2>
                     </div>
-                    
                     <div className="flex flex-col gap-4 max-w-5xl mx-auto w-full">
                         {topScorers.map((p, idx) => (
-                            <div key={idx} className="relative overflow-hidden bg-gradient-to-r from-slate-900 to-slate-900/50 border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-lg transform transition hover:scale-105 group">
+                            <div key={idx} className="relative overflow-hidden bg-gradient-to-r from-slate-900 to-slate-900/50 border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-lg transform transition hover:scale-105 group h-32">
                                 <div className="absolute inset-0 bg-gradient-to-r from-indigo-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                <div className="flex items-center gap-8 relative z-10">
-                                    <div className={`w-20 h-20 flex items-center justify-center font-black text-4xl rounded-2xl shadow-inner border-t border-white/20 ${idx === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white' : idx === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-500 text-white' : idx === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                                        {idx + 1}
-                                    </div>
-                                    <div>
-                                        <div className="text-4xl font-black text-white tracking-tight">{p.name}</div>
-                                        <div className="text-xl text-indigo-300 font-bold">{p.team}</div>
+                                <div className="flex items-center gap-8 relative z-10 h-full">
+                                    <div className={`w-20 h-full flex items-center justify-center font-black text-4xl rounded-xl shadow-inner border-t border-white/20 ${idx === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-white' : 'bg-slate-800 text-slate-500'}`}>{idx + 1}</div>
+                                    <div className="flex items-center gap-6 h-full">
+                                        {p.photoUrl ? <img src={p.photoUrl} className="h-full w-24 object-contain drop-shadow-md rounded-md" /> : <div className="h-full w-24 bg-slate-800 rounded-md flex items-center justify-center"><User className="w-10 h-10 text-slate-600"/></div>}
+                                        <div>
+                                            <div className="text-4xl font-black text-white tracking-tight">{p.name}</div>
+                                            <div className="text-xl text-indigo-300 font-bold">{p.team}</div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-4 pr-4 relative z-10">
                                     <span className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 drop-shadow-lg">{p.goals}</span>
-                                    <div className="flex flex-col items-center">
-                                        <div className="w-1 h-8 bg-white/20 mb-1"></div>
-                                        <span className="text-xs text-white/50 font-bold uppercase tracking-widest rotate-90 origin-center translate-y-2">Goals</span>
-                                    </div>
+                                    <div className="flex flex-col items-center"><div className="w-1 h-8 bg-white/20 mb-1"></div><span className="text-xs text-white/50 font-bold uppercase tracking-widest rotate-90 origin-center translate-y-2">Goals</span></div>
                                 </div>
                             </div>
                         ))}
-                        {topScorers.length === 0 && <div className="text-center text-slate-500 text-3xl font-black py-32 opacity-50">NO GOALS RECORDED YET</div>}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 4: TOP KEEPERS */}
+            {currentSlide === 4 && (
+                <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-700">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="bg-blue-500 p-2 rounded-lg shadow-[0_0_20px_rgba(59,130,246,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
+                    </div>
+                    <div className="grid grid-cols-2 gap-6 content-start max-w-6xl mx-auto w-full">
+                        {topKeepers.map((k, idx) => (
+                            <div key={idx} className="bg-slate-900/60 border border-white/10 rounded-2xl p-6 flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl ${idx === 0 ? 'bg-yellow-400 text-black' : 'bg-slate-700 text-slate-400'}`}>{idx + 1}</div>
+                                    {k.logoUrl && <img src={k.logoUrl} className="w-16 h-16 object-contain" />}
+                                    <div>
+                                        <h3 className="text-2xl font-bold">{k.teamName}</h3>
+                                        <p className="text-slate-400">Goalkeeper Team</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-6 text-center">
+                                    <div><div className="text-4xl font-black text-blue-400">{k.saves}</div><div className="text-[10px] uppercase font-bold text-slate-500">Saves</div></div>
+                                    <div><div className="text-4xl font-black text-green-400">{k.cleanSheets}</div><div className="text-[10px] uppercase font-bold text-slate-500">Clean Sheet</div></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 5: FAN PREDICTIONS */}
+            {currentSlide === 5 && (
+                <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-700">
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="bg-purple-600 p-2 rounded-lg shadow-[0_0_20px_rgba(147,51,234,0.5)]"><Sparkles className="w-8 h-8 text-white" /></div>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Fan Prediction Leaderboard</h2>
+                    </div>
+                    <div className="flex flex-col gap-4 max-w-4xl mx-auto w-full">
+                        {fanRankings.map((fan, idx) => (
+                            <div key={idx} className="flex items-center justify-between bg-white/5 rounded-2xl p-4 border border-white/5">
+                                <div className="flex items-center gap-6">
+                                    <div className={`w-16 h-16 flex items-center justify-center font-black text-3xl rounded-xl ${idx === 0 ? 'bg-yellow-400 text-black' : 'bg-slate-800 text-slate-500'}`}>{idx+1}</div>
+                                    <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white/20">{fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center"><User className="w-8 h-8"/></div>}</div>
+                                    <div className="text-2xl font-bold">{fan.name}</div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-4xl font-black text-purple-400">{fan.points}</div>
+                                    <div className="text-xs text-slate-500 uppercase font-bold">Points</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 6: HIGHLIGHTS (STEALTH REFRESH) */}
+            {currentSlide === 6 && (
+                <div className="h-full flex flex-col animate-in fade-in duration-1000">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-pink-600 p-2 rounded-lg shadow-[0_0_20px_rgba(219,39,119,0.5)]"><Camera className="w-8 h-8 text-white" /></div>
+                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Tournament Highlights</h2>
+                    </div>
+                    <div className="flex-1 relative overflow-hidden rounded-3xl border border-white/10 bg-black/50 backdrop-blur-sm">
+                        {contestEntries.length > 0 ? (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <img 
+                                    src={contestEntries[highlightIndex].photoUrl} 
+                                    className="w-full h-full object-contain animate-in zoom-in-105 duration-[10000ms]" 
+                                    key={highlightIndex}
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black/90 to-transparent">
+                                    <div className="flex items-center gap-4">
+                                        {contestEntries[highlightIndex].userPictureUrl ? <img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white"/> : <div className="w-12 h-12 rounded-full bg-slate-700"></div>}
+                                        <div>
+                                            <p className="text-xl font-bold text-white">{contestEntries[highlightIndex].caption}</p>
+                                            <p className="text-sm text-slate-300">Photo by {contestEntries[highlightIndex].userDisplayName}</p>
+                                        </div>
+                                        <div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full">
+                                            <Heart className="w-5 h-5 fill-white"/> <span className="font-bold">{contestEntries[highlightIndex].likeCount}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center h-full flex-col">
+                                <Sparkles className="w-24 h-24 text-slate-600 mb-4 animate-pulse"/>
+                                <h3 className="text-2xl font-bold text-slate-500">Updating Live Data...</h3>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -465,21 +592,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, on
         </div>
 
         <style>{`
-            @keyframes slow-spin {
-                from { transform: rotate(0deg); }
-                to { transform: rotate(360deg); }
-            }
-            .animate-slow-spin {
-                animation: slow-spin 60s linear infinite;
-            }
-            @keyframes marquee {
-                0% { transform: translateX(100%); }
-                100% { transform: translateX(-100%); }
-            }
-            .animate-marquee {
-                animation: marquee 30s linear infinite;
-            }
-            /* Custom Scrollbar hide */
+            @keyframes slow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            .animate-slow-spin { animation: slow-spin 60s linear infinite; }
+            @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+            .animate-marquee { animation: marquee 30s linear infinite; }
             ::-webkit-scrollbar { display: none; }
         `}</style>
     </div>

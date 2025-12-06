@@ -307,9 +307,9 @@ export default function App() {
   const showNotification = (title: string, message: string = '', type: ToastType = 'success') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, title, message, type }]); };
   const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
-  // Modified loadData to accept forceRefresh
-  const loadData = async (forceRefresh: boolean = false) => {
-    setIsLoadingData(true);
+  // Modified loadData to accept silent refresh
+  const loadData = async (forceRefresh: boolean = false, isSilent: boolean = false) => {
+    if (!isSilent) setIsLoadingData(true);
     setConnectionError(null);
     try {
       const data = await fetchDatabase(forceRefresh);
@@ -440,8 +440,9 @@ export default function App() {
               teams={activeTeams} 
               players={activePlayers} 
               config={effectiveSettings} 
+              predictions={activePredictions}
               onClose={() => setCurrentView('tournament')} 
-              onRefresh={() => loadData(true)} 
+              onRefresh={(silent) => loadData(true, silent)} 
           />
       );
   }
