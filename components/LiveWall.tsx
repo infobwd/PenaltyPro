@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -45,6 +45,21 @@ const compressImage = async (file: File): Promise<File> => {
         };
         reader.onerror = (error) => reject(error);
     });
+};
+
+const getEmbedUrl = (url: string) => { 
+    if (!url) return null; 
+    if (url.includes('youtube.com') || url.includes('youtu.be')) { 
+        let videoId = ''; 
+        if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; 
+        else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; 
+        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0`; 
+    } 
+    if (url.includes('facebook.com')) { 
+        const encodedUrl = encodeURIComponent(url); 
+        return `https://www.facebook.com/plugins/video.php?href=${encodedUrl}&show_text=false&t=0&autoplay=1&mute=1`; 
+    } 
+    return null; 
 };
 
 const SettingsManagerModal: React.FC<{ 
@@ -222,7 +237,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   
   // Slides Configuration
   const slides = [
-      'Matches', 'Standings', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus'
+      'Matches', 'Standings', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream'
   ];
   const totalSlides = slides.length;
 
@@ -383,6 +398,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         .filter(m => !m.winner && !m.livestreamUrl)
         .sort((a, b) => new Date(a.scheduledTime || a.date).getTime() - new Date(b.scheduledTime || b.date).getTime());
       return [...live, ...scheduled];
+  }, [matches]);
+
+  const liveStreamingMatches = useMemo(() => {
+      return matches.filter(m => m.livestreamUrl && !m.winner);
   }, [matches]);
 
   const nextMatch = upcomingMatches.length > 0 ? upcomingMatches[0] : null;
@@ -709,20 +728,29 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                           <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                         </span>
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
+                        
+                        {/* Enhanced Music UI */}
                         {currentTrack ? (
-                            <div className={`flex items-center gap-2 ml-4 bg-white/10 px-3 py-1 rounded-full cursor-pointer hover:bg-white/20 transition ${!isPlaying ? 'opacity-50 grayscale' : ''}`} onClick={toggleMute}>
-                                {isPlaying ? (
-                                    <div className="flex gap-0.5 items-end h-3">
-                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.5s_infinite]' : 'h-1'}`}></span>
-                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.7s_infinite]' : 'h-1'}`}></span>
-                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.4s_infinite]' : 'h-1'}`}></span>
-                                        <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.6s_infinite]' : 'h-1'}`}></span>
+                            <div className={`flex items-center gap-3 ml-6 bg-white/10 backdrop-blur-lg px-4 py-1.5 rounded-full border border-white/10 shadow-lg cursor-pointer hover:bg-white/20 transition-all duration-300 ${!isPlaying ? 'opacity-50 grayscale' : 'opacity-100'}`} onClick={toggleMute}>
+                                {isPlaying && !isMuted ? (
+                                    <div className="flex items-end gap-1 h-4">
+                                        <div className="w-1 bg-green-400 animate-[music-bar_0.5s_infinite] rounded-t-sm"></div>
+                                        <div className="w-1 bg-green-400 animate-[music-bar_0.7s_infinite] rounded-t-sm"></div>
+                                        <div className="w-1 bg-green-400 animate-[music-bar_0.4s_infinite] rounded-t-sm"></div>
+                                        <div className="w-1 bg-green-400 animate-[music-bar_0.6s_infinite] rounded-t-sm"></div>
                                     </div>
                                 ) : (
-                                    <Pause className="w-3 h-3 text-yellow-400" />
+                                    <Music className="w-4 h-4 text-slate-400" />
                                 )}
-                                <span className="text-xs text-indigo-300 max-w-[150px] truncate font-mono">{currentTrack.name}</span>
-                                {isMuted ? <VolumeX className="w-3 h-3 text-red-400 ml-1" /> : <Volume2 className="w-3 h-3 text-green-400 ml-1" />}
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider leading-none">Now Playing</span>
+                                    <div className="text-xs text-white font-medium font-mono max-w-[200px] overflow-hidden whitespace-nowrap relative">
+                                        <span className={`${isPlaying && currentTrack.name.length > 25 ? 'animate-marquee-sponsors' : ''} inline-block`}>
+                                            {currentTrack.name}
+                                        </span>
+                                    </div>
+                                </div>
+                                {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-green-400" />}
                             </div>
                         ) : (
                             <div className="flex items-center gap-1 ml-4 text-xs text-slate-500"><VolumeX className="w-3 h-3"/> Audio Off</div>
@@ -1114,14 +1142,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                     src={contestEntries[highlightIndex].photoUrl} 
                                     className="w-full h-full object-cover transform scale-105 transition-transform duration-[20s] ease-linear" 
                                 />
-                                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8">
+                                {/* Changed: Slide up animation instead of hover */}
+                                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-8 translate-y-0 animate-in slide-in-from-bottom-10 duration-700">
                                     <div className="flex items-center gap-4">
                                         <img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white" />
                                         <div>
                                             <h3 className="text-2xl font-bold text-white">{contestEntries[highlightIndex].caption}</h3>
                                             <p className="text-slate-300 font-medium">By {contestEntries[highlightIndex].userDisplayName}</p>
                                         </div>
-                                        <div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full">
+                                        <div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full shadow-lg">
                                             <Heart className="w-5 h-5 fill-white" />
                                             <span className="font-bold text-xl">{contestEntries[highlightIndex].likeCount}</span>
                                         </div>
@@ -1171,8 +1200,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                         >
                                             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-50 rounded-3xl pointer-events-none"></div>
                                             
-                                            {/* Glowing Badge for Premium Feel */}
-                                            <div className="absolute -top-3 -right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {/* Changed: Permanent glowing badge with pulse */}
+                                            <div className="absolute -top-3 -right-3 animate-pulse">
                                                 <div className="relative">
                                                     <div className="absolute inset-0 bg-yellow-400 blur-md rounded-full"></div>
                                                     <Star className="w-8 h-8 text-white fill-yellow-400 relative z-10" />
@@ -1305,6 +1334,58 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
+            {/* SLIDE 9: LIVE STREAM */}
+            {currentSlide === 9 && (
+                <div className="h-full w-full relative flex flex-col bg-black animate-in fade-in duration-1000">
+                    {liveStreamingMatches.length > 0 ? (
+                        <div className="flex-1 relative w-full h-full flex items-center justify-center">
+                            {/* Video Embed */}
+                            <iframe 
+                                src={getEmbedUrl(liveStreamingMatches[0].livestreamUrl) || ""} 
+                                className="w-full h-full absolute inset-0 object-cover" 
+                                allow="autoplay; encrypted-media; picture-in-picture"
+                                allowFullScreen
+                            />
+                            
+                            {/* Overlay Info (Top Left) */}
+                            <div className="absolute top-8 left-8 bg-gradient-to-r from-black/80 to-transparent p-4 rounded-xl flex items-center gap-4 z-20 animate-slide-in-left">
+                                <div className="flex items-center gap-2 bg-red-600 px-3 py-1 rounded text-xs font-bold uppercase animate-pulse">
+                                    <span className="w-2 h-2 bg-white rounded-full"></span> LIVE
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-black uppercase drop-shadow-md">
+                                        {resolveTeam(liveStreamingMatches[0].teamA).shortName || 'Home'} <span className="text-yellow-400">vs</span> {resolveTeam(liveStreamingMatches[0].teamB).shortName || 'Away'}
+                                    </div>
+                                    <div className="text-sm font-bold text-slate-300">{liveStreamingMatches[0].roundLabel}</div>
+                                </div>
+                            </div>
+
+                            {/* Score Overlay (Bottom Center) */}
+                            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md px-10 py-4 rounded-2xl border border-white/10 flex items-center gap-8 z-20">
+                                <div className="text-center">
+                                    <div className="text-4xl font-black">{liveStreamingMatches[0].scoreA}</div>
+                                    <div className="text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamA).shortName}</div>
+                                </div>
+                                <div className="text-xl font-bold text-slate-500">:</div>
+                                <div className="text-center">
+                                    <div className="text-4xl font-black">{liveStreamingMatches[0].scoreB}</div>
+                                    <div className="text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamB).shortName}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 relative overflow-hidden">
+                            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/tv-noise.png')] opacity-10 animate-pulse"></div>
+                            <div className="z-10 bg-slate-900/50 p-12 rounded-3xl border border-white/5 backdrop-blur-sm flex flex-col items-center">
+                                <Cast className="w-24 h-24 mb-6 opacity-30 animate-pulse" />
+                                <h2 className="text-5xl font-black uppercase tracking-widest opacity-80 mb-2">Signal Lost</h2>
+                                <p className="text-2xl mt-2 font-mono text-red-400 flex items-center gap-2"><Signal className="w-5 h-5"/> Waiting for Live Stream</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
         </div>
 
         {/* BOTTOM TICKER & SPONSORS (UPDATED SPEED) */}
@@ -1377,6 +1458,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 50% { transform: scale(1.02); opacity: 0.95; }
             }
             .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
+
+            /* Music Bar Animation */
+            @keyframes music-bar {
+                0%, 100% { height: 20%; }
+                50% { height: 100%; }
+            }
 
             /* New vertical auto-scroll for sponsor wall */
             @keyframes auto-scroll {
