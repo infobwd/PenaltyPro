@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -44,24 +44,26 @@ const compressImage = async (file: File): Promise<File> => {
     });
 };
 
-const getEmbedUrl = (url: string) => { 
+const getEmbedUrl = (url: string, autoplay: boolean = true, muted: boolean = true) => { 
     if (!url) return null; 
+    const muteParam = muted ? 1 : 0;
+    const autoParam = autoplay ? 1 : 0;
+
     if (url.includes('youtube.com') || url.includes('youtu.be')) { 
         let videoId = ''; 
         if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; 
         else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; 
-        // Forced mute=1 for auto-play without user interaction issues
-        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}`; 
+        
+        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=${autoParam}&mute=${muteParam}&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}`; 
     } 
     if (url.includes('facebook.com')) { 
         const encodedUrl = encodeURIComponent(url); 
-        // Forced mute=1
-        return `https://www.facebook.com/plugins/video.php?href=${encodedUrl}&show_text=false&t=0&autoplay=1&mute=1`; 
+        return `https://www.facebook.com/plugins/video.php?href=${encodedUrl}&show_text=false&t=0&autoplay=${autoParam}&mute=${muteParam}`; 
     } 
     return null; 
 };
 
-// Animated Counter Component (Random Shuffle Effect)
+// Animated Counter Component
 const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?: number }) => {
     const [count, setCount] = useState(0);
     
@@ -253,6 +255,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [uiScale, setUiScale] = useState(1);
   const [countdown, setCountdown] = useState<string>('');
   
+  // Video State
+  const [videoPlaying, setVideoPlaying] = useState(true);
+  const [videoMuted, setVideoMuted] = useState(true);
+  
   // Sponsors
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -266,7 +272,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   
   // Slides Configuration
   const slides = [
-      'Matches', 'Standings', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream'
+      'Matches', 'Standings', 'Bracket', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream'
   ];
   const totalSlides = slides.length;
 
@@ -275,14 +281,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       switch (index) {
           case 0: return 'from-blue-900 via-indigo-950 to-slate-950'; // Matches
           case 1: return 'from-indigo-900 via-purple-950 to-slate-950'; // Standings
-          case 2: return 'from-emerald-900 via-green-950 to-slate-950'; // Results
-          case 3: return 'from-amber-900 via-orange-950 to-slate-950'; // Top Scorers
-          case 4: return 'from-cyan-900 via-blue-950 to-slate-950'; // Keepers
-          case 5: return 'from-fuchsia-900 via-pink-950 to-slate-950'; // Fan
-          case 6: return 'from-rose-900 via-red-950 to-slate-950'; // Highlights
-          case 7: return 'from-slate-800 via-gray-900 to-black'; // Sponsors
-          case 8: return 'from-red-900 via-orange-900 to-slate-950'; // Versus
-          case 9: return 'from-black via-slate-950 to-black'; // Stream (Darker for video)
+          case 2: return 'from-slate-800 via-zinc-900 to-black'; // Bracket
+          case 3: return 'from-emerald-900 via-green-950 to-slate-950'; // Results
+          case 4: return 'from-amber-900 via-orange-950 to-slate-950'; // Top Scorers
+          case 5: return 'from-cyan-900 via-blue-950 to-slate-950'; // Keepers
+          case 6: return 'from-fuchsia-900 via-pink-950 to-slate-950'; // Fan
+          case 7: return 'from-rose-900 via-red-950 to-slate-950'; // Highlights
+          case 8: return 'from-slate-800 via-gray-900 to-black'; // Sponsors
+          case 9: return 'from-red-900 via-orange-900 to-slate-950'; // Versus
+          case 10: return 'from-black via-slate-950 to-black'; // Stream (Darker for video)
           default: return 'from-slate-900 via-slate-950 to-black';
       }
   };
@@ -315,7 +322,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           // Responsive Scaling Logic
           const handleResize = () => {
               const width = window.innerWidth;
-              // Base scale on 1920px width. If wider, scale up.
               const newScale = Math.max(1, width / 1920);
               setUiScale(newScale);
           };
@@ -367,7 +373,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // --- KEYBOARD SHORTCUTS ---
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
-          // Ignore if typing in an input
           if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
           switch(e.code) {
@@ -391,13 +396,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               case 'Escape':
                   onClose();
                   break;
-              // Manual Slide Navigation
               case 'ArrowLeft':
                   setCurrentSlide(prev => (prev - 1 + totalSlides) % totalSlides);
                   break;
               case 'ArrowUp':
               case 'ArrowDown':
-                  // Trigger next slide
                   setCurrentSlide(prev => (prev + 1) % totalSlides);
                   break;
           }
@@ -421,20 +424,20 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   const handleStartExperience = () => {
       setHasInteracted(true);
-      // Play default track if none selected
+      
+      // Auto-play music if playlist exists
       if (musicTracks.length > 0 && !currentTrack) {
-          handlePlayMusic(musicTracks[0]);
+          const startIdx = Math.floor(Math.random() * musicTracks.length);
+          handlePlayMusic(musicTracks[startIdx]);
       } else if (currentTrack) {
           setIsPlaying(true);
       }
       
-      // Force audio context for HTML5 audio
       if (audioRef.current) {
           audioRef.current.play().catch(e => console.log("Audio play caught", e));
       }
   };
 
-  // Helper to resolve Team Object
   const resolveTeam = (t: string | Team) => typeof t === 'string' ? (teams.find(x => x.name === t) || {name: t, logoUrl:''} as Team) : t;
 
   // --- DATA PROCESSING MEMOS ---
@@ -447,12 +450,23 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   }, [matches]);
 
   const liveStreamingMatches = useMemo(() => {
-      return matches.filter(m => m.livestreamUrl && !m.winner);
+      // Prioritize LIVE, then finished matches with video
+      const live = matches.filter(m => m.livestreamUrl && !m.winner);
+      if (live.length > 0) return live;
+      return matches.filter(m => m.livestreamUrl && m.winner).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [matches]);
+
+  // Set initial video mute state based on if it's LIVE or Recorded
+  useEffect(() => {
+      if (currentSlide === 10 && liveStreamingMatches.length > 0) {
+          const isLive = !liveStreamingMatches[0].winner;
+          setVideoMuted(!isLive); // Unmute if live, Mute if recorded
+          setVideoPlaying(true);
+      }
+  }, [currentSlide, liveStreamingMatches]);
 
   const nextMatch = upcomingMatches.length > 0 ? upcomingMatches[0] : null;
 
-  // Calculate Head-to-Head for Next Match
   const h2hStats = useMemo(() => {
       if (!nextMatch) return null;
       const tA_Name = typeof nextMatch.teamA === 'string' ? nextMatch.teamA : nextMatch.teamA.name;
@@ -467,7 +481,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           const matchA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
           const matchB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
           
-          // Check if this match involves both teams
           if ((matchA === tA_Name && matchB === tB_Name) || (matchA === tB_Name && matchB === tA_Name)) {
               if (m.winner === 'A' || m.winner === matchA) {
                   if (matchA === tA_Name) winsA++; else winsB++;
@@ -481,7 +494,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return { winsA, winsB, draws };
   }, [nextMatch, matches]);
 
-  // Countdown Logic
   useEffect(() => {
       if (!nextMatch || !nextMatch.scheduledTime) {
           setCountdown('');
@@ -506,13 +518,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const recentResults = useMemo(() => {
       return matches
         .filter(m => m.winner)
-        .sort((a, b) => {
-             const timeA = new Date(a.date).getTime();
-             const timeB = new Date(b.date).getTime();
-             if (timeA !== timeB) return timeB - timeA;
-             if (a.id && b.id) return b.id.localeCompare(a.id);
-             return 0;
-        })
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 6);
   }, [matches]);
 
@@ -593,6 +599,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return Object.values(savesMap).filter(k => k.saves > 0 || k.cleanSheets > 0).sort((a, b) => (b.saves * 2 + b.cleanSheets * 5) - (a.saves * 2 + a.cleanSheets * 5)).slice(0, 5);
   }, [matches, teams]);
 
+  const bracketData = useMemo(() => {
+      const semiFinals = matches.filter(m => m.roundLabel?.match(/semi|sf|รองชนะเลิศ/i));
+      const final = matches.find(m => m.roundLabel?.match(/final|ching|ชิงชนะเลิศ/i));
+      
+      // If we don't have semis/final, try to find Quarter Finals
+      const qf = matches.filter(m => m.roundLabel?.match(/quarter|qf|8/i));
+      
+      return { qf, semiFinals, final };
+  }, [matches]);
+
   const fanRankings = useMemo(() => {
       const scores: Record<string, { name: string, pic: string, points: number, correct: number }> = {};
       const results: Record<string, string> = {};
@@ -613,14 +629,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
     return () => clearInterval(clockTimer);
   }, []);
 
-  // Use Timeout for dynamic slide duration
   useEffect(() => {
       if (!isAuthenticated) return;
       
       const SLIDE_DURATIONS: Record<number, number> = {
-          9: 45000, // Live Stream: 45s
+          10: 45000, // Live Stream
       };
-      const defaultDuration = 15000; // Others: 15s
+      const defaultDuration = 15000;
       const duration = SLIDE_DURATIONS[currentSlide] || defaultDuration;
       
       const timer = setTimeout(() => {
@@ -640,7 +655,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (currentSlide === 1 && standingsGroups.length > 1) {
           subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000);
       }
-      if (currentSlide === 6 && contestEntries.length > 1) {
+      if (currentSlide === 7 && contestEntries.length > 1) { // Highlights index shifted
           subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
       }
       if (currentSlide === 0) {
@@ -652,7 +667,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       };
   }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated]);
 
-  // --- RENDER MUSIC PLAYER ---
   const renderMusicPlayer = () => {
       if (!currentTrack || !isPlaying) return null;
 
@@ -663,94 +677,35 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           else videoId = currentTrack.url; 
 
           const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${videoId}&controls=0&showinfo=0&modestbranding=1&enablejsapi=1`;
-          
           return (
               <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
-                  <iframe 
-                      width="100%" 
-                      height="100%" 
-                      src={src} 
-                      title="bg-music"
-                      frameBorder="0" 
-                      allow="autoplay; encrypted-media" 
-                      allowFullScreen
-                  />
+                  <iframe width="100%" height="100%" src={src} title="bg-music" frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen />
               </div>
           );
       } 
-      
       const isDirectAudio = currentTrack.url.match(/\.(mp3|wav|ogg|m4a)$/i);
-      
       if (isDirectAudio) {
-          return (
-              <audio 
-                  ref={audioRef}
-                  src={currentTrack.url} 
-                  autoPlay 
-                  loop 
-                  muted={isMuted} 
-                  onError={handleNextTrack}
-                  className="hidden"
-              />
-          );
+          return <audio ref={audioRef} src={currentTrack.url} autoPlay loop muted={isMuted} onError={handleNextTrack} className="hidden" />;
       }
-
-      return (
-          <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
-             <iframe src={currentTrack.url} allow="autoplay" />
-          </div>
-      );
+      return <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none"><iframe src={currentTrack.url} allow="autoplay" /></div>;
   };
 
-  // --- AUTHENTICATION SCREEN ---
   if (!isAuthenticated) {
       return (
           <div className="fixed inset-0 z-[6000] bg-slate-950 flex flex-col items-center justify-center font-kanit">
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
-              
               <div className="relative z-10 w-full max-w-sm bg-white/10 backdrop-blur-xl p-8 rounded-2xl shadow-2xl border border-white/10 flex flex-col items-center animate-in zoom-in duration-300">
-                  <div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(99,102,241,0.5)]">
-                      <Lock className="w-8 h-8 text-white" />
-                  </div>
-                  
+                  <div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(99,102,241,0.5)]"><Lock className="w-8 h-8 text-white" /></div>
                   <h2 className="text-2xl font-black text-white mb-2 tracking-wide">LOCKED</h2>
                   <p className="text-slate-400 text-sm mb-6 text-center">กรุณากรอกรหัส PIN เพื่อเข้าสู่ Live Wall</p>
-                  
                   <form onSubmit={handlePinSubmit} className="w-full flex flex-col gap-4">
-                      <input 
-                          type="password" 
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          value={pinInput}
-                          onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
-                          className={`w-full p-4 text-center text-3xl tracking-[0.5em] font-mono bg-black/40 border rounded-xl text-white focus:outline-none focus:ring-2 transition ${pinError ? 'border-red-500 focus:ring-red-500' : 'border-white/20 focus:ring-indigo-500'}`}
-                          placeholder="••••"
-                          autoFocus
-                          maxLength={6}
-                      />
-                      
-                      {pinError && (
-                          <div className="text-red-400 text-xs font-bold text-center bg-red-900/20 p-2 rounded animate-pulse">
-                              รหัสผ่านไม่ถูกต้อง
-                          </div>
-                      )}
-                      
-                      <button 
-                          type="submit" 
-                          className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg transition transform active:scale-95 mt-2"
-                      >
-                          UNLOCK
-                      </button>
+                      <input type="password" inputMode="numeric" pattern="[0-9]*" value={pinInput} onChange={(e) => { setPinInput(e.target.value); setPinError(false); }} className={`w-full p-4 text-center text-3xl tracking-[0.5em] font-mono bg-black/40 border rounded-xl text-white focus:outline-none focus:ring-2 transition ${pinError ? 'border-red-500 focus:ring-red-500' : 'border-white/20 focus:ring-indigo-500'}`} placeholder="••••" autoFocus maxLength={6} />
+                      {pinError && <div className="text-red-400 text-xs font-bold text-center bg-red-900/20 p-2 rounded animate-pulse">รหัสไม่ถูกต้อง</div>}
+                      <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg transition transform active:scale-95 mt-2">UNLOCK</button>
                   </form>
-                  
-                  <button onClick={onClose} className="mt-6 text-slate-500 hover:text-white text-xs flex items-center gap-1 transition">
-                      <X className="w-3 h-3"/> ยกเลิก
-                  </button>
+                  <button onClick={onClose} className="mt-6 text-slate-500 hover:text-white text-xs flex items-center gap-1 transition"><X className="w-3 h-3"/> ยกเลิก</button>
               </div>
-              
-              <div className="absolute bottom-8 text-slate-600 text-xs font-mono">
-                  Penalty Pro Arena Live System
-              </div>
+              <div className="absolute bottom-8 text-slate-600 text-xs font-mono">Penalty Pro Arena Live System</div>
           </div>
       );
   }
@@ -758,9 +713,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   if (!hasInteracted) {
       return (
           <div className="fixed inset-0 z-[5000] bg-slate-950 flex flex-col items-center justify-center cursor-pointer" onClick={handleStartExperience}>
-              <div className="animate-pulse mb-4 p-6 bg-white/10 rounded-full">
-                  <Play className="w-20 h-20 text-indigo-500 fill-indigo-500" />
-              </div>
+              <div className="animate-pulse mb-4 p-6 bg-white/10 rounded-full"><Play className="w-20 h-20 text-indigo-500 fill-indigo-500" /></div>
               <h1 className="text-3xl font-black text-white uppercase tracking-widest mb-2">{config.competitionName}</h1>
               <p className="text-slate-400 font-bold text-lg animate-bounce">CLICK ANYWHERE TO START</p>
               <p className="text-xs text-slate-600 mt-4">Enabling Audio & Visuals</p>
@@ -771,34 +724,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   return (
     <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
         
-        <SettingsManagerModal 
-            isOpen={isSettingsOpen} 
-            onClose={() => setIsSettingsOpen(false)} 
-            sponsors={sponsors} 
-            onUpdateSponsors={loadExtras}
-            musicTracks={musicTracks}
-            onUpdateMusic={loadExtras}
-            onPlayMusic={handlePlayMusic}
-        />
-
+        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} />
         {renderMusicPlayer()}
 
-        {/* DYNAMIC ANIMATED BACKGROUND WITH WAVE & GRADIENT */}
+        {/* DYNAMIC ANIMATED BACKGROUND */}
         <div className={`absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-2000 bg-gradient-to-br ${getGradientColors(currentSlide)} bg-[length:400%_400%] animate-gradient-xy`}>
-            {/* Scanline Effect */}
             <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] pointer-events-none z-[5] animate-scanlines opacity-20"></div>
-            
-            {/* Drifting Pattern Overlay */}
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 mix-blend-overlay animate-pan-pattern"></div>
-            
-            {/* Wave Overlay */}
             <div className="absolute inset-0 opacity-20 mix-blend-screen animate-gradient-wave bg-[radial-gradient(circle_at_50%_50%,_rgba(255,255,255,0.1),_transparent_70%)] bg-[length:100%_100%]"></div>
-
-            {/* Floating Orbs for depth */}
             <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/5 rounded-full blur-[100px] animate-float-orb"></div>
             <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-white/5 rounded-full blur-[80px] animate-float-orb delay-1000"></div>
-            
-            {/* Grid Lines */}
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px]"></div>
         </div>
 
@@ -809,37 +744,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     <img src={config.competitionLogo} className="w-full h-full object-contain drop-shadow-md" />
                 </div>
                 <div>
-                    <h1 className="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-indigo-300 uppercase drop-shadow-sm">
-                        {config.competitionName}
-                    </h1>
+                    <h1 className="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-indigo-300 uppercase drop-shadow-sm">{config.competitionName}</h1>
                     <div className="flex items-center gap-3 mt-1">
-                        <span className="flex h-3 w-3 relative">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                        </span>
+                        <span className="flex h-3 w-3 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span></span>
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
-                        
-                        {/* Enhanced Music UI */}
                         {currentTrack ? (
                             <div className={`flex items-center gap-3 ml-6 bg-white/10 backdrop-blur-lg px-4 py-1.5 rounded-full border border-white/10 shadow-lg cursor-pointer hover:bg-white/20 transition-all duration-300 ${!isPlaying ? 'opacity-50 grayscale' : 'opacity-100'}`} onClick={toggleMute}>
-                                {isPlaying && !isMuted ? (
-                                    <div className="flex items-end gap-1 h-4">
-                                        <div className="w-1 bg-green-400 animate-[music-bar_0.5s_infinite] rounded-t-sm"></div>
-                                        <div className="w-1 bg-green-400 animate-[music-bar_0.7s_infinite] rounded-t-sm"></div>
-                                        <div className="w-1 bg-green-400 animate-[music-bar_0.4s_infinite] rounded-t-sm"></div>
-                                        <div className="w-1 bg-green-400 animate-[music-bar_0.6s_infinite] rounded-t-sm"></div>
-                                    </div>
-                                ) : (
-                                    <Music className="w-4 h-4 text-slate-400" />
-                                )}
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider leading-none">Now Playing</span>
-                                    <div className="text-xs text-white font-medium font-mono max-w-[200px] overflow-hidden whitespace-nowrap relative">
-                                        <span className={`${isPlaying && currentTrack.name.length > 25 ? 'animate-marquee-sponsors' : ''} inline-block`}>
-                                            {currentTrack.name}
-                                        </span>
-                                    </div>
-                                </div>
+                                {isPlaying && !isMuted ? <div className="flex items-end gap-1 h-4"><div className="w-1 bg-green-400 animate-[music-bar_0.5s_infinite] rounded-t-sm"></div><div className="w-1 bg-green-400 animate-[music-bar_0.7s_infinite] rounded-t-sm"></div><div className="w-1 bg-green-400 animate-[music-bar_0.4s_infinite] rounded-t-sm"></div><div className="w-1 bg-green-400 animate-[music-bar_0.6s_infinite] rounded-t-sm"></div></div> : <Music className="w-4 h-4 text-slate-400" />}
+                                <div className="flex flex-col"><span className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider leading-none">Now Playing</span><div className="text-xs text-white font-medium font-mono max-w-[200px] overflow-hidden whitespace-nowrap relative"><span className={`${isPlaying && currentTrack.name.length > 25 ? 'animate-marquee-sponsors' : ''} inline-block`}>{currentTrack.name}</span></div></div>
                                 {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-green-400" />}
                             </div>
                         ) : (
@@ -848,43 +760,23 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                 </div>
             </div>
-            
             <div className="flex items-center gap-8">
                 <div className="hidden md:flex bg-white p-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.3)] items-center gap-2 pr-3 transition hover:scale-105">
                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUrl)}`} className="w-10 h-10 md:w-12 md:h-12" />
-                    <div className="text-slate-900 leading-tight">
-                        <div className="text-[10px] font-bold uppercase">Scan to</div>
-                        <div className="text-xs md:text-sm font-black">PLAY NOW</div>
-                    </div>
+                    <div className="text-slate-900 leading-tight"><div className="text-[10px] font-bold uppercase">Scan to</div><div className="text-xs md:text-sm font-black">PLAY NOW</div></div>
                 </div>
-
                 {nextMatch && (
                     <div className="hidden xl:flex flex-col items-end bg-black/40 backdrop-blur-md px-4 py-2 rounded-lg border border-white/5">
-                        <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                            <Clock className="w-3 h-3"/> Next Match
-                        </div>
-                        <div className="text-sm font-bold text-white flex items-center gap-2">
-                             <span>{resolveTeam(nextMatch.teamA).shortName || 'TBA'}</span>
-                             <span className="text-slate-400 text-xs">vs</span>
-                             <span>{resolveTeam(nextMatch.teamB).shortName || 'TBA'}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">
-                             {new Date(nextMatch.scheduledTime || nextMatch.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}
-                        </div>
+                        <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><Clock className="w-3 h-3"/> Next Match</div>
+                        <div className="text-sm font-bold text-white flex items-center gap-2"><span>{resolveTeam(nextMatch.teamA).shortName || 'TBA'}</span><span className="text-slate-400 text-xs">vs</span><span>{resolveTeam(nextMatch.teamB).shortName || 'TBA'}</span></div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{new Date(nextMatch.scheduledTime || nextMatch.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</div>
                     </div>
                 )}
-
                 <div className="h-12 w-[1px] bg-slate-700 hidden lg:block"></div>
-
                 <div className="text-right">
-                    <div className="text-5xl font-black font-mono leading-none tracking-widest text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.6)]">
-                        {currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </div>
-                    <div className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">
-                        {currentTime.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                    </div>
+                    <div className="text-5xl font-black font-mono leading-none tracking-widest text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.6)]">{currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+                    <div className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">{currentTime.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
                 </div>
-                
                 <div className="flex gap-2">
                     <button onClick={() => setIsSettingsOpen(true)} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><Settings className="w-6 h-6"/></button>
                     {currentTrack && <button onClick={handleNextTrack} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><SkipForward className="w-6 h-6"/></button>}
@@ -894,16 +786,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
         </div>
 
-        {/* MAIN CONTENT AREA with Dynamic Scaling */}
-        <div 
-            className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300 md:pr-4"
-            style={{ 
-                transform: `scale(${uiScale})`,
-                width: `${100 / uiScale}%`,
-                height: `${100 / uiScale}%`,
-                marginLeft: `${(100 - (100/uiScale)) / 2}%`
-            }}
-        >
+        {/* MAIN CONTENT AREA */}
+        <div className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300 md:pr-4" style={{ transform: `scale(${uiScale})`, width: `${100 / uiScale}%`, height: `${100 / uiScale}%`, marginLeft: `${(100 - (100/uiScale)) / 2}%` }}>
             
             {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
@@ -920,48 +804,19 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                     const tB = resolveTeam(m.teamB);
                                     const isLive = m.livestreamUrl && !m.winner;
                                     return (
-                                        <div 
-                                            key={m.id} 
-                                            className={`relative bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 opacity-0 animate-card-enter ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100'}`}
-                                            style={{ animationDelay: `${idx * 150}ms` }}
-                                        >
-                                            <div className="flex items-center gap-6 w-[40%]">
-                                                <div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">
-                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tA.name.substring(0,1)}</div>}
-                                                </div>
-                                                <span className="text-3xl font-bold truncate text-white">{tA.name}</span>
-                                            </div>
+                                        <div key={m.id} className={`relative bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 opacity-0 animate-card-enter ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100'}`} style={{ animationDelay: `${idx * 150}ms` }}>
+                                            <div className="flex items-center gap-6 w-[40%]"><div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">{tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tA.name.substring(0,1)}</div>}</div><span className="text-3xl font-bold truncate text-white">{tA.name}</span></div>
                                             <div className="flex flex-col items-center w-[20%] relative">
-                                                {isLive ? (
-                                                    <div className="absolute -top-10 bg-red-600 text-white px-3 py-0.5 rounded text-xs font-bold uppercase tracking-wider animate-pulse shadow-lg">Live</div>
-                                                ) : (
-                                                    <div className="absolute -top-10 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-3 py-0.5 rounded text-xs font-bold uppercase tracking-wider">
-                                                        {new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}
-                                                    </div>
-                                                )}
-                                                <div className="flex items-center gap-4 text-6xl font-black font-mono tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
-                                                    <span>{m.scoreA}</span>
-                                                    <span className="text-slate-600 text-4xl">:</span>
-                                                    <span>{m.scoreB}</span>
-                                                </div>
+                                                {isLive ? <div className="absolute -top-10 bg-red-600 text-white px-3 py-0.5 rounded text-xs font-bold uppercase tracking-wider animate-pulse shadow-lg">Live</div> : <div className="absolute -top-10 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-3 py-0.5 rounded text-xs font-bold uppercase tracking-wider">{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</div>}
+                                                <div className="flex items-center gap-4 text-6xl font-black font-mono tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"><span>{m.scoreA}</span><span className="text-slate-600 text-4xl">:</span><span>{m.scoreB}</span></div>
                                                 <div className="text-indigo-400 font-bold text-sm tracking-widest mt-2">{m.roundLabel?.split(':')[0]}</div>
                                             </div>
-                                            <div className="flex items-center gap-6 w-[40%] justify-end">
-                                                <span className="text-3xl font-bold truncate text-right text-white">{tB.name}</span>
-                                                <div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">
-                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tB.name.substring(0,1)}</div>}
-                                                </div>
-                                            </div>
+                                            <div className="flex items-center gap-6 w-[40%] justify-end"><span className="text-3xl font-bold truncate text-right text-white">{tB.name}</span><div className="w-20 h-20 bg-white/5 rounded-2xl p-2 shadow-inner border border-white/5 flex items-center justify-center shrink-0">{tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-600">{tB.name.substring(0,1)}</div>}</div></div>
                                         </div>
                                     );
                                 })}
                             </div>
-                        ) : (
-                            <div className="text-center opacity-40 flex flex-col items-center">
-                                <div className="w-32 h-32 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse"><Clock className="w-16 h-16 text-slate-400" /></div>
-                                <h3 className="text-4xl font-black tracking-widest">NO MATCHES NOW</h3>
-                            </div>
-                        )}
+                        ) : <div className="text-center opacity-40 flex flex-col items-center"><div className="w-32 h-32 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse"><Clock className="w-16 h-16 text-slate-400" /></div><h3 className="text-4xl font-black tracking-widest">NO MATCHES NOW</h3></div>}
                     </div>
                 </div>
             )}
@@ -970,50 +825,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {currentSlide === 1 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center justify-between mb-8 mt-10">
-                        <div className="flex items-center gap-4">
-                            <div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div>
-                            <h2 className="text-4xl font-black text-white uppercase tracking-tight">Current Standings</h2>
-                        </div>
-                        {standingsGroups.length > 1 && (
-                            <div className="flex items-center gap-2">
-                                {standingsGroups.map((_, idx) => (
-                                    <div key={idx} className={`h-2 transition-all duration-300 rounded-full ${idx === standingsPage ? 'w-8 bg-white' : 'w-2 bg-white/20'}`}></div>
-                                ))}
-                            </div>
-                        )}
+                        <div className="flex items-center gap-4"><div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div><h2 className="text-4xl font-black text-white uppercase tracking-tight">Current Standings</h2></div>
+                        {standingsGroups.length > 1 && <div className="flex items-center gap-2">{standingsGroups.map((_, idx) => <div key={idx} className={`h-2 transition-all duration-300 rounded-full ${idx === standingsPage ? 'w-8 bg-white' : 'w-2 bg-white/20'}`}></div>)}</div>}
                     </div>
                     <div className="flex-1 relative">
                         {standingsGroups.length > 0 ? (
                             <div className="grid grid-cols-2 gap-8 content-start key={standingsPage}">
                                 {standingsGroups[standingsPage]?.map((group, groupIdx) => (
-                                    <div 
-                                        key={group.name} 
-                                        className="bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl opacity-0 animate-card-enter"
-                                        style={{ animationDelay: `${groupIdx * 150}ms` }}
-                                    >
-                                        <div className="bg-gradient-to-r from-indigo-900/50 to-slate-900/50 px-6 py-4 border-b border-white/5 flex justify-between items-center">
-                                            <h3 className="font-black text-2xl text-white flex items-center gap-2"><span className="text-indigo-400">GROUP</span> {group.name}</h3>
-                                            <div className="text-xs font-bold text-slate-500 bg-white/5 px-2 py-1 rounded">Top 2 Qualify</div>
-                                        </div>
-                                        <table className="w-full text-lg">
-                                            <thead className="bg-white/5 text-slate-400 text-sm uppercase tracking-wider font-bold">
-                                                <tr><th className="p-3 text-left pl-6 w-[50%]">Team</th><th className="p-3 text-center">P</th><th className="p-3 text-center">GD</th><th className="p-3 text-center text-white bg-white/5">PTS</th></tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-white/5">
-                                                {group.teams.map((team, idx) => (
-                                                    <tr key={team.teamId} className={`transition-colors ${idx < 2 ? "bg-green-500/5" : ""}`}>
-                                                        <td className="p-3 pl-6 font-bold flex items-center gap-4">
-                                                            <div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-black ${idx < 2 ? 'bg-green-500 text-black' : 'bg-slate-700 text-slate-400'}`}>{idx+1}</div>
-                                                            {team.logoUrl && <img src={team.logoUrl} className="w-8 h-8 object-contain" />}
-                                                            <span className="truncate max-w-[220px] text-xl">{team.teamName}</span>
-                                                        </td>
-                                                        <td className="p-3 text-center text-slate-400 font-mono">{team.played}</td>
-                                                        <td className="p-3 text-center text-slate-400 font-mono">{team.goalsFor - team.goalsAgainst}</td>
-                                                        <td className="p-3 text-center font-black text-yellow-400 text-2xl bg-white/5">{team.points}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                    <div key={group.name} className="bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl opacity-0 animate-card-enter" style={{ animationDelay: `${groupIdx * 150}ms` }}>
+                                        <div className="bg-gradient-to-r from-indigo-900/50 to-slate-900/50 px-6 py-4 border-b border-white/5 flex justify-between items-center"><h3 className="font-black text-2xl text-white flex items-center gap-2"><span className="text-indigo-400">GROUP</span> {group.name}</h3><div className="text-xs font-bold text-slate-500 bg-white/5 px-2 py-1 rounded">Top 2 Qualify</div></div>
+                                        <table className="w-full text-lg"><thead className="bg-white/5 text-slate-400 text-sm uppercase tracking-wider font-bold"><tr><th className="p-3 text-left pl-6 w-[50%]">Team</th><th className="p-3 text-center">P</th><th className="p-3 text-center">GD</th><th className="p-3 text-center text-white bg-white/5">PTS</th></tr></thead><tbody className="divide-y divide-white/5">{group.teams.map((team, idx) => (<tr key={team.teamId} className={`transition-colors ${idx < 2 ? "bg-green-500/5" : ""}`}><td className="p-3 pl-6 font-bold flex items-center gap-4"><div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-black ${idx < 2 ? 'bg-green-500 text-black' : 'bg-slate-700 text-slate-400'}`}>{idx+1}</div>{team.logoUrl && <img src={team.logoUrl} className="w-8 h-8 object-contain" />}<span className="truncate max-w-[220px] text-xl">{team.teamName}</span></td><td className="p-3 text-center text-slate-400 font-mono">{team.played}</td><td className="p-3 text-center text-slate-400 font-mono">{team.goalsFor - team.goalsAgainst}</td><td className="p-3 text-center font-black text-yellow-400 text-2xl bg-white/5">{team.points}</td></tr>))}</tbody></table>
                                     </div>
                                 ))}
                             </div>
@@ -1022,26 +843,81 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: RECENT RESULTS */}
+            {/* SLIDE 2: BRACKET */}
             {currentSlide === 2 && (
+                <div className="h-full flex flex-col animate-broadcast-reveal">
+                    <div className="flex items-center justify-center mb-8 mt-10">
+                        <div className="bg-white/10 p-4 rounded-full border-4 border-white/20 shadow-2xl flex items-center justify-center backdrop-blur-md">
+                            <GitMerge className="w-12 h-12 text-white" />
+                        </div>
+                    </div>
+                    <h2 className="text-5xl font-black text-center text-white uppercase tracking-tighter mb-12 drop-shadow-lg">Road to Final</h2>
+                    
+                    <div className="flex-1 flex items-center justify-center gap-8 md:gap-16 w-full max-w-6xl mx-auto px-4">
+                        {/* Semi Final 1 */}
+                        <div className="flex flex-col gap-8 w-1/4">
+                            {[0, 1].map((idx) => {
+                                const m = bracketData.semiFinals[idx];
+                                const tA = resolveTeam(m?.teamA || '');
+                                const tB = resolveTeam(m?.teamB || '');
+                                return (
+                                    <div key={idx} className="bg-slate-800/80 border border-white/10 rounded-xl p-4 relative shadow-lg">
+                                        <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-3 h-[2px] bg-slate-600"></div>
+                                        <div className="absolute -right-8 top-1/2 -translate-y-1/2 w-8 h-[2px] bg-slate-600"></div>
+                                        <div className="text-[10px] text-slate-400 font-bold uppercase mb-2 tracking-widest text-center">Semi Final</div>
+                                        <div className={`flex justify-between items-center mb-2 ${m?.winner==='A'?'text-green-400 font-bold':''}`}><span>{tA.name || 'TBA'}</span><span>{m?.scoreA}</span></div>
+                                        <div className={`flex justify-between items-center ${m?.winner==='B'?'text-green-400 font-bold':''}`}><span>{tB.name || 'TBA'}</span><span>{m?.scoreB}</span></div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Connector Vertical */}
+                        <div className="flex flex-col justify-around h-64 w-8 border-r-2 border-t-2 border-b-2 border-slate-600 rounded-r-xl opacity-30"></div>
+
+                        {/* FINAL */}
+                        <div className="w-1/3 z-10">
+                            <div className="bg-gradient-to-b from-yellow-500 to-amber-600 rounded-2xl p-1 shadow-[0_0_60px_rgba(234,179,8,0.4)] transform scale-110">
+                                <div className="bg-slate-900 rounded-xl p-6 text-center">
+                                    <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4 animate-bounce" />
+                                    <h3 className="text-2xl font-black text-white uppercase tracking-widest mb-4">CHAMPIONSHIP</h3>
+                                    {bracketData.final ? (
+                                        <div className="space-y-4">
+                                            <div className="flex justify-between items-center text-xl font-bold">
+                                                <div className="flex flex-col items-center">
+                                                    {resolveTeam(bracketData.final.teamA).logoUrl ? <img src={resolveTeam(bracketData.final.teamA).logoUrl} className="w-12 h-12 object-contain mb-2"/> : <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">A</div>}
+                                                    <span>{resolveTeam(bracketData.final.teamA).name}</span>
+                                                </div>
+                                                <div className="text-4xl font-mono text-yellow-400">
+                                                    {bracketData.final.scoreA}-{bracketData.final.scoreB}
+                                                </div>
+                                                <div className="flex flex-col items-center">
+                                                    {resolveTeam(bracketData.final.teamB).logoUrl ? <img src={resolveTeam(bracketData.final.teamB).logoUrl} className="w-12 h-12 object-contain mb-2"/> : <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">B</div>}
+                                                    <span>{resolveTeam(bracketData.final.teamB).name}</span>
+                                                </div>
+                                            </div>
+                                            {bracketData.final.winner && <div className="bg-yellow-500/20 text-yellow-200 px-4 py-1 rounded-full text-sm font-bold inline-block">WINNER: {bracketData.final.winner === 'A' ? resolveTeam(bracketData.final.teamA).name : resolveTeam(bracketData.final.teamB).name}</div>}
+                                        </div>
+                                    ) : (
+                                        <div className="text-slate-500 font-bold text-xl py-4">WAITING FOR FINALISTS</div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 3: RESULTS */}
+            {currentSlide === 3 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
                     <div className="flex items-center justify-between mb-8 mt-10 px-4">
                         <div className="flex items-center gap-4">
                             <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
                             <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                         </div>
-                        
-                        <div className="flex items-center gap-4 bg-white/10 border border-white/20 p-2 pr-6 rounded-xl backdrop-blur-md shadow-lg animate-pulse-slow">
-                            <div className="bg-white p-1.5 rounded-lg shadow-inner">
-                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
-                            </div>
-                            <div className="flex flex-col">
-                                <div className="text-yellow-400 font-black text-sm flex items-center gap-1"><Gamepad2 className="w-4 h-4"/> PREDICT</div>
-                                <div className="text-[10px] text-slate-300 leading-tight">Scan to play & win points</div>
-                            </div>
-                        </div>
+                        <div className="flex items-center gap-4 bg-white/10 border border-white/20 p-2 pr-6 rounded-xl backdrop-blur-md shadow-lg animate-pulse-slow"><div className="bg-white p-1.5 rounded-lg shadow-inner"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" /></div><div className="flex flex-col"><div className="text-yellow-400 font-black text-sm flex items-center gap-1"><Gamepad2 className="w-4 h-4"/> PREDICT</div><div className="text-[10px] text-slate-300 leading-tight">Scan to play & win points</div></div></div>
                     </div>
-
                     {recentResults.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 flex-1 content-center">
                             {recentResults.map((m, idx) => {
@@ -1049,56 +925,24 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 const tB = resolveTeam(m.teamB);
                                 const winnerA = m.winner === 'A' || m.winner === tA.name;
                                 const winnerB = m.winner === 'B' || m.winner === tB.name;
-
                                 return (
-                                    <div 
-                                        key={m.id} 
-                                        className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500 hover:border-white/30 opacity-0 animate-card-enter"
-                                        style={{ animationDelay: `${idx * 150}ms` }}
-                                    >
-                                        <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400">
-                                            <span>{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})}</span>
-                                            <span className="uppercase tracking-widest">{m.roundLabel?.split(':')[0] || 'Match'}</span>
-                                        </div>
-                                        
+                                    <div key={m.id} className={`relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500 hover:border-white/30 opacity-0 animate-card-enter`} style={{ animationDelay: `${idx * 150}ms` }}>
+                                        <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400"><span>{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})}</span><span className="uppercase tracking-widest">{m.roundLabel?.split(':')[0] || 'Match'}</span></div>
                                         <div className="p-6 flex items-center justify-between">
-                                            <div className={`flex flex-col items-center gap-3 flex-1 ${winnerA ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
-                                                <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerA ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
-                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tA.name.substring(0,1)}</div>}
-                                                </div>
-                                                <span className={`text-sm font-bold text-center leading-tight ${winnerA ? 'text-white' : 'text-slate-400'}`}>{tA.name}</span>
-                                                {winnerA && <div className="absolute top-12 left-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}
-                                            </div>
-
-                                            <div className="flex flex-col items-center px-4">
-                                                <div className="text-5xl font-black font-mono text-white tracking-tighter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">
-                                                    {m.scoreA}-{m.scoreB}
-                                                </div>
-                                                <div className="mt-2 bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-yellow-500/30 uppercase tracking-widest">
-                                                    Full Time
-                                                </div>
-                                            </div>
-
-                                            <div className={`flex flex-col items-center gap-3 flex-1 ${winnerB ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
-                                                <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerB ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
-                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tB.name.substring(0,1)}</div>}
-                                                </div>
-                                                <span className={`text-sm font-bold text-center leading-tight ${winnerB ? 'text-white' : 'text-slate-400'}`}>{tB.name}</span>
-                                                {winnerB && <div className="absolute top-12 right-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}
-                                            </div>
+                                            <div className={`flex flex-col items-center gap-3 flex-1 ${winnerA ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}><div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerA ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>{tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tA.name.substring(0,1)}</div>}</div><span className={`text-sm font-bold text-center leading-tight ${winnerA ? 'text-white' : 'text-slate-400'}`}>{tA.name}</span>{winnerA && <div className="absolute top-12 left-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}</div>
+                                            <div className="flex flex-col items-center px-4"><div className="text-5xl font-black font-mono text-white tracking-tighter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">{m.scoreA}-{m.scoreB}</div><div className="mt-2 bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold text-yellow-400 border border-yellow-500/30 uppercase tracking-widest">Full Time</div></div>
+                                            <div className={`flex flex-col items-center gap-3 flex-1 ${winnerB ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}><div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerB ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>{tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tB.name.substring(0,1)}</div>}</div><span className={`text-sm font-bold text-center leading-tight ${winnerB ? 'text-white' : 'text-slate-400'}`}>{tB.name}</span>{winnerB && <div className="absolute top-12 right-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}</div>
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No finished matches yet</div>
-                    )}
+                    ) : <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No finished matches yet</div>}
                 </div>
             )}
 
-            {/* SLIDE 3: TOP SCORERS */}
-            {currentSlide === 3 && (
+            {/* SLIDE 4: TOP SCORERS */}
+            {currentSlide === 4 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="text-center mb-8 mt-10">
                         <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
@@ -1106,64 +950,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                     {topScorers.length > 0 ? (
                         <div className="flex-1 flex items-end justify-center gap-8 pb-12">
-                            {/* 2nd */}
-                            {topScorers[1] && (
-                                <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-100">
-                                    <div className="w-32 h-32 bg-slate-800 rounded-full mb-4 border-4 border-slate-600 overflow-hidden shadow-2xl">
-                                        {topScorers[1].photoUrl ? <img src={topScorers[1].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-slate-600"/>}
-                                    </div>
-                                    <div className="bg-slate-800 w-full p-4 rounded-t-2xl text-center border-t-4 border-slate-500 relative">
-                                        <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-slate-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-slate-800">2</div>
-                                        <h3 className="font-bold text-lg truncate mt-2">{topScorers[1].name}</h3>
-                                        <p className="text-xs text-slate-400 uppercase mb-2">{topScorers[1].team}</p>
-                                        <div className="text-4xl font-black text-white">{topScorers[1].goals}</div>
-                                        <div className="text-[10px] uppercase font-bold text-slate-500">Goals</div>
-                                    </div>
-                                    <div className="h-32 w-full bg-slate-800/50 rounded-b-lg"></div>
-                                </div>
-                            )}
-                            {/* 1st */}
-                            {topScorers[0] && (
-                                <div className="flex flex-col items-center w-72 z-10 animate-in slide-in-from-bottom-32 duration-1000">
-                                    <Trophy className="w-16 h-16 text-yellow-400 mb-4 animate-bounce" />
-                                    <div className="w-40 h-40 bg-yellow-500 rounded-full mb-4 border-4 border-yellow-300 overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.4)]">
-                                        {topScorers[0].photoUrl ? <img src={topScorers[0].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-8 text-yellow-800"/>}
-                                    </div>
-                                    <div className="bg-gradient-to-b from-yellow-600 to-yellow-700 w-full p-6 rounded-t-3xl text-center border-t-4 border-yellow-300 relative shadow-2xl">
-                                        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 w-12 h-12 rounded-full flex items-center justify-center font-black text-2xl border-4 border-yellow-600">1</div>
-                                        <h3 className="font-black text-2xl truncate mt-2 text-white">{topScorers[0].name}</h3>
-                                        <p className="text-sm text-yellow-200 uppercase mb-3 font-bold">{topScorers[0].team}</p>
-                                        <div className="text-6xl font-black text-white drop-shadow-md">{topScorers[0].goals}</div>
-                                        <div className="text-xs uppercase font-bold text-yellow-200/80 tracking-widest">Goals Scored</div>
-                                    </div>
-                                    <div className="h-48 w-full bg-yellow-800/50 rounded-b-lg"></div>
-                                </div>
-                            )}
-                            {/* 3rd */}
-                            {topScorers[2] && (
-                                <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-200">
-                                    <div className="w-32 h-32 bg-orange-800 rounded-full mb-4 border-4 border-orange-600 overflow-hidden shadow-2xl">
-                                        {topScorers[2].photoUrl ? <img src={topScorers[2].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-orange-600"/>}
-                                    </div>
-                                    <div className="bg-orange-900 w-full p-4 rounded-t-2xl text-center border-t-4 border-orange-600 relative">
-                                        <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-orange-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-orange-900">3</div>
-                                        <h3 className="font-bold text-lg truncate mt-2 text-orange-100">{topScorers[2].name}</h3>
-                                        <p className="text-xs text-orange-400 uppercase mb-2">{topScorers[2].team}</p>
-                                        <div className="text-4xl font-black text-white">{topScorers[2].goals}</div>
-                                        <div className="text-[10px] uppercase font-bold text-orange-400">Goals</div>
-                                    </div>
-                                    <div className="h-24 w-full bg-orange-950/50 rounded-b-lg"></div>
-                                </div>
-                            )}
+                            {topScorers[1] && <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-100"><div className="w-32 h-32 bg-slate-800 rounded-full mb-4 border-4 border-slate-600 overflow-hidden shadow-2xl">{topScorers[1].photoUrl ? <img src={topScorers[1].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-slate-600"/>}</div><div className="bg-slate-800 w-full p-4 rounded-t-2xl text-center border-t-4 border-slate-500 relative"><div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-slate-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-slate-800">2</div><h3 className="font-bold text-lg truncate mt-2">{topScorers[1].name}</h3><p className="text-xs text-slate-400 uppercase mb-2">{topScorers[1].team}</p><div className="text-4xl font-black text-white">{topScorers[1].goals}</div><div className="text-[10px] uppercase font-bold text-slate-500">Goals</div></div><div className="h-32 w-full bg-slate-800/50 rounded-b-lg"></div></div>}
+                            {topScorers[0] && <div className="flex flex-col items-center w-72 z-10 animate-in slide-in-from-bottom-32 duration-1000"><Trophy className="w-16 h-16 text-yellow-400 mb-4 animate-bounce" /><div className="w-40 h-40 bg-yellow-500 rounded-full mb-4 border-4 border-yellow-300 overflow-hidden shadow-[0_0_50px_rgba(234,179,8,0.4)]">{topScorers[0].photoUrl ? <img src={topScorers[0].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-8 text-yellow-800"/>}</div><div className="bg-gradient-to-b from-yellow-600 to-yellow-700 w-full p-6 rounded-t-3xl text-center border-t-4 border-yellow-300 relative shadow-2xl"><div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 w-12 h-12 rounded-full flex items-center justify-center font-black text-2xl border-4 border-yellow-600">1</div><h3 className="font-black text-2xl truncate mt-2 text-white">{topScorers[0].name}</h3><p className="text-sm text-yellow-200 uppercase mb-3 font-bold">{topScorers[0].team}</p><div className="text-6xl font-black text-white drop-shadow-md">{topScorers[0].goals}</div><div className="text-xs uppercase font-bold text-yellow-200/80 tracking-widest">Goals Scored</div></div><div className="h-48 w-full bg-yellow-800/50 rounded-b-lg"></div></div>}
+                            {topScorers[2] && <div className="flex flex-col items-center w-64 animate-in slide-in-from-bottom-20 duration-1000 delay-200"><div className="w-32 h-32 bg-orange-800 rounded-full mb-4 border-4 border-orange-600 overflow-hidden shadow-2xl">{topScorers[2].photoUrl ? <img src={topScorers[2].photoUrl} className="w-full h-full object-cover"/> : <User className="w-full h-full p-6 text-orange-600"/>}</div><div className="bg-orange-900 w-full p-4 rounded-t-2xl text-center border-t-4 border-orange-600 relative"><div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-orange-600 text-white w-10 h-10 rounded-full flex items-center justify-center font-black border-4 border-orange-900">3</div><h3 className="font-bold text-lg truncate mt-2 text-orange-100">{topScorers[2].name}</h3><p className="text-xs text-orange-400 uppercase mb-2">{topScorers[2].team}</p><div className="text-4xl font-black text-white">{topScorers[2].goals}</div><div className="text-[10px] uppercase font-bold text-orange-400">Goals</div></div><div className="h-24 w-full bg-orange-950/50 rounded-b-lg"></div></div>}
                         </div>
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No Goalscorers Yet</div>
-                    )}
+                    ) : <div className="flex-1 flex items-center justify-center text-slate-500 text-2xl font-bold">No Goalscorers Yet</div>}
                 </div>
             )}
 
-            {/* SLIDE 4: TOP KEEPERS */}
-            {currentSlide === 4 && (
+            {/* SLIDE 5: TOP KEEPERS (Modified for Logo) */}
+            {currentSlide === 5 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
@@ -1174,20 +970,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                             <div key={idx} className="bg-slate-900/80 border border-blue-500/20 rounded-2xl p-6 flex items-center justify-between shadow-lg">
                                 <div className="flex items-center gap-4">
                                     <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : 'bg-slate-700 text-white'}`}>{idx+1}</div>
-                                    <div>
-                                        <h3 className="text-xl font-bold">{k.teamName}</h3>
-                                        <p className="text-xs text-blue-400 uppercase font-bold">Goalkeeper</p>
+                                    <div className="flex items-center gap-3">
+                                        {k.logoUrl ? <img src={k.logoUrl} className="w-16 h-16 object-contain bg-white rounded-xl p-1" /> : <div className="w-16 h-16 bg-white/10 rounded-xl flex items-center justify-center text-2xl font-bold">{k.teamName.substring(0,1)}</div>}
+                                        <div>
+                                            <h3 className="text-xl font-bold">{k.teamName}</h3>
+                                            <p className="text-xs text-blue-400 uppercase font-bold">Goalkeeper</p>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex gap-4 text-center">
-                                    <div>
-                                        <div className="text-3xl font-black text-white"><NumberCounter target={k.cleanSheets} /></div>
-                                        <div className="text-[10px] uppercase text-slate-500 font-bold">Clean Sheets</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-3xl font-black text-blue-400"><NumberCounter target={k.saves} /></div>
-                                        <div className="text-[10px] uppercase text-slate-500 font-bold">PK Saves</div>
-                                    </div>
+                                    <div><div className="text-3xl font-black text-white"><NumberCounter target={k.cleanSheets} /></div><div className="text-[10px] uppercase text-slate-500 font-bold">Clean Sheets</div></div>
+                                    <div><div className="text-3xl font-black text-blue-400"><NumberCounter target={k.saves} /></div><div className="text-[10px] uppercase text-slate-500 font-bold">PK Saves</div></div>
                                 </div>
                             </div>
                         )) : <div className="col-span-2 flex items-center justify-center h-64 text-slate-500 text-2xl font-bold">No Goalkeeper Data</div>}
@@ -1195,272 +988,101 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 5: FAN PREDICTION */}
-            {currentSlide === 5 && (
+            {/* SLIDE 6: FAN PREDICTION */}
+            {currentSlide === 6 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
-                    <div className="text-center mb-8 mt-10">
-                        <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2>
-                    </div>
+                    <div className="text-center mb-8 mt-10"><h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2></div>
                     <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
                         {fanRankings.length > 0 ? fanRankings.map((fan, idx) => (
-                            <div 
-                                key={idx} 
-                                className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 opacity-0 animate-card-enter ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`}
-                                style={{ animationDelay: `${idx * 100}ms` }}
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 flex items-center justify-center font-black rounded-full ${idx < 3 ? 'bg-white text-black' : 'bg-slate-700 text-slate-400'}`}>
-                                        {idx + 1}
-                                    </div>
-                                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20">
-                                        {fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-slate-500 bg-slate-800"/>}
-                                    </div>
-                                    <span className="text-xl font-bold">{fan.name}</span>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-3xl font-black text-purple-400">{fan.points} <span className="text-sm text-slate-500 font-bold">PTS</span></div>
-                                    <div className="text-xs text-slate-400">Correct: {fan.correct}</div>
-                                </div>
+                            <div key={idx} className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 opacity-0 animate-card-enter ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`} style={{ animationDelay: `${idx * 100}ms` }}>
+                                <div className="flex items-center gap-4"><div className={`w-10 h-10 flex items-center justify-center font-black rounded-full ${idx < 3 ? 'bg-white text-black' : 'bg-slate-700 text-slate-400'}`}>{idx + 1}</div><div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/20">{fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-slate-500 bg-slate-800"/>}</div><span className="text-xl font-bold">{fan.name}</span></div>
+                                <div className="text-right"><div className="text-3xl font-black text-purple-400">{fan.points} <span className="text-sm text-slate-500 font-bold">PTS</span></div><div className="text-xs text-slate-400">Correct: {fan.correct}</div></div>
                             </div>
                         )) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Predictions Yet</div>}
                     </div>
                 </div>
             )}
 
-            {/* SLIDE 6: HIGHLIGHTS */}
-            {currentSlide === 6 && (
+            {/* SLIDE 7: HIGHLIGHTS */}
+            {currentSlide === 7 && (
                 contestEntries.length > 0 ? (
                     <div key={highlightIndex} className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl animate-broadcast-reveal">
-                        <div className="absolute inset-0 z-0">
-                            <img 
-                                src={contestEntries[highlightIndex].photoUrl} 
-                                className="w-full h-full object-cover blur-3xl opacity-30 scale-110 animate-pulse-slow" 
-                            />
-                        </div>
+                        <div className="absolute inset-0 z-0"><img src={contestEntries[highlightIndex].photoUrl} className="w-full h-full object-cover blur-3xl opacity-30 scale-110 animate-pulse-slow" /></div>
                         <div className="relative z-10 flex flex-col items-center w-full max-w-4xl animate-photo-fade-zoom">
-                            <div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 group">
-                                <img 
-                                    src={contestEntries[highlightIndex].photoUrl} 
-                                    className="w-full h-full object-cover transform" 
-                                />
-                                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-8 translate-y-0">
-                                    <div className="flex items-center gap-4">
-                                        <img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white" />
-                                        <div>
-                                            <h3 className="text-2xl font-bold text-white">{contestEntries[highlightIndex].caption}</h3>
-                                            <p className="text-slate-300 font-medium">By {contestEntries[highlightIndex].userDisplayName}</p>
-                                        </div>
-                                        <div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full shadow-lg">
-                                            <Heart className="w-5 h-5 fill-white" />
-                                            <span className="font-bold text-xl">{contestEntries[highlightIndex].likeCount}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <h2 className="text-3xl font-black text-white uppercase tracking-widest mt-8 flex items-center gap-3">
-                                <Camera className="w-8 h-8 text-pink-500" /> Photo Contest Highlights
-                            </h2>
+                            <div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 group"><img src={contestEntries[highlightIndex].photoUrl} className="w-full h-full object-cover transform" /><div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-8 translate-y-0"><div className="flex items-center gap-4"><img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white" /><div><h3 className="text-2xl font-bold text-white">{contestEntries[highlightIndex].caption}</h3><p className="text-slate-300 font-medium">By {contestEntries[highlightIndex].userDisplayName}</p></div><div className="ml-auto flex items-center gap-2 bg-pink-600 px-4 py-2 rounded-full shadow-lg"><Heart className="w-5 h-5 fill-white" /><span className="font-bold text-xl">{contestEntries[highlightIndex].likeCount}</span></div></div></div></div>
+                            <h2 className="text-3xl font-black text-white uppercase tracking-widest mt-8 flex items-center gap-3"><Camera className="w-8 h-8 text-pink-500" /> Photo Contest Highlights</h2>
                         </div>
                     </div>
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
-            {/* SLIDE 7: SPONSORS */}
-            {currentSlide === 7 && (
+            {/* SLIDE 8: SPONSORS */}
+            {currentSlide === 8 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
-                        
-                        <div className="text-center mb-12 animate-in slide-in-from-top-10 duration-1000 shrink-0">
-                            <div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse">
-                                <Star className="w-6 h-6 text-white fill-white" />
-                                <span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span>
-                                <Star className="w-6 h-6 text-white fill-white" />
-                            </div>
-                            <h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
-                                Official Sponsors
-                            </h2>
-                        </div>
-
+                        <div className="text-center mb-12 animate-in slide-in-from-top-10 duration-1000 shrink-0"><div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse"><Star className="w-6 h-6 text-white fill-white" /><span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span><Star className="w-6 h-6 text-white fill-white" /></div><h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">Official Sponsors</h2></div>
                         {sponsors.length > 0 ? (
-                            <div className="w-full flex-1 flex items-center justify-center">
-                                <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
-                                    {[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (
-                                        <div 
-                                            key={`${s.id}-${idx}`} 
-                                            className="relative bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 transition-all duration-700 hover:scale-110 hover:bg-white/10 hover:border-amber-500/50 hover:shadow-[0_0_50px_rgba(245,158,11,0.3)] group h-64"
-                                        >
-                                            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-3xl pointer-events-none"></div>
-                                            
-                                            <div className="absolute -top-4 -right-4 transition-transform duration-500 group-hover:scale-125">
-                                                <div className="relative">
-                                                    <div className="absolute inset-0 bg-amber-400 blur-lg rounded-full opacity-50"></div>
-                                                    <Star className="w-10 h-10 text-white fill-amber-400 relative z-10" />
-                                                </div>
-                                            </div>
-                                            
-                                            <img 
-                                                src={s.logoUrl} 
-                                                className="w-full h-full object-contain filter drop-shadow-2xl transition-transform duration-500 group-hover:scale-110" 
-                                                alt={s.name} 
-                                            />
-                                            
-                                            <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-y-4 group-hover:translate-y-0">
-                                                <span className="text-lg font-bold text-white bg-black/60 px-4 py-2 rounded-full backdrop-blur-md border border-white/10">
-                                                    {s.name}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center animate-pulse mt-20">
-                                <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
-                                    <Zap className="w-12 h-12 text-yellow-400" />
-                                </div>
-                                <div className="text-3xl font-bold text-slate-500">Become a Partner</div>
-                            </div>
-                        )}
+                            <div className="w-full flex-1 flex items-center justify-center"><div className="grid grid-cols-3 gap-12 w-full perspective-1000">{[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (<div key={`${s.id}-${idx}`} className="relative bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 transition-all duration-700 hover:scale-110 hover:bg-white/10 hover:border-amber-500/50 hover:shadow-[0_0_50px_rgba(245,158,11,0.3)] group h-64"><div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-3xl pointer-events-none"></div><div className="absolute -top-4 -right-4 transition-transform duration-500 group-hover:scale-125"><div className="relative"><div className="absolute inset-0 bg-amber-400 blur-lg rounded-full opacity-50"></div><Star className="w-10 h-10 text-white fill-amber-400 relative z-10" /></div></div><img src={s.logoUrl} className="w-full h-full object-contain filter drop-shadow-2xl transition-transform duration-500 group-hover:scale-110" alt={s.name} /><div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-y-4 group-hover:translate-y-0"><span className="text-lg font-bold text-white bg-black/60 px-4 py-2 rounded-full backdrop-blur-md border border-white/10">{s.name}</span></div></div>))}</div></div>
+                        ) : <div className="flex flex-col items-center animate-pulse mt-20"><div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4"><Zap className="w-12 h-12 text-yellow-400" /></div><div className="text-3xl font-bold text-slate-500">Become a Partner</div></div>}
                     </div>
                 </div>
             )}
 
-            {/* SLIDE 8: VERSUS / COMING UP NEXT */}
-            {currentSlide === 8 && (
+            {/* SLIDE 9: VERSUS */}
+            {currentSlide === 9 && (
                 <div className="h-full w-full relative overflow-hidden bg-slate-950 flex flex-col animate-broadcast-reveal">
-                    {/* Dynamic Backgrounds based on team colors if possible, otherwise generic */}
                     {nextMatch ? (
                         <>
-                            {/* Background Split */}
-                            <div className="absolute inset-0 z-0 flex">
-                                <div className="w-1/2 h-full bg-gradient-to-r from-blue-900 to-slate-900 opacity-50 relative overflow-hidden">
-                                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div>
-                                    {/* Animated Particles */}
-                                    <div className="absolute bottom-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-blue-500/20 to-transparent animate-pulse"></div>
-                                </div>
-                                <div className="w-1/2 h-full bg-gradient-to-l from-red-900 to-slate-900 opacity-50 relative overflow-hidden">
-                                    <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div>
-                                    <div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-red-500/20 to-transparent animate-pulse"></div>
-                                </div>
-                            </div>
-
-                            {/* Content */}
+                            <div className="absolute inset-0 z-0 flex"><div className="w-1/2 h-full bg-gradient-to-r from-blue-900 to-slate-900 opacity-50 relative overflow-hidden"><div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div><div className="absolute bottom-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-blue-500/20 to-transparent animate-pulse"></div></div><div className="w-1/2 h-full bg-gradient-to-l from-red-900 to-slate-900 opacity-50 relative overflow-hidden"><div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div><div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-red-500/20 to-transparent animate-pulse"></div></div></div>
                             <div className="relative z-10 flex-1 flex flex-col justify-center items-center w-full max-w-7xl mx-auto px-4">
-                                
-                                {/* Header */}
-                                <div className="text-center mb-8">
-                                    <span className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1 rounded-full text-indigo-300 font-bold tracking-widest text-sm uppercase mb-2 inline-block">
-                                        Coming Up Next
-                                    </span>
-                                    <h2 className="text-4xl font-black text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                                        {nextMatch.roundLabel?.split(':')[0] || 'MATCH DAY'}
-                                    </h2>
-                                </div>
-
-                                {/* VS Section */}
+                                <div className="text-center mb-8"><span className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-1 rounded-full text-indigo-300 font-bold tracking-widest text-sm uppercase mb-2 inline-block">Coming Up Next</span><h2 className="text-4xl font-black text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">{nextMatch.roundLabel?.split(':')[0] || 'MATCH DAY'}</h2></div>
                                 <div className="flex items-center justify-center w-full gap-8 md:gap-20">
-                                    {/* Team A */}
-                                    <div className="flex flex-col items-center w-1/3 animate-in slide-in-from-left-20 duration-1000">
-                                        <div className="w-48 h-48 md:w-64 md:h-64 bg-white/5 rounded-full p-4 border-4 border-blue-500/50 shadow-[0_0_60px_rgba(59,130,246,0.3)] backdrop-blur-sm flex items-center justify-center mb-6 relative group">
-                                            <div className="absolute inset-0 rounded-full border-2 border-white/10 animate-[spin_10s_linear_infinite]"></div>
-                                            {resolveTeam(nextMatch.teamA).logoUrl ? (
-                                                <img src={resolveTeam(nextMatch.teamA).logoUrl} className="w-full h-full object-contain drop-shadow-2xl transform group-hover:scale-110 transition duration-500" />
-                                            ) : (
-                                                <div className="text-8xl font-black text-white/20">A</div>
-                                            )}
-                                        </div>
-                                        <h3 className="text-4xl md:text-5xl font-black text-white text-center leading-tight drop-shadow-lg uppercase">
-                                            {resolveTeam(nextMatch.teamA).name}
-                                        </h3>
-                                    </div>
-
-                                    {/* VS & Timer */}
-                                    <div className="flex flex-col items-center justify-center relative z-20">
-                                        <div className="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 italic tracking-tighter drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] transform scale-150 mb-8">
-                                            VS
-                                        </div>
-                                        
-                                        {/* H2H Stats */}
-                                        {h2hStats && (
-                                            <div className="mb-6 bg-white/5 border border-white/10 px-6 py-2 rounded-full backdrop-blur-md flex items-center gap-6 shadow-xl">
-                                                <div className="flex flex-col items-center">
-                                                    <span className="text-2xl font-black text-blue-400">{h2hStats.winsA}</span>
-                                                    <span className="text-[9px] uppercase text-slate-400 font-bold">WINS</span>
-                                                </div>
-                                                <div className="h-8 w-[1px] bg-white/20"></div>
-                                                <div className="flex flex-col items-center">
-                                                    <span className="text-2xl font-black text-slate-300">{h2hStats.draws}</span>
-                                                    <span className="text-[9px] uppercase text-slate-400 font-bold">DRAWS</span>
-                                                </div>
-                                                <div className="h-8 w-[1px] bg-white/20"></div>
-                                                <div className="flex flex-col items-center">
-                                                    <span className="text-2xl font-black text-red-400">{h2hStats.winsB}</span>
-                                                    <span className="text-[9px] uppercase text-slate-400 font-bold">WINS</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {countdown && (
-                                            <div className="bg-black/50 backdrop-blur-md border border-white/10 px-6 py-3 rounded-2xl flex flex-col items-center gap-1 shadow-2xl">
-                                                <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">Kick Off In</span>
-                                                <div className="text-4xl font-mono font-bold text-white tracking-widest tabular-nums text-shadow-glow">
-                                                    {countdown}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Team B */}
-                                    <div className="flex flex-col items-center w-1/3 animate-in slide-in-from-right-20 duration-1000">
-                                        <div className="w-48 h-48 md:w-64 md:h-64 bg-white/5 rounded-full p-4 border-4 border-red-500/50 shadow-[0_0_60px_rgba(239,68,68,0.3)] backdrop-blur-sm flex items-center justify-center mb-6 relative group">
-                                            <div className="absolute inset-0 rounded-full border-2 border-white/10 animate-[spin_10s_linear_infinite_reverse]"></div>
-                                            {resolveTeam(nextMatch.teamB).logoUrl ? (
-                                                <img src={resolveTeam(nextMatch.teamB).logoUrl} className="w-full h-full object-contain drop-shadow-2xl transform group-hover:scale-110 transition duration-500" />
-                                            ) : (
-                                                <div className="text-8xl font-black text-white/20">B</div>
-                                            )}
-                                        </div>
-                                        <h3 className="text-4xl md:text-5xl font-black text-white text-center leading-tight drop-shadow-lg uppercase">
-                                            {resolveTeam(nextMatch.teamB).name}
-                                        </h3>
-                                    </div>
+                                    <div className="flex flex-col items-center w-1/3 animate-in slide-in-from-left-20 duration-1000"><div className="w-48 h-48 md:w-64 md:h-64 bg-white/5 rounded-full p-4 border-4 border-blue-500/50 shadow-[0_0_60px_rgba(59,130,246,0.3)] backdrop-blur-sm flex items-center justify-center mb-6 relative group"><div className="absolute inset-0 rounded-full border-2 border-white/10 animate-[spin_10s_linear_infinite]"></div>{resolveTeam(nextMatch.teamA).logoUrl ? <img src={resolveTeam(nextMatch.teamA).logoUrl} className="w-full h-full object-contain drop-shadow-2xl transform group-hover:scale-110 transition duration-500" /> : <div className="text-8xl font-black text-white/20">A</div>}</div><h3 className="text-4xl md:text-5xl font-black text-white text-center leading-tight drop-shadow-lg uppercase">{resolveTeam(nextMatch.teamA).name}</h3></div>
+                                    <div className="flex flex-col items-center justify-center relative z-20"><div className="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 italic tracking-tighter drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] transform scale-150 mb-8">VS</div>{h2hStats && (<div className="mb-6 bg-white/5 border border-white/10 px-6 py-2 rounded-full backdrop-blur-md flex items-center gap-6 shadow-xl"><div className="flex flex-col items-center"><span className="text-2xl font-black text-blue-400">{h2hStats.winsA}</span><span className="text-[9px] uppercase text-slate-400 font-bold">WINS</span></div><div className="h-8 w-[1px] bg-white/20"></div><div className="flex flex-col items-center"><span className="text-2xl font-black text-slate-300">{h2hStats.draws}</span><span className="text-[9px] uppercase text-slate-400 font-bold">DRAWS</span></div><div className="h-8 w-[1px] bg-white/20"></div><div className="flex flex-col items-center"><span className="text-2xl font-black text-red-400">{h2hStats.winsB}</span><span className="text-[9px] uppercase text-slate-400 font-bold">WINS</span></div></div>)}{countdown && <div className="bg-black/50 backdrop-blur-md border border-white/10 px-6 py-3 rounded-2xl flex flex-col items-center gap-1 shadow-2xl"><span className="text-xs text-slate-400 font-bold uppercase tracking-widest">Kick Off In</span><div className="text-4xl font-mono font-bold text-white tracking-widest tabular-nums text-shadow-glow">{countdown}</div></div>}</div>
+                                    <div className="flex flex-col items-center w-1/3 animate-in slide-in-from-right-20 duration-1000"><div className="w-48 h-48 md:w-64 md:h-64 bg-white/5 rounded-full p-4 border-4 border-red-500/50 shadow-[0_0_60px_rgba(239,68,68,0.3)] backdrop-blur-sm flex items-center justify-center mb-6 relative group"><div className="absolute inset-0 rounded-full border-2 border-white/10 animate-[spin_10s_linear_infinite_reverse]"></div>{resolveTeam(nextMatch.teamB).logoUrl ? <img src={resolveTeam(nextMatch.teamB).logoUrl} className="w-full h-full object-contain drop-shadow-2xl transform group-hover:scale-110 transition duration-500" /> : <div className="text-8xl font-black text-white/20">B</div>}</div><h3 className="text-4xl md:text-5xl font-black text-white text-center leading-tight drop-shadow-lg uppercase">{resolveTeam(nextMatch.teamB).name}</h3></div>
                                 </div>
-
-                                {/* Venue Info */}
-                                <div className="mt-12 flex items-center gap-6 text-slate-300 text-xl font-bold bg-black/30 px-8 py-3 rounded-full border border-white/5 backdrop-blur-sm">
-                                    <span className="flex items-center gap-2"><MapPin className="w-6 h-6 text-red-500"/> {nextMatch.venue || 'Main Stadium'}</span>
-                                    <span className="w-1.5 h-1.5 bg-slate-500 rounded-full"></span>
-                                    <span className="flex items-center gap-2"><Clock className="w-6 h-6 text-indigo-500"/> {new Date(nextMatch.scheduledTime || nextMatch.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
-                                </div>
+                                <div className="mt-12 flex items-center gap-6 text-slate-300 text-xl font-bold bg-black/30 px-8 py-3 rounded-full border border-white/5 backdrop-blur-sm"><span className="flex items-center gap-2"><MapPin className="w-6 h-6 text-red-500"/> {nextMatch.venue || 'Main Stadium'}</span><span className="w-1.5 h-1.5 bg-slate-500 rounded-full"></span><span className="flex items-center gap-2"><Clock className="w-6 h-6 text-indigo-500"/> {new Date(nextMatch.scheduledTime || nextMatch.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span></div>
                             </div>
                         </>
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
-                            <Swords className="w-24 h-24 mb-4 opacity-20" />
-                            <h2 className="text-4xl font-black uppercase tracking-widest opacity-50">Tournament Continues</h2>
-                            <p className="text-xl mt-2">Stay Tuned for More Action</p>
-                        </div>
-                    )}
+                    ) : <div className="flex-1 flex flex-col items-center justify-center text-slate-500"><Swords className="w-24 h-24 mb-4 opacity-20" /><h2 className="text-4xl font-black uppercase tracking-widest opacity-50">Tournament Continues</h2><p className="text-xl mt-2">Stay Tuned for More Action</p></div>}
                 </div>
             )}
 
-            {/* SLIDE 9: LIVE STREAM (UPDATED: 45s Duration + Silent) */}
-            {currentSlide === 9 && (
+            {/* SLIDE 10: LIVE STREAM (AUTO PLAY & CONTROLS) */}
+            {currentSlide === 10 && (
                 <div className="h-full w-full relative flex flex-col bg-black animate-broadcast-reveal">
                     {liveStreamingMatches.length > 0 ? (
                         <div className="flex-1 relative w-full h-full flex items-center justify-center">
-                            {/* Video Embed */}
-                            <iframe 
-                                src={getEmbedUrl(liveStreamingMatches[0].livestreamUrl) || ""} 
-                                className="w-full h-full absolute inset-0 object-cover" 
-                                allow="autoplay; encrypted-media; picture-in-picture"
-                                allowFullScreen
-                            />
+                            {videoPlaying ? (
+                                <iframe 
+                                    src={getEmbedUrl(liveStreamingMatches[0].livestreamUrl, true, videoMuted) || ""} 
+                                    className="w-full h-full absolute inset-0 object-cover pointer-events-auto" 
+                                    allow="autoplay; encrypted-media; picture-in-picture"
+                                    allowFullScreen
+                                    title="Live Match"
+                                />
+                            ) : (
+                                <div className="absolute inset-0 bg-black/80 flex items-center justify-center flex-col z-10">
+                                    <h3 className="text-2xl font-bold text-white mb-4">PAUSED</h3>
+                                    <button onClick={() => setVideoPlaying(true)} className="p-4 bg-white/20 rounded-full hover:bg-white/30 transition"><Play className="w-12 h-12 text-white"/></button>
+                                </div>
+                            )}
                             
+                            {/* VIDEO CONTROL BAR */}
+                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full border border-white/20 flex items-center gap-6 z-30 transition-opacity duration-300 opacity-0 hover:opacity-100">
+                                <button onClick={() => setVideoPlaying(!videoPlaying)} className="hover:scale-110 transition">
+                                    {videoPlaying ? <Pause className="w-6 h-6 text-white"/> : <Play className="w-6 h-6 text-white"/>}
+                                </button>
+                                <div className="h-6 w-[1px] bg-white/20"></div>
+                                <button onClick={() => setVideoMuted(!videoMuted)} className="hover:scale-110 transition">
+                                    {videoMuted ? <VolumeX className="w-6 h-6 text-red-400"/> : <Volume2 className="w-6 h-6 text-green-400"/>}
+                                </button>
+                            </div>
+
                             {/* Overlay Info (Top Left) */}
-                            <div className="absolute top-8 left-8 bg-gradient-to-r from-black/80 to-transparent p-4 rounded-xl flex items-center gap-4 z-20 animate-slide-in-left">
-                                <div className="flex items-center gap-2 bg-red-600 px-3 py-1 rounded text-xs font-bold uppercase animate-pulse">
-                                    <span className="w-2 h-2 bg-white rounded-full"></span> LIVE
+                            <div className="absolute top-8 left-8 bg-gradient-to-r from-black/80 to-transparent p-4 rounded-xl flex items-center gap-4 z-20 animate-slide-in-left pointer-events-none">
+                                <div className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold uppercase animate-pulse ${liveStreamingMatches[0].winner ? 'bg-indigo-600' : 'bg-red-600'}`}>
+                                    <span className="w-2 h-2 bg-white rounded-full"></span> {liveStreamingMatches[0].winner ? 'REPLAY' : 'LIVE'}
                                 </div>
                                 <div>
                                     <div className="text-2xl font-black uppercase drop-shadow-md">
@@ -1470,18 +1092,20 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 </div>
                             </div>
 
-                            {/* Score Overlay (Bottom Center) */}
-                            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md px-10 py-4 rounded-2xl border border-white/10 flex items-center gap-8 z-20">
-                                <div className="text-center">
-                                    <div className="text-4xl font-black">{liveStreamingMatches[0].scoreA}</div>
-                                    <div className="text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamA).shortName}</div>
+                            {/* Score Overlay (Bottom Center - Hidden if paused) */}
+                            {videoPlaying && (
+                                <div className="absolute bottom-10 right-10 bg-black/60 backdrop-blur-md px-8 py-3 rounded-2xl border border-white/10 flex items-center gap-6 z-20 pointer-events-none">
+                                    <div className="text-center">
+                                        <div className="text-3xl font-black">{liveStreamingMatches[0].scoreA}</div>
+                                        <div className="text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamA).shortName}</div>
+                                    </div>
+                                    <div className="text-xl font-bold text-slate-500">:</div>
+                                    <div className="text-center">
+                                        <div className="text-3xl font-black">{liveStreamingMatches[0].scoreB}</div>
+                                        <div className="text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamB).shortName}</div>
+                                    </div>
                                 </div>
-                                <div className="text-xl font-bold text-slate-500">:</div>
-                                <div className="text-center">
-                                    <div className="text-4xl font-black">{liveStreamingMatches[0].scoreB}</div>
-                                    <div className="text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamB).shortName}</div>
-                                </div>
-                            </div>
+                            )}
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-500 relative overflow-hidden">
@@ -1502,171 +1126,53 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
             <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
-                <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-2xl relative z-10 drop-shadow-md">
-                    <Megaphone className="w-8 h-8 animate-bounce" /> UPDATE
-                </span>
+                <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-2xl relative z-10 drop-shadow-md"><Megaphone className="w-8 h-8 animate-bounce" /> UPDATE</span>
             </div>
-            
             <div className="flex-1 overflow-hidden relative h-full flex items-center z-10">
                 <div className="absolute whitespace-nowrap animate-marquee px-4 text-3xl font-black text-slate-800 uppercase tracking-wide flex items-center" style={{ animationDuration: '80s' }}>
-                    {announcements.length > 0 ? announcements.map((a, i) => (
-                        <React.Fragment key={i}>
-                            <span className="mx-12">{a}</span>
-                            <span className="text-red-500 text-3xl">•</span>
-                        </React.Fragment>
-                    )) : (
-                        <span className="pl-6 text-slate-300 font-bold uppercase tracking-widest">OFFICIAL TOURNAMENT SYSTEM</span>
-                    )}
+                    {announcements.length > 0 ? announcements.map((a, i) => (<React.Fragment key={i}><span className="mx-12">{a}</span><span className="text-red-500 text-3xl">•</span></React.Fragment>)) : <span className="pl-6 text-slate-300 font-bold uppercase tracking-widest">{config.competitionName}</span>}
                 </div>
-                
-                {/* Slide Indicators */}
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-30 bg-white/80 px-2 py-1 rounded-full backdrop-blur-sm border border-slate-200">
-                    {slides.map((_, idx) => (
-                        <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${currentSlide === idx ? 'bg-indigo-600 w-3' : 'bg-slate-300'}`}></div>
-                    ))}
-                </div>
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-30 bg-white/80 px-2 py-1 rounded-full backdrop-blur-sm border border-slate-200">{slides.map((_, idx) => <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${currentSlide === idx ? 'bg-indigo-600 w-3' : 'bg-slate-300'}`}></div>)}</div>
             </div>
-            
-            <div className="h-full bg-gradient-to-l from-slate-100 to-white flex items-center px-8 gap-6 z-20 border-l border-slate-200 min-w-[300px] justify-end relative overflow-hidden mask-gradient-x">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest absolute top-2 right-4">Official Partners</span>
-                {sponsors.length > 0 ? (
-                    <div className="flex gap-8 items-center overflow-hidden w-full justify-end">
-                        <div className="flex gap-8 animate-marquee-sponsors items-center">
-                            {[...sponsors, ...sponsors].map((s, i) => (
-                                <img key={i} src={s.logoUrl} className="h-12 object-contain grayscale opacity-60 transition duration-300" title={s.name} />
-                            ))}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex gap-4 opacity-30 grayscale">
-                        <div className="w-10 h-10 bg-slate-400 rounded-full"></div>
-                        <div className="w-10 h-10 bg-slate-400 rounded-full"></div>
-                    </div>
-                )}
-            </div>
+            <div className="h-full bg-gradient-to-l from-slate-100 to-white flex items-center px-8 gap-6 z-20 border-l border-slate-200 min-w-[300px] justify-end relative overflow-hidden mask-gradient-x"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest absolute top-2 right-4">Official Partners</span>{sponsors.length > 0 ? <div className="flex gap-8 items-center overflow-hidden w-full justify-end"><div className="flex gap-8 animate-marquee-sponsors items-center">{[...sponsors, ...sponsors].map((s, i) => <img key={i} src={s.logoUrl} className="h-12 object-contain grayscale opacity-60 transition duration-300" title={s.name} />)}</div></div> : <div className="flex gap-4 opacity-30 grayscale"><div className="w-10 h-10 bg-slate-400 rounded-full"></div><div className="w-10 h-10 bg-slate-400 rounded-full"></div></div>}</div>
         </div>
 
         {/* PROGRESS BAR */}
-        <div className="absolute bottom-0 left-0 w-full h-1.5 bg-slate-900 z-50">
-            <div 
-                className="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-indigo-500 transition-all duration-1000 ease-linear shadow-[0_0_10px_rgba(255,255,255,0.5)]"
-                style={{ width: `${((currentSlide + 1) / totalSlides) * 100}%` }}
-            ></div>
-        </div>
+        <div className="absolute bottom-0 left-0 w-full h-1.5 bg-slate-900 z-50"><div className="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-indigo-500 transition-all duration-1000 ease-linear shadow-[0_0_10px_rgba(255,255,255,0.5)]" style={{ width: `${((currentSlide + 1) / totalSlides) * 100}%` }}></div></div>
 
         <style>{`
-            @keyframes broadcast-reveal {
-                0% { opacity: 0; transform: scale(1.05); filter: blur(10px); }
-                100% { opacity: 1; transform: scale(1); filter: blur(0); }
-            }
+            @keyframes broadcast-reveal { 0% { opacity: 0; transform: scale(1.05); filter: blur(10px); } 100% { opacity: 1; transform: scale(1); filter: blur(0); } }
             .animate-broadcast-reveal { animation: broadcast-reveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
             @keyframes slow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             .animate-slow-spin { animation: slow-spin 60s linear infinite; }
             @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
             .animate-marquee { animation: marquee 80s linear infinite; }
             @keyframes marquee-sponsors { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
             .animate-marquee-sponsors { animation: marquee-sponsors 20s linear infinite; display: flex; width: max-content; }
-            
-            @keyframes pulse-slow {
-                0%, 100% { transform: scale(1); opacity: 1; }
-                50% { transform: scale(1.02); opacity: 0.95; }
-            }
+            @keyframes pulse-slow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.02); opacity: 0.95; } }
             .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
-
-            @keyframes music-bar {
-                0%, 100% { height: 20%; }
-                50% { height: 100%; }
-            }
-
-            @keyframes auto-scroll {
-                0% { transform: translateY(0); }
-                100% { transform: translateY(-50%); }
-            }
-            .animate-auto-scroll {
-                animation: auto-scroll 40s linear infinite;
-            }
-            
-            .mask-image-linear-gradient {
-                mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
-                -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
-            }
-            
-            .mask-gradient-x {
-                mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
-                -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
-            }
-
-            @keyframes pan-pattern {
-                0% { background-position: 0% 0%; }
-                100% { background-position: 100% 100%; }
-            }
-            .animate-pan-pattern {
-                animation: pan-pattern 120s linear infinite;
-            }
-
-            @keyframes float-orb {
-                0%, 100% { transform: translate(0, 0) scale(1); }
-                33% { transform: translate(30px, -50px) scale(1.1); }
-                66% { transform: translate(-20px, 20px) scale(0.9); }
-            }
-            .animate-float-orb {
-                animation: float-orb 20s ease-in-out infinite;
-            }
-
-            @keyframes gradient-wave {
-                0% { background-position: 0% 50%; transform: scale(1); }
-                50% { background-position: 100% 50%; transform: scale(1.1); }
-                100% { background-position: 0% 50%; transform: scale(1); }
-            }
-            .animate-gradient-wave {
-                animation: gradient-wave 15s ease infinite;
-            }
-
-            @keyframes gradient-xy {
-                0% { background-position: 0% 50%; }
-                50% { background-position: 100% 50%; }
-                100% { background-position: 0% 50%; }
-            }
-            .animate-gradient-xy {
-                animation: gradient-xy 15s ease infinite;
-            }
-
-            @keyframes slide-up-fade {
-                from { opacity: 0; transform: translateY(50px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            .animate-slide-up-fade {
-                animation: slide-up-fade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-            }
-
-            @keyframes card-entrance {
-                0% { opacity: 0; transform: translateY(100px) scale(0.9); }
-                100% { opacity: 1; transform: translateY(0) scale(1); }
-            }
+            @keyframes music-bar { 0%, 100% { height: 20%; } 50% { height: 100%; } }
+            @keyframes auto-scroll { 0% { transform: translateY(0); } 100% { transform: translateY(-50%); } }
+            .animate-auto-scroll { animation: auto-scroll 40s linear infinite; }
+            .mask-image-linear-gradient { mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%); }
+            .mask-gradient-x { mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent); -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent); }
+            @keyframes pan-pattern { 0% { background-position: 0% 0%; } 100% { background-position: 100% 100%; } }
+            .animate-pan-pattern { animation: pan-pattern 120s linear infinite; }
+            @keyframes float-orb { 0%, 100% { transform: translate(0, 0) scale(1); } 33% { transform: translate(30px, -50px) scale(1.1); } 66% { transform: translate(-20px, 20px) scale(0.9); } }
+            .animate-float-orb { animation: float-orb 20s ease-in-out infinite; }
+            @keyframes gradient-wave { 0% { background-position: 0% 50%; transform: scale(1); } 50% { background-position: 100% 50%; transform: scale(1.1); } 100% { background-position: 0% 50%; transform: scale(1); } }
+            .animate-gradient-wave { animation: gradient-wave 15s ease infinite; }
+            @keyframes gradient-xy { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+            .animate-gradient-xy { animation: gradient-xy 15s ease infinite; }
+            @keyframes slide-up-fade { from { opacity: 0; transform: translateY(50px); } to { opacity: 1; transform: translateY(0); } }
+            .animate-slide-up-fade { animation: slide-up-fade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+            @keyframes card-entrance { 0% { opacity: 0; transform: translateY(100px) scale(0.9); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
             .animate-card-enter { animation: card-entrance 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
-
-            @keyframes photo-fade-zoom {
-                0% { opacity: 0; transform: scale(1); }
-                10% { opacity: 1; }
-                90% { opacity: 1; }
-                100% { opacity: 0; transform: scale(1.1); }
-            }
+            @keyframes photo-fade-zoom { 0% { opacity: 0; transform: scale(1); } 10% { opacity: 1; } 90% { opacity: 1; } 100% { opacity: 0; transform: scale(1.1); } }
             .animate-photo-fade-zoom { animation: photo-fade-zoom 4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-
-            /* Scanline Effect */
-            @keyframes scanlines {
-                0% { background-position: 0% 0%; }
-                100% { background-position: 0% 100%; }
-            }
-            .animate-scanlines {
-                animation: scanlines 4s linear infinite;
-            }
-
-            .text-shadow-glow {
-                text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(99,102,241,0.5);
-            }
-
+            @keyframes scanlines { 0% { background-position: 0% 0%; } 100% { background-position: 0% 100%; } }
+            .animate-scanlines { animation: scanlines 4s linear infinite; }
+            .text-shadow-glow { text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(99,102,241,0.5); }
             ::-webkit-scrollbar { display: none; }
             .perspective-1000 { perspective: 1000px; }
             .fill-mode-backwards { animation-fill-mode: backwards; }
