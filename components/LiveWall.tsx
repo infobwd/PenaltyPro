@@ -50,13 +50,49 @@ const getEmbedUrl = (url: string) => {
         let videoId = ''; 
         if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; 
         else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; 
+        // Forced mute=1
         if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0`; 
     } 
     if (url.includes('facebook.com')) { 
         const encodedUrl = encodeURIComponent(url); 
+        // Forced mute=1
         return `https://www.facebook.com/plugins/video.php?href=${encodedUrl}&show_text=false&t=0&autoplay=1&mute=1`; 
     } 
     return null; 
+};
+
+// Animated Counter Component
+const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?: number }) => {
+    const [count, setCount] = useState(0);
+    
+    useEffect(() => {
+        let startTime: number;
+        let animationFrameId: number;
+        
+        const step = (timestamp: number) => {
+            if (!startTime) startTime = timestamp;
+            const progress = Math.min((timestamp - startTime) / duration, 1);
+            // Ease out quart
+            const easeProgress = 1 - Math.pow(1 - progress, 4);
+            
+            setCount(Math.floor(easeProgress * target));
+            
+            if (progress < 1) {
+                animationFrameId = window.requestAnimationFrame(step);
+            } else {
+                setCount(target);
+            }
+        };
+        
+        // Reset to 0 when target changes to trigger animation again if needed, 
+        // though usually Key prop on parent handles re-mount
+        setCount(0);
+        animationFrameId = window.requestAnimationFrame(step);
+        
+        return () => window.cancelAnimationFrame(animationFrameId);
+    }, [target, duration]);
+
+    return <>{count}</>;
 };
 
 const SettingsManagerModal: React.FC<{ 
@@ -585,7 +621,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   useEffect(() => {
       if (!isAuthenticated) return;
       
-      const duration = currentSlide === 9 ? 45000 : 15000; // Live Stream stays longer
+      const duration = currentSlide === 9 ? 25000 : 15000; // Slide 9 stays for 25s
       
       const timer = setTimeout(() => {
           setCurrentSlide(prev => {
@@ -866,7 +902,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             }}
         >
             
-            {/* SLIDE 0: MATCH CENTER (UPDATED ANIMATION) */}
+            {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
                 <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-1000">
                     <div className="flex items-center gap-4 mb-8 mt-10">
@@ -983,17 +1019,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: RECENT RESULTS (UPDATED SLIDE UP) */}
+            {/* SLIDE 2: RECENT RESULTS */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000 relative">
-                    {/* Header Row with Title and CTA safely separated */}
                     <div className="flex items-center justify-between mb-8 mt-10 px-4">
                         <div className="flex items-center gap-4">
                             <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
                             <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                         </div>
                         
-                        {/* Prediction CTA moved to header row to avoid blocking grid */}
                         <div className="flex items-center gap-4 bg-white/10 border border-white/20 p-2 pr-6 rounded-xl backdrop-blur-md shadow-lg animate-pulse-slow">
                             <div className="bg-white p-1.5 rounded-lg shadow-inner">
                                 <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
@@ -1025,7 +1059,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                         </div>
                                         
                                         <div className="p-6 flex items-center justify-between">
-                                            {/* Team A */}
                                             <div className={`flex flex-col items-center gap-3 flex-1 ${winnerA ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
                                                 <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerA ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
                                                     {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tA.name.substring(0,1)}</div>}
@@ -1034,7 +1067,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                                 {winnerA && <div className="absolute top-12 left-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}
                                             </div>
 
-                                            {/* Score */}
                                             <div className="flex flex-col items-center px-4">
                                                 <div className="text-5xl font-black font-mono text-white tracking-tighter drop-shadow-[0_4px_10px_rgba(0,0,0,0.5)]">
                                                     {m.scoreA}-{m.scoreB}
@@ -1044,7 +1076,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                                 </div>
                                             </div>
 
-                                            {/* Team B */}
                                             <div className={`flex flex-col items-center gap-3 flex-1 ${winnerB ? 'opacity-100 scale-105' : 'opacity-60 grayscale-[0.5]'}`}>
                                                 <div className={`w-20 h-20 rounded-2xl p-2 flex items-center justify-center bg-gradient-to-br ${winnerB ? 'from-green-500/20 to-emerald-900/40 border border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'from-slate-800 to-slate-900 border border-white/5'}`}>
                                                     {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tB.name.substring(0,1)}</div>}
@@ -1128,7 +1159,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 4: TOP KEEPERS */}
+            {/* SLIDE 4: TOP KEEPERS (WITH RANDOM NUMBER EFFECT) */}
             {currentSlide === 4 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
                     <div className="flex items-center gap-4 mb-8 mt-10">
@@ -1147,11 +1178,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 </div>
                                 <div className="flex gap-4 text-center">
                                     <div>
-                                        <div className="text-3xl font-black text-white">{k.cleanSheets}</div>
+                                        <div className="text-3xl font-black text-white"><NumberCounter target={k.cleanSheets} /></div>
                                         <div className="text-[10px] uppercase text-slate-500 font-bold">Clean Sheets</div>
                                     </div>
                                     <div>
-                                        <div className="text-3xl font-black text-blue-400">{k.saves}</div>
+                                        <div className="text-3xl font-black text-blue-400"><NumberCounter target={k.saves} /></div>
                                         <div className="text-[10px] uppercase text-slate-500 font-bold">PK Saves</div>
                                     </div>
                                 </div>
@@ -1161,7 +1192,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 5: FAN PREDICTION */}
+            {/* SLIDE 5: FAN PREDICTION (WITH SLIDE-UP ANIMATION) */}
             {currentSlide === 5 && (
                 <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000 relative">
                     <div className="text-center mb-8 mt-10">
@@ -1169,7 +1200,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                     <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
                         {fanRankings.length > 0 ? fanRankings.map((fan, idx) => (
-                            <div key={idx} className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`}>
+                            <div 
+                                key={idx} 
+                                className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 opacity-0 animate-card-enter ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`}
+                                style={{ animationDelay: `${idx * 100}ms` }}
+                            >
                                 <div className="flex items-center gap-4">
                                     <div className={`w-10 h-10 flex items-center justify-center font-black rounded-full ${idx < 3 ? 'bg-white text-black' : 'bg-slate-700 text-slate-400'}`}>
                                         {idx + 1}
@@ -1189,7 +1224,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 6: HIGHLIGHTS (UPDATED: FADE IN/OUT) */}
+            {/* SLIDE 6: HIGHLIGHTS */}
             {currentSlide === 6 && (
                 contestEntries.length > 0 ? (
                     <div key={highlightIndex} className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl animate-card-enter">
@@ -1227,7 +1262,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Photos Yet</div>
             )}
 
-            {/* SLIDE 7: SPONSORS (UPDATED: GRAND DESIGN) */}
+            {/* SLIDE 7: SPONSORS */}
             {currentSlide === 7 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-in fade-in duration-1000">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
@@ -1287,7 +1322,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 8: VERSUS / COMING UP NEXT (UPDATED H2H) */}
+            {/* SLIDE 8: VERSUS / COMING UP NEXT */}
             {currentSlide === 8 && (
                 <div className="h-full w-full relative overflow-hidden bg-slate-950 flex flex-col animate-in fade-in duration-1000">
                     {/* Dynamic Backgrounds based on team colors if possible, otherwise generic */}
@@ -1406,7 +1441,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 9: LIVE STREAM (UPDATED TEAM NAME) */}
+            {/* SLIDE 9: LIVE STREAM (UPDATED: 25s Duration + Silent) */}
             {currentSlide === 9 && (
                 <div className="h-full w-full relative flex flex-col bg-black animate-in fade-in duration-1000">
                     {liveStreamingMatches.length > 0 ? (
@@ -1460,7 +1495,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         </div>
 
-        {/* BOTTOM TICKER & SPONSORS (UPDATED WITH MASK) */}
+        {/* BOTTOM TICKER & SPONSORS */}
         <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
             <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
@@ -1470,7 +1505,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
             
             <div className="flex-1 overflow-hidden relative h-full flex items-center z-10">
-                {/* Slowed down marquee animation duration */}
                 <div className="absolute whitespace-nowrap animate-marquee px-4 text-3xl font-black text-slate-800 uppercase tracking-wide flex items-center" style={{ animationDuration: '80s' }}>
                     {announcements.length > 0 ? announcements.map((a, i) => (
                         <React.Fragment key={i}>
@@ -1531,13 +1565,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             }
             .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
 
-            /* Music Bar Animation */
             @keyframes music-bar {
                 0%, 100% { height: 20%; }
                 50% { height: 100%; }
             }
 
-            /* New vertical auto-scroll for sponsor wall */
             @keyframes auto-scroll {
                 0% { transform: translateY(0); }
                 100% { transform: translateY(-50%); }
@@ -1546,7 +1578,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 animation: auto-scroll 40s linear infinite;
             }
             
-            /* Gradient Mask for Sponsor Wall & Ticker */
             .mask-image-linear-gradient {
                 mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
                 -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
@@ -1557,7 +1588,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
             }
 
-            /* NEW ANIMATIONS FOR DYNAMIC BACKGROUNDS */
             @keyframes pan-pattern {
                 0% { background-position: 0% 0%; }
                 100% { background-position: 100% 100%; }
@@ -1575,7 +1605,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 animation: float-orb 20s ease-in-out infinite;
             }
 
-            /* Wave Gradient Animation */
             @keyframes gradient-wave {
                 0% { background-position: 0% 50%; transform: scale(1); }
                 50% { background-position: 100% 50%; transform: scale(1.1); }
@@ -1594,7 +1623,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 animation: gradient-xy 15s ease infinite;
             }
 
-            /* Staggered Slide Up Fade */
             @keyframes slide-up-fade {
                 from { opacity: 0; transform: translateY(50px); }
                 to { opacity: 1; transform: translateY(0); }
@@ -1603,14 +1631,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 animation: slide-up-fade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             }
 
-            /* Card Entrance Animation (Slide Up + Elastic) */
             @keyframes card-entrance {
                 0% { opacity: 0; transform: translateY(100px) scale(0.9); }
                 100% { opacity: 1; transform: translateY(0) scale(1); }
             }
             .animate-card-enter { animation: card-entrance 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
 
-            /* Updated: Fade Zoom Animation for Slide 6 */
             @keyframes photo-fade-zoom {
                 0% { opacity: 0; transform: scale(1); }
                 10% { opacity: 1; }
