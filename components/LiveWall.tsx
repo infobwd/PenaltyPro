@@ -804,7 +804,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
                 <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-1000">
-                    <div className="flex items-center gap-4 mb-8">
+                    <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-red-600 p-2 rounded-lg shadow-[0_0_20px_rgba(220,38,38,0.5)]"><Activity className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Center</h2>
                     </div>
@@ -861,7 +861,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 1: STANDINGS */}
             {currentSlide === 1 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
-                    <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center justify-between mb-8 mt-10">
                         <div className="flex items-center gap-4">
                             <div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div>
                             <h2 className="text-4xl font-black text-white uppercase tracking-tight">Current Standings</h2>
@@ -913,7 +913,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 2: RECENT RESULTS */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000">
-                    <div className="flex items-center gap-4 mb-8">
+                    <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                     </div>
@@ -973,7 +973,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 3: TOP SCORERS */}
             {currentSlide === 3 && (
                 <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000">
-                    <div className="text-center mb-8">
+                    <div className="text-center mb-8 mt-10">
                         <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
                         <p className="text-slate-400 font-bold uppercase tracking-widest mt-1">Top Goal Scorers</p>
                     </div>
@@ -1038,7 +1038,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 4: TOP KEEPERS */}
             {currentSlide === 4 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
-                    <div className="flex items-center gap-4 mb-8">
+                    <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
                     </div>
@@ -1071,7 +1071,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 5: FAN PREDICTION */}
             {currentSlide === 5 && (
                 <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000 relative">
-                    <div className="text-center mb-8">
+                    <div className="text-center mb-8 mt-10">
                         <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2>
                     </div>
                     <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
