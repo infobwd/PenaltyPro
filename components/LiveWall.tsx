@@ -241,6 +241,23 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   ];
   const totalSlides = slides.length;
 
+  // Dynamic Background Generator
+  const getBackgroundStyle = (index: number) => {
+      switch (index) {
+          case 0: return 'from-indigo-900 to-slate-950'; // Matches
+          case 1: return 'from-blue-900 to-indigo-950'; // Standings
+          case 2: return 'from-emerald-900 to-slate-950'; // Results
+          case 3: return 'from-yellow-900 to-amber-950'; // Top Scorers
+          case 4: return 'from-cyan-900 to-blue-950'; // Keepers
+          case 5: return 'from-purple-900 to-pink-950'; // Fan
+          case 6: return 'from-rose-900 to-black'; // Highlights
+          case 7: return 'from-slate-900 to-black'; // Sponsors
+          case 8: return 'from-red-900 to-black'; // Versus
+          case 9: return 'from-black to-slate-950'; // Stream
+          default: return 'from-slate-900 to-black';
+      }
+  };
+
   const announcements = useMemo(() => {
       return config.announcement ? config.announcement.split('|').filter(s => s.trim() !== '') : [];
   }, [config.announcement]);
@@ -705,11 +722,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         {renderMusicPlayer()}
 
-        {/* ANIMATED BACKGROUND */}
-        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-1000">
-            <div className={`absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] ${currentSlide === 7 ? 'from-yellow-900/40 via-slate-950' : 'from-indigo-900/40 via-slate-950'} to-black animate-slow-spin opacity-50`}></div>
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+        {/* DYNAMIC ANIMATED BACKGROUND */}
+        <div className={`absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-1000 bg-gradient-to-br ${getBackgroundStyle(currentSlide)}`}>
+            {/* Drifting Pattern Overlay */}
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 mix-blend-overlay animate-pan-pattern"></div>
+            
+            {/* Floating Orbs for depth */}
+            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/5 rounded-full blur-[100px] animate-float-orb"></div>
+            <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-white/5 rounded-full blur-[80px] animate-float-orb delay-1000"></div>
+            
+            {/* Grid Lines */}
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px]"></div>
         </div>
 
         {/* TOP BAR */}
@@ -924,24 +947,24 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: RECENT RESULTS & PREDICTION CALL */}
+            {/* SLIDE 2: RECENT RESULTS & PREDICTION CALL (Refactored Layout) */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000 relative">
-                    <div className="flex items-center gap-4 mb-8 mt-10">
-                        <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
-                        <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
-                    </div>
-                    
-                    {/* Prediction CTA Overlay */}
-                    <div className="absolute top-4 right-0 bg-gradient-to-l from-indigo-900/90 to-purple-900/90 border border-white/20 p-4 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-6 animate-pulse-slow z-20 max-w-sm">
-                        <div className="bg-white p-2 rounded-lg shadow-inner">
-                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-20 h-20" />
+                    {/* Header Row with Title and CTA safely separated */}
+                    <div className="flex items-center justify-between mb-8 mt-10 px-4">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
+                            <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                         </div>
-                        <div>
-                            <div className="text-yellow-400 font-black text-lg flex items-center gap-2"><Gamepad2 className="w-5 h-5"/> PREDICT NOW</div>
-                            <p className="text-white text-xs leading-tight opacity-80 mt-1">Scan to predict next matches<br/>and win exclusive points!</p>
-                            <div className="mt-2 flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded text-green-300 font-bold w-fit">
-                                <Coins className="w-3 h-3"/> Earn Rewards
+                        
+                        {/* Prediction CTA moved to header row to avoid blocking grid */}
+                        <div className="flex items-center gap-4 bg-white/10 border border-white/20 p-2 pr-6 rounded-xl backdrop-blur-md shadow-lg animate-pulse-slow">
+                            <div className="bg-white p-1.5 rounded-lg shadow-inner">
+                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
+                            </div>
+                            <div className="flex flex-col">
+                                <div className="text-yellow-400 font-black text-sm flex items-center gap-1"><Gamepad2 className="w-4 h-4"/> PREDICT</div>
+                                <div className="text-[10px] text-slate-300 leading-tight">Scan to play & win points</div>
                             </div>
                         </div>
                     </div>
@@ -955,7 +978,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 const winnerB = m.winner === 'B' || m.winner === tB.name;
 
                                 return (
-                                    <div key={m.id} className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500">
+                                    <div key={m.id} className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500 hover:border-white/30">
                                         <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400">
                                             <span>{new Date(m.date).toLocaleDateString('th-TH', {day:'numeric', month:'short'})}</span>
                                             <span className="uppercase tracking-widest">{m.roundLabel?.split(':')[0] || 'Match'}</span>
@@ -1168,13 +1191,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 7: SCROLLABLE SPONSOR WALL (UPDATED) */}
             {currentSlide === 7 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden">
-                    {/* Background Effects */}
-                    <div className="absolute inset-0 bg-slate-900">
-                        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
-                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-gradient-to-b from-indigo-900/50 via-slate-900 to-black pointer-events-none"></div>
-                        <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,rgba(99,102,241,0.1)_60deg,transparent_120deg)] animate-slow-spin opacity-50"></div>
-                    </div>
-
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
                         
                         <div className="text-center mb-8 animate-in slide-in-from-top-10 duration-1000 shrink-0">
@@ -1478,6 +1494,24 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .mask-image-linear-gradient {
                 mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
                 -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+            }
+
+            /* NEW ANIMATIONS FOR DYNAMIC BACKGROUNDS */
+            @keyframes pan-pattern {
+                0% { background-position: 0% 0%; }
+                100% { background-position: 100% 100%; }
+            }
+            .animate-pan-pattern {
+                animation: pan-pattern 120s linear infinite;
+            }
+
+            @keyframes float-orb {
+                0%, 100% { transform: translate(0, 0) scale(1); }
+                33% { transform: translate(30px, -50px) scale(1.1); }
+                66% { transform: translate(-20px, 20px) scale(0.9); }
+            }
+            .animate-float-orb {
+                animation: float-orb 20s ease-in-out infinite;
             }
 
             .text-shadow-glow {
