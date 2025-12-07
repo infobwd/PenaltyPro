@@ -50,7 +50,7 @@ const getEmbedUrl = (url: string) => {
         let videoId = ''; 
         if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; 
         else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; 
-        // Forced mute=1
+        // Forced mute=1 for auto-play without user interaction issues
         if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}`; 
     } 
     if (url.includes('facebook.com')) { 
@@ -74,8 +74,6 @@ const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?:
             const progress = Math.min((timestamp - startTime) / duration, 1);
             
             if (progress < 1) {
-                // Random Number Shuffle Effect (Slot Machine style)
-                // Random number between 0 and roughly 1.5x target to simulate shuffling
                 const randomVal = Math.floor(Math.random() * (Math.max(10, target * 1.5)));
                 setCount(randomVal);
                 animationFrameId = window.requestAnimationFrame(step);
@@ -84,7 +82,6 @@ const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?:
             }
         };
         
-        // Reset to 0 when target changes
         setCount(0);
         animationFrameId = window.requestAnimationFrame(step);
         
@@ -616,11 +613,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
     return () => clearInterval(clockTimer);
   }, []);
 
-  // Use Timeout instead of Interval for dynamic duration
+  // Use Timeout for dynamic slide duration
   useEffect(() => {
       if (!isAuthenticated) return;
       
-      const duration = currentSlide === 9 ? 45000 : 15000; // Slide 9 stays for 45s (Configurable here)
+      const SLIDE_DURATIONS: Record<number, number> = {
+          9: 45000, // Live Stream: 45s
+      };
+      const defaultDuration = 15000; // Others: 15s
+      const duration = SLIDE_DURATIONS[currentSlide] || defaultDuration;
       
       const timer = setTimeout(() => {
           setCurrentSlide(prev => {
@@ -1161,7 +1162,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 4: TOP KEEPERS (WITH RANDOM NUMBER EFFECT) */}
+            {/* SLIDE 4: TOP KEEPERS */}
             {currentSlide === 4 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center gap-4 mb-8 mt-10">
@@ -1194,7 +1195,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 5: FAN PREDICTION (WITH SLIDE-UP ANIMATION) */}
+            {/* SLIDE 5: FAN PREDICTION */}
             {currentSlide === 5 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
                     <div className="text-center mb-8 mt-10">
@@ -1229,7 +1230,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 6: HIGHLIGHTS */}
             {currentSlide === 6 && (
                 contestEntries.length > 0 ? (
-                    <div key={highlightIndex} className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl animate-card-enter">
+                    <div key={highlightIndex} className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl animate-broadcast-reveal">
                         <div className="absolute inset-0 z-0">
                             <img 
                                 src={contestEntries[highlightIndex].photoUrl} 
@@ -1261,7 +1262,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                             </h2>
                         </div>
                     </div>
-                ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Photos Yet</div>
+                ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
             {/* SLIDE 7: SPONSORS */}
@@ -1379,7 +1380,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                             VS
                                         </div>
                                         
-                                        {/* H2H Stats (New Addition) */}
+                                        {/* H2H Stats */}
                                         {h2hStats && (
                                             <div className="mb-6 bg-white/5 border border-white/10 px-6 py-2 rounded-full backdrop-blur-md flex items-center gap-6 shadow-xl">
                                                 <div className="flex flex-col items-center">
