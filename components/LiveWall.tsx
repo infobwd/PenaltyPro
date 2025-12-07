@@ -735,6 +735,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/5 rounded-full blur-[100px] animate-float-orb"></div>
             <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-white/5 rounded-full blur-[80px] animate-float-orb delay-1000"></div>
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+            
+            {/* WATERMARK */}
+            <div className="absolute bottom-32 right-10 opacity-[0.03] select-none pointer-events-none z-0 transform -rotate-6 origin-bottom-right">
+                 <h1 className="text-[12rem] font-black text-white uppercase tracking-tighter whitespace-nowrap leading-none text-right">
+                    {config.competitionName}
+                 </h1>
+            </div>
         </div>
 
         {/* TOP BAR */}

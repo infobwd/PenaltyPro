@@ -25,7 +25,7 @@ import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -149,6 +149,7 @@ export default function App() {
   
   const effectiveSettings: AppSettings = {
       ...appConfig,
+      competitionName: activeTournament ? activeTournament.name : appConfig.competitionName,
       bankName: tConfig.bankName || appConfig.bankName,
       bankAccount: tConfig.bankAccount || appConfig.bankAccount,
       accountName: tConfig.accountName || appConfig.accountName,

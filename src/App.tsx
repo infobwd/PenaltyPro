@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation } from './types';
+import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation, Prediction } from './types';
 import MatchSetup from './components/MatchSetup';
 import ScoreVisualizer from './components/ScoreVisualizer';
 import PenaltyInterface from './components/PenaltyInterface';
@@ -17,12 +17,15 @@ import ScheduleList from './components/ScheduleList';
 import NewsFeed from './components/NewsFeed'; 
 import TournamentSelector from './components/TournamentSelector';
 import DonationDialog from './components/DonationDialog';
+import SupportDialog from './components/SupportDialog';
 import TeamEditModal from './components/TeamEditModal';
+import ContestGallery from './components/ContestGallery';
+import LiveWall from './components/LiveWall';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
-import { initializeLiff } from './services/liffService';
+import { initializeLiff, sharePrizeSummary } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -107,6 +110,7 @@ export default function App() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [currentTournamentId, setCurrentTournamentId] = useState<string | null>(null);
   const [donations, setDonations] = useState<Donation[]>([]); 
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
 
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -127,6 +131,7 @@ export default function App() {
   const [isDonationOpen, setIsDonationOpen] = useState(false);
   const [isDonorListOpen, setIsDonorListOpen] = useState(false); 
   const [activeImageMode, setActiveImageMode] = useState<'before' | 'after'>('before');
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   
   // Team Edit Modal State
   const [isTeamEditModalOpen, setIsTeamEditModalOpen] = useState(false);
@@ -137,6 +142,7 @@ export default function App() {
   const activeMatches = currentTournamentId ? matchesLog.filter(m => m.tournamentId === currentTournamentId || (!m.tournamentId && currentTournamentId === 'default')) : [];
   const activeTournament = tournaments.find(t => t.id === currentTournamentId);
   const activeDonations = currentTournamentId ? donations.filter(d => d.tournamentId === currentTournamentId) : [];
+  const activePredictions = currentTournamentId ? predictions.filter(p => p.tournamentId === currentTournamentId) : [];
 
   const getTournamentConfig = (): TournamentConfig => { try { return activeTournament?.config ? JSON.parse(activeTournament.config) : {}; } catch(e) { return {}; } };
   const tConfig = getTournamentConfig();
@@ -212,6 +218,7 @@ export default function App() {
                 setNewsItems(data.news || []);
                 setTournaments(data.tournaments || []);
                 setDonations(data.donations || []);
+                setPredictions(data.predictions || []);
                 
                 // Logic for tournament ID selection
                 if (!currentTournamentId) { 
@@ -300,9 +307,9 @@ export default function App() {
   const showNotification = (title: string, message: string = '', type: ToastType = 'success') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, title, message, type }]); };
   const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
 
-  // Modified loadData to accept forceRefresh
-  const loadData = async (forceRefresh: boolean = false) => {
-    setIsLoadingData(true);
+  // Modified loadData to accept silent refresh
+  const loadData = async (forceRefresh: boolean = false, isSilent: boolean = false) => {
+    if (!isSilent) setIsLoadingData(true);
     setConnectionError(null);
     try {
       const data = await fetchDatabase(forceRefresh);
@@ -315,6 +322,7 @@ export default function App() {
         setNewsItems(data.news || []);
         setTournaments(data.tournaments || []);
         setDonations(data.donations || []);
+        setPredictions(data.predictions || []);
       }
     } catch (e: any) { console.warn("Database Error", e); setConnectionError(e.message); showNotification("เชื่อมต่อไม่ได้", e.message, 'error'); } finally { setIsLoadingData(false); }
   };
@@ -410,15 +418,33 @@ export default function App() {
   const handleNavClick = (view: string) => { if (view === 'schedule') setInitialMatchId(null); if (currentView === view) setViewKey(prev => prev + 1); else setCurrentView(view); };
   const BottomNav = () => ( <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 flex justify-around items-center z-[100] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] safe-area-bottom"> <NavButton view="home" icon={Home} label="หน้าหลัก" /> <NavButton view="schedule" icon={CalendarDays} label="ตาราง" /> <NavButton view="standings" icon={ListChecks} label="คะแนน" /> <NavButton view="tournament" icon={Trophy} label="ผังแข่ง" /> <NavButton view="admin" icon={isAdmin ? Settings : Lock} label="ระบบ" onClick={isAdmin ? undefined : () => setIsLoginOpen(true)} /> </div> );
   const NavButton = ({ view, icon: Icon, label, onClick }: { view: string, icon: any, label: string, onClick?: () => void }) => { const isActive = currentView === view; const handleClick = onClick || (() => handleNavClick(view)); return ( <button onClick={handleClick} className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all w-16 ${isActive ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}><Icon className={`w-6 h-6 mb-1 ${isActive ? 'fill-indigo-200' : ''}`} /><span className="text-[10px] font-bold">{label}</span></button> ) };
-  const showBottomNav = currentView !== 'match';
+  const showBottomNav = currentView !== 'match' && currentView !== 'live_wall';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
   const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(true); setCurrentView('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
   const handleUpdateRegularMatchState = (state: MatchState) => { };
 
+  const handleSharePrizeSummary = () => {
+      sharePrizeSummary(activeTournament?.name || "Tournament Results", prizes, activeTeams);
+  };
+
   if (isLoadingData) {
       return <LoadingScreen />;
+  }
+
+  if (currentView === 'live_wall') {
+      return (
+          <LiveWall 
+              matches={activeMatches} 
+              teams={activeTeams} 
+              players={activePlayers} 
+              config={effectiveSettings} 
+              predictions={activePredictions}
+              onClose={() => setCurrentView('tournament')} 
+              onRefresh={(silent) => loadData(true, silent)} 
+          />
+      );
   }
 
   if (!currentTournamentId) {
@@ -472,6 +498,25 @@ export default function App() {
         currentUser={currentUser}
       />
       
+      <SupportDialog 
+        isOpen={isSupportOpen} 
+        onClose={() => setIsSupportOpen(false)} 
+        config={effectiveSettings} 
+        currentUser={currentUser}
+        onRefresh={() => loadData(true)}
+      />
+
+      {/* Floating Support Button - Adjusted Position */}
+      <button
+        onClick={() => setIsSupportOpen(true)}
+        className="fixed bottom-24 right-4 md:right-8 md:bottom-24 z-[90] bg-gradient-to-r from-orange-500 to-pink-500 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform duration-300 group border-4 border-white/20 animate-in slide-in-from-bottom-10"
+      >
+        <Gift className="w-6 h-6 animate-pulse" />
+        <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 bg-white text-slate-800 text-xs font-bold px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
+          Support Us
+        </span>
+      </button>
+      
       {/* Team Edit Modal for Users */}
       {isTeamEditModalOpen && teamToEdit && (
           <TeamEditModal
@@ -520,9 +565,46 @@ export default function App() {
       {confirmModal && confirmModal.isOpen && (<div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setConfirmModal(null)}><div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}><div className={`flex items-center gap-3 mb-4 ${confirmModal.isDangerous ? 'text-red-600' : 'text-slate-700'}`}><AlertTriangle className="w-6 h-6" /><h3 className="font-bold text-lg">{confirmModal.title}</h3></div><p className="text-slate-600 mb-6">{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className="flex-1 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium text-slate-600">ยกเลิก</button><button onClick={confirmModal.onConfirm} className={`flex-1 py-2 rounded-lg font-bold text-white ${confirmModal.isDangerous ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>ยืนยัน</button></div></div></div>)}
       {editingKick && activeTournament?.type === 'Penalty' && (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[1100] p-4 backdrop-blur-sm" onClick={() => setEditingKick(null)}><div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}><div className="flex justify-between items-start mb-4"><h3 className="font-bold text-lg text-slate-800">แก้ไขผลการยิง</h3><button onClick={() => confirmDeleteKick(editingKick.id)} className="text-red-500 hover:bg-red-50 p-1 rounded transition" title="ลบรายการนี้"><Trash2 className="w-5 h-5" /></button></div><div className="space-y-4"><div><label className="block text-sm text-slate-500 mb-1">ชื่อผู้เล่น</label><input type="text" className="w-full p-2 border rounded-lg" defaultValue={editingKick.player} id="edit-player-name" /></div><div><label className="block text-sm text-slate-500 mb-1">ผลการยิง</label><select className="w-full p-2 border rounded-lg" defaultValue={editingKick.result} id="edit-kick-result"><option value={KickResult.GOAL}>เข้าประตู (GOAL)</option><option value={KickResult.SAVED}>เซฟได้ (SAVED)</option><option value={KickResult.MISSED}>ยิงพลาด (MISSED)</option></select></div><div className="flex gap-2 pt-4"><button onClick={() => setEditingKick(null)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button><button onClick={() => { const name = (document.getElementById('edit-player-name') as HTMLInputElement).value; const res = (document.getElementById('edit-kick-result') as HTMLSelectElement).value as KickResult; handleUpdateOldKick(editingKick.id, res, name); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold">บันทึก</button></div></div></div></div>)}
 
-      {currentView === 'tournament' && <TournamentView key={viewKey} teams={activeTeams} matches={activeMatches} onSelectMatch={handleStartMatchRequest} onBack={() => setCurrentView('home')} isAdmin={isAdmin} onRefresh={() => loadData(true)} onLoginClick={() => setIsLoginOpen(true)} isLoading={isLoadingData} showNotification={showNotification} tournamentId={currentTournamentId} />}
-      {currentView === 'schedule' && ( <ScheduleList key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => setCurrentView('home')} isAdmin={isAdmin} isLoading={isLoadingData} onRefresh={() => loadData(true)} showNotification={showNotification} onStartMatch={handleStartMatchRequest} config={effectiveSettings} initialMatchId={initialMatchId} currentTournamentId={currentTournamentId} /> )}
-      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} />}
+      {currentView === 'tournament' && (
+          <TournamentView 
+              key={viewKey} 
+              teams={activeTeams} 
+              matches={activeMatches} 
+              onSelectMatch={handleStartMatchRequest} 
+              onBack={() => setCurrentView('home')} 
+              isAdmin={isAdmin} 
+              onRefresh={() => loadData(true)} 
+              onLoginClick={() => setIsLoginOpen(true)} 
+              isLoading={isLoadingData} 
+              showNotification={showNotification} 
+              tournamentId={currentTournamentId} 
+              onOpenLiveWall={() => setCurrentView('live_wall')}
+          />
+      )}
+      
+      {currentView === 'schedule' && ( 
+        <ScheduleList 
+            key={viewKey} 
+            matches={activeMatches} 
+            teams={activeTeams} 
+            players={activePlayers} 
+            onBack={() => setCurrentView('home')} 
+            isAdmin={isAdmin} 
+            isLoading={isLoadingData} 
+            onRefresh={() => loadData(true)} 
+            showNotification={showNotification} 
+            onStartMatch={handleStartMatchRequest} 
+            config={effectiveSettings} 
+            initialMatchId={initialMatchId} 
+            currentTournamentId={currentTournamentId} 
+            predictions={activePredictions}
+            currentUser={currentUser}
+            onLoginRequest={() => setIsUserLoginOpen(true)}
+        /> 
+      )}
+      
+      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} predictions={activePredictions} />}
+      {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
       {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); setCurrentView('home'); }} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} donations={donations} isLoading={isLoadingData} /> )}
 
       {currentView === 'match' && matchState && (
@@ -580,42 +662,49 @@ export default function App() {
         <div className="min-h-screen bg-slate-100">
           {connectionError && <div className="bg-red-50 border-b border-red-200 p-3 flex items-center justify-between gap-4"><div className="flex items-center gap-2 text-red-700 text-sm font-bold"><WifiOff className="w-4 h-4" /><span>{connectionError}</span></div><button onClick={() => loadData(true)} className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50">ลองใหม่</button></div>}
           
-          <div className="bg-white sticky top-0 z-40 border-b border-slate-200 shadow-sm px-4 py-3 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                  <img src={effectiveSettings.competitionLogo || "https://via.placeholder.com/40"} className="w-8 h-8 object-contain" onError={(e) => e.currentTarget.style.display = 'none'} />
-                  <h1 className="font-bold text-slate-800 truncate max-w-[100px] sm:max-w-[200px] text-sm sm:text-base">
+          {/* Top Navbar Optimized for Mobile */}
+          <div className="bg-white sticky top-0 z-40 border-b border-slate-200 shadow-sm px-3 py-2 flex justify-between items-center h-16">
+              <div className="flex items-center gap-2 min-w-0">
+                  <img src={effectiveSettings.competitionLogo || "https://via.placeholder.com/40"} className="w-8 h-8 object-contain shrink-0" onError={(e) => e.currentTarget.style.display = 'none'} />
+                  <h1 className="font-bold text-slate-800 truncate text-sm sm:text-base">
                       {activeTournament ? activeTournament.name : appConfig.competitionName}
                   </h1>
               </div>
-              <div className="flex items-center gap-2">
-                  <button onClick={() => setCurrentTournamentId(null)} className="hidden md:flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1 rounded-full transition">
-                      <ArrowLeftRight className="w-3 h-3"/> เปลี่ยนรายการ
+              <div className="flex items-center gap-1.5 shrink-0">
+                  <button 
+                    onClick={() => setCurrentView('contest')} 
+                    className="flex items-center gap-1 text-[10px] sm:text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-2 py-1.5 rounded-full transition shadow-sm font-bold"
+                  >
+                      <Camera className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">ประกวดภาพ</span>
+                  </button>
+                  <button onClick={() => setCurrentTournamentId(null)} className="flex items-center gap-1 text-[10px] sm:text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1.5 rounded-full transition">
+                      <ArrowLeftRight className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">เปลี่ยนรายการ</span>
                   </button>
                   <button 
                     onClick={handleRegisterClick} 
-                    className={`text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                    className={`text-white px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
                     disabled={isRegistrationFull}
                   >
                       {isRegistrationFull ? (
-                          <>เต็มแล้ว (Full)</>
+                          <>เต็ม</>
                       ) : (
-                          <><UserPlus className="w-3 h-3" /> สมัครแข่ง</>
+                          <><UserPlus className="w-3 h-3 sm:w-3 sm:h-3" /> <span className="hidden sm:inline">สมัครแข่ง</span></>
                       )}
                   </button>
                   {currentUser ? (
-                      <div className="flex items-center gap-2 pl-2 ml-2 border-l border-slate-200">
+                      <div className="flex items-center gap-1 pl-1 ml-1 border-l border-slate-200">
                           {currentUser.pictureUrl ? (
-                              <img src={currentUser.pictureUrl} className="w-8 h-8 rounded-full border border-slate-200" />
+                              <img src={currentUser.pictureUrl} className="w-7 h-7 rounded-full border border-slate-200" />
                           ) : (
-                              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
                                   {String(currentUser.displayName || 'U').charAt(0)}
                               </div>
                           )}
-                          <button onClick={handleLogout} className="ml-1 text-slate-400 hover:text-red-500"><LogOut className="w-4 h-4" /></button>
+                          <button onClick={handleLogout} className="text-slate-400 hover:text-red-500"><LogOut className="w-4 h-4" /></button>
                       </div>
                   ) : (
-                      <button onClick={() => setIsUserLoginOpen(true)} className="text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 ml-1">
-                          <LogIn className="w-3 h-3" /> เข้าสู่ระบบ
+                      <button onClick={() => setIsUserLoginOpen(true)} className="text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 ml-1">
+                          <LogIn className="w-3 h-3" /> <span className="hidden sm:inline">Login</span>
                       </button>
                   )}
               </div>
@@ -810,24 +899,41 @@ export default function App() {
 
               {prizes.length > 0 && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-                      <div className="bg-gradient-to-r from-yellow-500 to-amber-500 p-4 text-white">
+                      <div className="bg-gradient-to-r from-yellow-500 to-amber-500 p-4 text-white flex justify-between items-center">
                           <h3 className="font-bold text-lg flex items-center gap-2"><Trophy className="w-6 h-6 text-white" /> รางวัลการแข่งขัน</h3>
+                          <button onClick={() => handleSharePrizeSummary()} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-full backdrop-blur-sm transition flex items-center gap-1 font-bold">
+                              <Share2 className="w-3 h-3" /> แชร์ผล
+                          </button>
                       </div>
                       <div className="p-0">
-                          {prizes.map((prize, idx) => (
-                              <div key={idx} className="flex items-center justify-between p-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition">
-                                  <div className="flex items-center gap-4">
-                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center bg-yellow-100 text-yellow-600 font-bold`}>
-                                          {prize.rankLabel.replace(/[^0-9]/g, '') || (idx + 1)}
+                          {prizes.map((prize, idx) => {
+                              let winnerTeam = null;
+                              if (prize.winnerTeamId) {
+                                  winnerTeam = activeTeams.find(t => t.id === prize.winnerTeamId);
+                              }
+                              
+                              return (
+                                  <div key={idx} className="flex items-center justify-between p-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition">
+                                      <div className="flex items-center gap-4 flex-1">
+                                          <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center bg-yellow-100 text-yellow-600 font-bold shadow-sm`}>
+                                              {prize.rankLabel.replace(/[^0-9]/g, '') || (idx + 1)}
+                                          </div>
+                                          <div className="min-w-0">
+                                              <div className="font-bold text-slate-800 text-sm">{prize.rankLabel}</div>
+                                              {winnerTeam ? (
+                                                  <div className="flex items-center gap-1 mt-1 animate-in fade-in">
+                                                      {winnerTeam.logoUrl && <img src={winnerTeam.logoUrl} className="w-4 h-4 object-contain" />}
+                                                      <span className="text-sm font-bold text-green-600 truncate">{winnerTeam.name}</span>
+                                                  </div>
+                                              ) : (
+                                                  prize.description && <div className="text-xs text-slate-500 truncate">{prize.description}</div>
+                                              )}
+                                          </div>
                                       </div>
-                                      <div>
-                                          <div className="font-bold text-slate-800">{prize.rankLabel}</div>
-                                          {prize.description && <div className="text-xs text-slate-500">{prize.description}</div>}
-                                      </div>
+                                      <div className="font-bold text-indigo-600 text-lg">{prize.amount}</div>
                                   </div>
-                                  <div className="font-bold text-indigo-600 text-lg">{prize.amount}</div>
-                              </div>
-                          ))}
+                              );
+                          })}
                       </div>
                   </div>
               )}
@@ -886,7 +992,8 @@ export default function App() {
                       news={newsItems} 
                       isLoading={isLoadingData} 
                       initialNewsId={initialNewsId} 
-                      currentTournamentId={currentTournamentId} 
+                      currentTournamentId={currentTournamentId}
+                      onRefresh={() => loadData(true)} 
                   />
               </div>
           </div>
