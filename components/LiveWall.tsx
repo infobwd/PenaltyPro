@@ -51,7 +51,7 @@ const getEmbedUrl = (url: string) => {
         if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; 
         else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; 
         // Forced mute=1
-        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0`; 
+        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}`; 
     } 
     if (url.includes('facebook.com')) { 
         const encodedUrl = encodeURIComponent(url); 
@@ -276,17 +276,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // New Wave Gradient Background Logic
   const getGradientColors = (index: number) => {
       switch (index) {
-          case 0: return 'from-blue-900 via-indigo-900 to-slate-900'; // Matches
-          case 1: return 'from-indigo-900 via-purple-900 to-slate-900'; // Standings
-          case 2: return 'from-emerald-900 via-green-900 to-slate-900'; // Results
-          case 3: return 'from-amber-900 via-orange-900 to-slate-900'; // Top Scorers
-          case 4: return 'from-cyan-900 via-blue-900 to-slate-900'; // Keepers
-          case 5: return 'from-fuchsia-900 via-pink-900 to-slate-900'; // Fan
-          case 6: return 'from-rose-900 via-red-900 to-slate-900'; // Highlights
-          case 7: return 'from-slate-800 via-slate-900 to-black'; // Sponsors
-          case 8: return 'from-red-900 via-orange-900 to-slate-900'; // Versus
-          case 9: return 'from-slate-950 via-black to-slate-950'; // Stream
-          default: return 'from-slate-900 via-slate-800 to-black';
+          case 0: return 'from-blue-900 via-indigo-950 to-slate-950'; // Matches
+          case 1: return 'from-indigo-900 via-purple-950 to-slate-950'; // Standings
+          case 2: return 'from-emerald-900 via-green-950 to-slate-950'; // Results
+          case 3: return 'from-amber-900 via-orange-950 to-slate-950'; // Top Scorers
+          case 4: return 'from-cyan-900 via-blue-950 to-slate-950'; // Keepers
+          case 5: return 'from-fuchsia-900 via-pink-950 to-slate-950'; // Fan
+          case 6: return 'from-rose-900 via-red-950 to-slate-950'; // Highlights
+          case 7: return 'from-slate-800 via-gray-900 to-black'; // Sponsors
+          case 8: return 'from-red-900 via-orange-900 to-slate-950'; // Versus
+          case 9: return 'from-black via-slate-950 to-black'; // Stream (Darker for video)
+          default: return 'from-slate-900 via-slate-950 to-black';
       }
   };
 
@@ -620,7 +620,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   useEffect(() => {
       if (!isAuthenticated) return;
       
-      const duration = currentSlide === 9 ? 25000 : 15000; // Slide 9 stays for 25s
+      const duration = currentSlide === 9 ? 45000 : 15000; // Slide 9 stays for 45s (Configurable here)
       
       const timer = setTimeout(() => {
           setCurrentSlide(prev => {
@@ -784,6 +784,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         {/* DYNAMIC ANIMATED BACKGROUND WITH WAVE & GRADIENT */}
         <div className={`absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-2000 bg-gradient-to-br ${getGradientColors(currentSlide)} bg-[length:400%_400%] animate-gradient-xy`}>
+            {/* Scanline Effect */}
+            <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0)_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] pointer-events-none z-[5] animate-scanlines opacity-20"></div>
+            
             {/* Drifting Pattern Overlay */}
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 mix-blend-overlay animate-pan-pattern"></div>
             
@@ -799,7 +802,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         </div>
 
         {/* TOP BAR */}
-        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group shrink-0">
+        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group shrink-0 animate-slide-in-down">
             <div className="flex items-center gap-6">
                 <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl p-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] border border-white/20">
                     <img src={config.competitionLogo} className="w-full h-full object-contain drop-shadow-md" />
@@ -903,7 +906,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             
             {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
-                <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-1000">
+                <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-red-600 p-2 rounded-lg shadow-[0_0_20px_rgba(220,38,38,0.5)]"><Activity className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Center</h2>
@@ -964,7 +967,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 1: STANDINGS */}
             {currentSlide === 1 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
+                <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center justify-between mb-8 mt-10">
                         <div className="flex items-center gap-4">
                             <div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div>
@@ -1020,7 +1023,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 2: RECENT RESULTS */}
             {currentSlide === 2 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000 relative">
+                <div className="h-full flex flex-col animate-broadcast-reveal relative">
                     <div className="flex items-center justify-between mb-8 mt-10 px-4">
                         <div className="flex items-center gap-4">
                             <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
@@ -1095,7 +1098,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 3: TOP SCORERS */}
             {currentSlide === 3 && (
-                <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000">
+                <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="text-center mb-8 mt-10">
                         <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
                         <p className="text-slate-400 font-bold uppercase tracking-widest mt-1">Top Goal Scorers</p>
@@ -1160,7 +1163,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 4: TOP KEEPERS (WITH RANDOM NUMBER EFFECT) */}
             {currentSlide === 4 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-1000">
+                <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
@@ -1193,7 +1196,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 5: FAN PREDICTION (WITH SLIDE-UP ANIMATION) */}
             {currentSlide === 5 && (
-                <div className="h-full flex flex-col animate-in zoom-in-95 duration-1000 relative">
+                <div className="h-full flex flex-col animate-broadcast-reveal relative">
                     <div className="text-center mb-8 mt-10">
                         <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2>
                     </div>
@@ -1263,7 +1266,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 7: SPONSORS */}
             {currentSlide === 7 && (
-                <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-in fade-in duration-1000">
+                <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
                         
                         <div className="text-center mb-12 animate-in slide-in-from-top-10 duration-1000 shrink-0">
@@ -1323,7 +1326,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
             {/* SLIDE 8: VERSUS / COMING UP NEXT */}
             {currentSlide === 8 && (
-                <div className="h-full w-full relative overflow-hidden bg-slate-950 flex flex-col animate-in fade-in duration-1000">
+                <div className="h-full w-full relative overflow-hidden bg-slate-950 flex flex-col animate-broadcast-reveal">
                     {/* Dynamic Backgrounds based on team colors if possible, otherwise generic */}
                     {nextMatch ? (
                         <>
@@ -1440,9 +1443,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 9: LIVE STREAM (UPDATED: 25s Duration + Silent) */}
+            {/* SLIDE 9: LIVE STREAM (UPDATED: 45s Duration + Silent) */}
             {currentSlide === 9 && (
-                <div className="h-full w-full relative flex flex-col bg-black animate-in fade-in duration-1000">
+                <div className="h-full w-full relative flex flex-col bg-black animate-broadcast-reveal">
                     {liveStreamingMatches.length > 0 ? (
                         <div className="flex-1 relative w-full h-full flex items-center justify-center">
                             {/* Video Embed */}
@@ -1551,6 +1554,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         </div>
 
         <style>{`
+            @keyframes broadcast-reveal {
+                0% { opacity: 0; transform: scale(1.05); filter: blur(10px); }
+                100% { opacity: 1; transform: scale(1); filter: blur(0); }
+            }
+            .animate-broadcast-reveal { animation: broadcast-reveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
             @keyframes slow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             .animate-slow-spin { animation: slow-spin 60s linear infinite; }
             @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
@@ -1643,6 +1652,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 100% { opacity: 0; transform: scale(1.1); }
             }
             .animate-photo-fade-zoom { animation: photo-fade-zoom 4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+            /* Scanline Effect */
+            @keyframes scanlines {
+                0% { background-position: 0% 0%; }
+                100% { background-position: 0% 100%; }
+            }
+            .animate-scanlines {
+                animation: scanlines 4s linear infinite;
+            }
 
             .text-shadow-glow {
                 text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(99,102,241,0.5);
