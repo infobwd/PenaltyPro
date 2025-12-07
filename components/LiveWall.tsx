@@ -14,9 +14,6 @@ interface LiveWallProps {
   onRefresh: (silent?: boolean) => void;
 }
 
-// Consistent duration to prevent "speed up" feeling
-const SLIDE_DURATION = 15000; 
-
 const compressImage = async (file: File): Promise<File> => {
     if (file.type === 'application/pdf') return file; 
     return new Promise((resolve, reject) => {
@@ -584,23 +581,22 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
     return () => clearInterval(clockTimer);
   }, []);
 
-  const slideTimerRef = useRef<any>(null);
-  
+  // Use Timeout instead of Interval for dynamic duration
   useEffect(() => {
       if (!isAuthenticated) return;
-      const rotate = () => {
+      
+      const duration = currentSlide === 9 ? 45000 : 15000; // Live Stream stays longer
+      
+      const timer = setTimeout(() => {
           setCurrentSlide(prev => {
               const next = (prev + 1) % totalSlides;
               if (next === 1) setStandingsPage(0); 
               return next;
           });
-      };
+      }, duration);
 
-      slideTimerRef.current = setInterval(rotate, SLIDE_DURATION);
-      return () => {
-          if (slideTimerRef.current) clearInterval(slideTimerRef.current);
-      };
-  }, [totalSlides, isAuthenticated]);
+      return () => clearTimeout(timer);
+  }, [totalSlides, isAuthenticated, currentSlide]);
 
   useEffect(() => {
       if (!isAuthenticated) return;
@@ -850,11 +846,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                 </div>
                 
-                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <button onClick={() => setIsSettingsOpen(true)} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><Settings className="w-6 h-6"/></button>
-                    {currentTrack && <button onClick={handleNextTrack} className="p-3 bg-slate-800 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><SkipForward className="w-6 h-6"/></button>}
-                    <button onClick={enterFullScreen} className="p-3 bg-white/5 hover:bg-white/10 rounded-full text-slate-300 hover:text-white transition backdrop-blur-sm"><Maximize2 className="w-6 h-6"/></button>
-                    <button onClick={onClose} className="p-3 bg-red-500/10 hover:bg-red-500/20 rounded-full text-red-400 hover:text-red-300 transition backdrop-blur-sm"><X className="w-6 h-6"/></button>
+                <div className="flex gap-2">
+                    <button onClick={() => setIsSettingsOpen(true)} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><Settings className="w-6 h-6"/></button>
+                    {currentTrack && <button onClick={handleNextTrack} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><SkipForward className="w-6 h-6"/></button>}
+                    <button onClick={enterFullScreen} className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-slate-300 hover:text-white transition backdrop-blur-sm"><Maximize2 className="w-6 h-6"/></button>
+                    <button onClick={onClose} className="p-3 bg-red-500/20 hover:bg-red-500/40 rounded-full text-red-400 hover:text-red-300 transition backdrop-blur-sm"><X className="w-6 h-6"/></button>
                 </div>
             </div>
         </div>
@@ -887,7 +883,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                     return (
                                         <div 
                                             key={m.id} 
-                                            className={`relative bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 opacity-0 animate-slide-up-fade ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100'}`}
+                                            className={`relative bg-slate-900/60 backdrop-blur-xl rounded-3xl border p-6 flex items-center justify-between transition-all duration-500 opacity-0 animate-card-enter ${isLive ? 'border-red-500/50 shadow-[0_0_40px_rgba(220,38,38,0.15)] bg-gradient-to-r from-red-950/30 to-slate-900/60' : 'border-white/10'} ${idx === 0 ? 'scale-105 z-10' : 'scale-100'}`}
                                             style={{ animationDelay: `${idx * 150}ms` }}
                                         >
                                             <div className="flex items-center gap-6 w-[40%]">
@@ -949,9 +945,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                     <div className="flex-1 relative">
                         {standingsGroups.length > 0 ? (
-                            <div className="grid grid-cols-2 gap-8 content-start animate-in fade-in zoom-in-95 duration-1000 key={standingsPage}">
-                                {standingsGroups[standingsPage]?.map(group => (
-                                    <div key={group.name} className="bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl">
+                            <div className="grid grid-cols-2 gap-8 content-start key={standingsPage}">
+                                {standingsGroups[standingsPage]?.map((group, groupIdx) => (
+                                    <div 
+                                        key={group.name} 
+                                        className="bg-slate-900/80 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-md shadow-2xl opacity-0 animate-card-enter"
+                                        style={{ animationDelay: `${groupIdx * 150}ms` }}
+                                    >
                                         <div className="bg-gradient-to-r from-indigo-900/50 to-slate-900/50 px-6 py-4 border-b border-white/5 flex justify-between items-center">
                                             <h3 className="font-black text-2xl text-white flex items-center gap-2"><span className="text-indigo-400">GROUP</span> {group.name}</h3>
                                             <div className="text-xs font-bold text-slate-500 bg-white/5 px-2 py-1 rounded">Top 2 Qualify</div>
@@ -1016,7 +1016,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 return (
                                     <div 
                                         key={m.id} 
-                                        className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500 hover:border-white/30 opacity-0 animate-slide-up-fade"
+                                        className="relative bg-slate-900/80 backdrop-blur-md rounded-2xl border border-white/10 p-0 overflow-hidden shadow-2xl transition-all duration-500 hover:border-white/30 opacity-0 animate-card-enter"
                                         style={{ animationDelay: `${idx * 150}ms` }}
                                     >
                                         <div className="bg-white/5 px-4 py-2 flex justify-between items-center text-xs font-bold text-slate-400">
@@ -1189,24 +1189,23 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 6: HIGHLIGHTS */}
+            {/* SLIDE 6: HIGHLIGHTS (UPDATED: FADE IN/OUT) */}
             {currentSlide === 6 && (
                 contestEntries.length > 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl">
+                    <div key={highlightIndex} className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl animate-card-enter">
                         <div className="absolute inset-0 z-0">
                             <img 
                                 src={contestEntries[highlightIndex].photoUrl} 
-                                className="w-full h-full object-cover blur-3xl opacity-30 scale-110" 
+                                className="w-full h-full object-cover blur-3xl opacity-30 scale-110 animate-pulse-slow" 
                             />
                         </div>
-                        <div className="relative z-10 flex flex-col items-center animate-in zoom-in duration-1000 w-full max-w-4xl">
+                        <div className="relative z-10 flex flex-col items-center w-full max-w-4xl animate-photo-fade-zoom">
                             <div className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-2xl border-4 border-white/20 group">
                                 <img 
                                     src={contestEntries[highlightIndex].photoUrl} 
-                                    className="w-full h-full object-cover transform scale-105 transition-transform duration-[20s] ease-linear" 
+                                    className="w-full h-full object-cover transform" 
                                 />
-                                {/* Changed: Slide up animation instead of hover */}
-                                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-8 translate-y-0 animate-in slide-in-from-bottom-10 duration-700">
+                                <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-8 translate-y-0">
                                     <div className="flex items-center gap-4">
                                         <img src={contestEntries[highlightIndex].userPictureUrl} className="w-12 h-12 rounded-full border-2 border-white" />
                                         <div>
@@ -1228,50 +1227,47 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Photos Yet</div>
             )}
 
-            {/* SLIDE 7: SCROLLABLE SPONSOR WALL (UPDATED) */}
+            {/* SLIDE 7: SPONSORS (UPDATED: GRAND DESIGN) */}
             {currentSlide === 7 && (
-                <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden">
+                <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-in fade-in duration-1000">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
                         
-                        <div className="text-center mb-8 animate-in slide-in-from-top-10 duration-1000 shrink-0">
-                            <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-md px-6 py-2 rounded-full border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4">
-                                <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
-                                <span className="text-sm font-bold text-white tracking-widest uppercase">Premium Partners</span>
-                                <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
+                        <div className="text-center mb-12 animate-in slide-in-from-top-10 duration-1000 shrink-0">
+                            <div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse">
+                                <Star className="w-6 h-6 text-white fill-white" />
+                                <span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span>
+                                <Star className="w-6 h-6 text-white fill-white" />
                             </div>
-                            <h2 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-indigo-100 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
+                            <h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
                                 Official Sponsors
                             </h2>
                         </div>
 
-                        {/* Scrolling Container */}
                         {sponsors.length > 0 ? (
-                            <div className="w-full flex-1 overflow-hidden relative mask-image-linear-gradient">
-                                <div className={`grid grid-cols-3 gap-12 w-full perspective-1000 ${sponsors.length > 6 ? 'animate-auto-scroll' : ''}`}>
-                                    {/* Repeat list for seamless scrolling if needed, or just map */}
+                            <div className="w-full flex-1 flex items-center justify-center">
+                                <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
                                     {[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (
                                         <div 
                                             key={`${s.id}-${idx}`} 
-                                            className="relative aspect-video bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 transition hover:scale-105 hover:bg-white/10 hover:border-indigo-500/50"
+                                            className="relative bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 transition-all duration-700 hover:scale-110 hover:bg-white/10 hover:border-amber-500/50 hover:shadow-[0_0_50px_rgba(245,158,11,0.3)] group h-64"
                                         >
-                                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-50 rounded-3xl pointer-events-none"></div>
+                                            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-3xl pointer-events-none"></div>
                                             
-                                            {/* Changed: Permanent glowing badge with pulse */}
-                                            <div className="absolute -top-3 -right-3 animate-pulse">
+                                            <div className="absolute -top-4 -right-4 transition-transform duration-500 group-hover:scale-125">
                                                 <div className="relative">
-                                                    <div className="absolute inset-0 bg-yellow-400 blur-md rounded-full"></div>
-                                                    <Star className="w-8 h-8 text-white fill-yellow-400 relative z-10" />
+                                                    <div className="absolute inset-0 bg-amber-400 blur-lg rounded-full opacity-50"></div>
+                                                    <Star className="w-10 h-10 text-white fill-amber-400 relative z-10" />
                                                 </div>
                                             </div>
                                             
                                             <img 
                                                 src={s.logoUrl} 
-                                                className="w-full h-full object-contain filter drop-shadow-xl" 
+                                                className="w-full h-full object-contain filter drop-shadow-2xl transition-transform duration-500 group-hover:scale-110" 
                                                 alt={s.name} 
                                             />
                                             
-                                            <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-none">
-                                                <span className="text-sm font-bold text-white bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">
+                                            <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-y-4 group-hover:translate-y-0">
+                                                <span className="text-lg font-bold text-white bg-black/60 px-4 py-2 rounded-full backdrop-blur-md border border-white/10">
                                                     {s.name}
                                                 </span>
                                             </div>
@@ -1464,7 +1460,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         </div>
 
-        {/* BOTTOM TICKER & SPONSORS */}
+        {/* BOTTOM TICKER & SPONSORS (UPDATED WITH MASK) */}
         <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
             <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
@@ -1494,7 +1490,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             </div>
             
-            <div className="h-full bg-gradient-to-l from-slate-100 to-white flex items-center px-8 gap-6 z-20 border-l border-slate-200 min-w-[300px] justify-end relative overflow-hidden">
+            <div className="h-full bg-gradient-to-l from-slate-100 to-white flex items-center px-8 gap-6 z-20 border-l border-slate-200 min-w-[300px] justify-end relative overflow-hidden mask-gradient-x">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest absolute top-2 right-4">Official Partners</span>
                 {sponsors.length > 0 ? (
                     <div className="flex gap-8 items-center overflow-hidden w-full justify-end">
@@ -1525,7 +1521,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             @keyframes slow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             .animate-slow-spin { animation: slow-spin 60s linear infinite; }
             @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
-            .animate-marquee { animation: marquee 80s linear infinite; } /* SLOWED DOWN from 30s */
+            .animate-marquee { animation: marquee 80s linear infinite; }
             @keyframes marquee-sponsors { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
             .animate-marquee-sponsors { animation: marquee-sponsors 20s linear infinite; display: flex; width: max-content; }
             
@@ -1550,10 +1546,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 animation: auto-scroll 40s linear infinite;
             }
             
-            /* Gradient Mask for Sponsor Wall */
+            /* Gradient Mask for Sponsor Wall & Ticker */
             .mask-image-linear-gradient {
                 mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
                 -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+            }
+            
+            .mask-gradient-x {
+                mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+                -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
             }
 
             /* NEW ANIMATIONS FOR DYNAMIC BACKGROUNDS */
@@ -1601,6 +1602,22 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .animate-slide-up-fade {
                 animation: slide-up-fade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             }
+
+            /* Card Entrance Animation (Slide Up + Elastic) */
+            @keyframes card-entrance {
+                0% { opacity: 0; transform: translateY(100px) scale(0.9); }
+                100% { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            .animate-card-enter { animation: card-entrance 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+
+            /* Updated: Fade Zoom Animation for Slide 6 */
+            @keyframes photo-fade-zoom {
+                0% { opacity: 0; transform: scale(1); }
+                10% { opacity: 1; }
+                90% { opacity: 1; }
+                100% { opacity: 0; transform: scale(1.1); }
+            }
+            .animate-photo-fade-zoom { animation: photo-fade-zoom 4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
 
             .text-shadow-glow {
                 text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(99,102,241,0.5);
