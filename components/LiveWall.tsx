@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -291,12 +292,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   };
 
   const enterFullScreen = () => {
-      const elem = document.documentElement;
-      if (elem.requestFullscreen) {
-          elem.requestFullscreen();
-          // Auto play logic on user interaction
-          if (!isPlaying && musicTracks.length > 0) {
-              handlePlayMusic(musicTracks[0]);
+      if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(err => {
+              console.log(`Error attempting to enable fullscreen: ${err.message}`);
+          });
+      } else {
+          if (document.exitFullscreen) {
+              document.exitFullscreen();
           }
       }
   };
@@ -342,7 +344,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTrack, isPlaying, musicTracks, isMuted, totalSlides]);
+  }, [currentTrack, isPlaying, musicTracks, isMuted, totalSlides, onClose]);
 
   const handlePinSubmit = (e: React.FormEvent) => {
       e.preventDefault();
@@ -411,13 +413,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return matches
         .filter(m => m.winner)
         .sort((a, b) => {
-             // Priority 1: Date/Time
              const timeA = new Date(a.date).getTime();
              const timeB = new Date(b.date).getTime();
              if (timeA !== timeB) return timeB - timeA;
-             
-             // Priority 2: ID (Assuming created later = higher ID usually, or lex order)
-             // This fixes issues where matches on same day shuffle randomly
              if (a.id && b.id) return b.id.localeCompare(a.id);
              return 0;
         })
@@ -521,7 +519,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
     return () => clearInterval(clockTimer);
   }, []);
 
-  // Decoupled timer logic to prevent speed up on re-render
   const slideTimerRef = useRef<any>(null);
   
   useEffect(() => {
@@ -529,7 +526,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       const rotate = () => {
           setCurrentSlide(prev => {
               const next = (prev + 1) % totalSlides;
-              if (next === 1) setStandingsPage(0); // Reset standing page on entry
+              if (next === 1) setStandingsPage(0); 
               return next;
           });
       };
@@ -538,9 +535,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return () => {
           if (slideTimerRef.current) clearInterval(slideTimerRef.current);
       };
-  }, [totalSlides, isAuthenticated]); // Only depends on totalSlides, NOT data.
+  }, [totalSlides, isAuthenticated]);
 
-  // Sub-rotation for paginated content (Standings, Highlights)
   useEffect(() => {
       if (!isAuthenticated) return;
       let subTimer: any;
@@ -550,13 +546,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (currentSlide === 6 && contestEntries.length > 1) {
           subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
       }
-      
-      // Auto-refresh data logic (Only on specific slides to be less intrusive)
       if (currentSlide === 0) {
           onRefresh(true);
           loadExtras();
       }
-
       return () => {
           if (subTimer) clearInterval(subTimer);
       };
@@ -567,13 +560,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (!currentTrack || !isPlaying) return null;
 
       if (currentTrack.type === 'Youtube' || (currentTrack.url && currentTrack.url.includes('youtu'))) {
-          // Convert regular link to embed
           let videoId = '';
           if (currentTrack.url.includes('v=')) videoId = currentTrack.url.split('v=')[1].split('&')[0];
           else if (currentTrack.url.includes('youtu.be/')) videoId = currentTrack.url.split('youtu.be/')[1].split('?')[0];
-          else videoId = currentTrack.url; // Assume ID if no URL pattern match
+          else videoId = currentTrack.url; 
 
-          // Params: autoplay=1, loop=1, playlist=ID (required for loop), enablejsapi=1 (control)
           const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${videoId}&controls=0&showinfo=0&modestbranding=1&enablejsapi=1`;
           
           return (
@@ -591,7 +582,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           );
       } 
       
-      // HTML5 Audio for Direct MP3 or Suno (if direct link available)
       const isDirectAudio = currentTrack.url.match(/\.(mp3|wav|ogg|m4a)$/i);
       
       if (isDirectAudio) {
@@ -608,7 +598,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           );
       }
 
-      // Fallback iframe for other web players (Suno share pages)
       return (
           <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
              <iframe src={currentTrack.url} allow="autoplay" />
@@ -697,14 +686,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         {renderMusicPlayer()}
 
-        {/* ANIMATED BACKGROUND - Dynamic Colors based on Slide */}
+        {/* ANIMATED BACKGROUND */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-1000">
             <div className={`absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] ${currentSlide === 7 ? 'from-yellow-900/40 via-slate-950' : 'from-indigo-900/40 via-slate-950'} to-black animate-slow-spin opacity-50`}></div>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay"></div>
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
         </div>
 
-        {/* TOP BAR - Fixed Scale relative to viewport height/width or just keep it static and scalable via wrapper */}
+        {/* TOP BAR */}
         <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group shrink-0">
             <div className="flex items-center gap-6">
                 <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl p-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] border border-white/20">
@@ -722,7 +711,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         <span className="text-sm font-bold text-red-400 tracking-widest uppercase">Live Coverage</span>
                         {currentTrack ? (
                             <div className={`flex items-center gap-2 ml-4 bg-white/10 px-3 py-1 rounded-full cursor-pointer hover:bg-white/20 transition ${!isPlaying ? 'opacity-50 grayscale' : ''}`} onClick={toggleMute}>
-                                {/* Audio Visualizer Animation */}
                                 {isPlaying ? (
                                     <div className="flex gap-0.5 items-end h-3">
                                         <span className={`w-1 bg-indigo-400 rounded-t ${!isMuted ? 'animate-[bounce_0.5s_infinite]' : 'h-1'}`}></span>
@@ -744,7 +732,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
             
             <div className="flex items-center gap-8">
-                {/* QR CODE - RESTORED */}
                 <div className="hidden md:flex bg-white p-1 rounded-lg shadow-[0_0_15px_rgba(255,255,255,0.3)] items-center gap-2 pr-3 transition hover:scale-105">
                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUrl)}`} className="w-10 h-10 md:w-12 md:h-12" />
                     <div className="text-slate-900 leading-tight">
@@ -753,7 +740,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     </div>
                 </div>
 
-                {/* NEXT MATCH TEASER - NEW FEATURE */}
                 {nextMatch && (
                     <div className="hidden xl:flex flex-col items-end bg-black/40 backdrop-blur-md px-4 py-2 rounded-lg border border-white/5">
                         <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -774,7 +760,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
                 <div className="text-right">
                     <div className="text-5xl font-black font-mono leading-none tracking-widest text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.6)]">
-                        {currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                        {currentTime.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </div>
                     <div className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">
                         {currentTime.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
@@ -790,14 +776,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
         </div>
 
-        {/* MAIN CONTENT AREA with Dynamic Scaling for Large Screens */}
+        {/* MAIN CONTENT AREA with Dynamic Scaling */}
         <div 
             className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300 md:pr-4"
             style={{ 
                 transform: `scale(${uiScale})`,
                 width: `${100 / uiScale}%`,
                 height: `${100 / uiScale}%`,
-                marginLeft: `${(100 - (100/uiScale)) / 2}%` // Center correction
+                marginLeft: `${(100 - (100/uiScale)) / 2}%`
             }}
         >
             
@@ -910,14 +896,28 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: RECENT RESULTS */}
+            {/* SLIDE 2: RECENT RESULTS & PREDICTION CALL */}
             {currentSlide === 2 && (
-                <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000">
+                <div className="h-full flex flex-col animate-in fade-in slide-in-from-bottom-10 duration-1000 relative">
                     <div className="flex items-center gap-4 mb-8 mt-10">
                         <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
                     </div>
                     
+                    {/* Prediction CTA Overlay */}
+                    <div className="absolute top-4 right-0 bg-gradient-to-l from-indigo-900/90 to-purple-900/90 border border-white/20 p-4 rounded-xl shadow-2xl backdrop-blur-md flex items-center gap-6 animate-pulse-slow z-20 max-w-sm">
+                        <div className="bg-white p-2 rounded-lg shadow-inner">
+                            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-20 h-20" />
+                        </div>
+                        <div>
+                            <div className="text-yellow-400 font-black text-lg flex items-center gap-2"><Gamepad2 className="w-5 h-5"/> PREDICT NOW</div>
+                            <p className="text-white text-xs leading-tight opacity-80 mt-1">Scan to predict next matches<br/>and win exclusive points!</p>
+                            <div className="mt-2 flex items-center gap-1 text-[10px] bg-white/10 px-2 py-1 rounded text-green-300 font-bold w-fit">
+                                <Coins className="w-3 h-3"/> Earn Rewards
+                            </div>
+                        </div>
+                    </div>
+
                     {recentResults.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 flex-1 content-center">
                             {recentResults.map((m) => {
@@ -940,6 +940,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                                     {tA.logoUrl ? <img src={tA.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tA.name.substring(0,1)}</div>}
                                                 </div>
                                                 <span className={`text-sm font-bold text-center leading-tight ${winnerA ? 'text-white' : 'text-slate-400'}`}>{tA.name}</span>
+                                                {winnerA && <div className="absolute top-12 left-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}
                                             </div>
 
                                             {/* Score */}
@@ -958,6 +959,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                                     {tB.logoUrl ? <img src={tB.logoUrl} className="w-full h-full object-contain drop-shadow-md"/> : <div className="text-2xl font-black text-slate-500">{tB.name.substring(0,1)}</div>}
                                                 </div>
                                                 <span className={`text-sm font-bold text-center leading-tight ${winnerB ? 'text-white' : 'text-slate-400'}`}>{tB.name}</span>
+                                                {winnerB && <div className="absolute top-12 right-8"><Sparkles className="w-8 h-8 text-yellow-400 animate-spin-slow opacity-80"/></div>}
                                             </div>
                                         </div>
                                     </div>
@@ -1134,20 +1136,19 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold">No Photos Yet</div>
             )}
 
-            {/* SLIDE 7: SPONSORS (SPECTACULAR REDESIGN) */}
+            {/* SLIDE 7: SCROLLABLE SPONSOR WALL (UPDATED) */}
             {currentSlide === 7 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden">
                     {/* Background Effects */}
                     <div className="absolute inset-0 bg-slate-900">
                         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
                         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-gradient-to-b from-indigo-900/50 via-slate-900 to-black pointer-events-none"></div>
-                        {/* Moving Spotlights */}
                         <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,rgba(99,102,241,0.1)_60deg,transparent_120deg)] animate-slow-spin opacity-50"></div>
                     </div>
 
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
                         
-                        <div className="text-center mb-16 animate-in slide-in-from-top-10 duration-1000">
+                        <div className="text-center mb-8 animate-in slide-in-from-top-10 duration-1000 shrink-0">
                             <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-md px-6 py-2 rounded-full border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.1)] mb-4">
                                 <Star className="w-5 h-5 text-yellow-400 fill-yellow-400 animate-pulse" />
                                 <span className="text-sm font-bold text-white tracking-widest uppercase">Premium Partners</span>
@@ -1158,38 +1159,43 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                             </h2>
                         </div>
 
-                        {/* Sponsor Showcase Grid - 3D Perspective */}
+                        {/* Scrolling Container */}
                         {sponsors.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
-                                {sponsors.map((s, idx) => (
-                                    <div 
-                                        key={s.id} 
-                                        className="relative aspect-video bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 animate-in zoom-in slide-in-from-bottom-10 fill-mode-backwards animate-pulse-slow"
-                                        style={{ animationDelay: `${idx * 200}ms` }}
-                                    >
-                                        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-50 rounded-3xl"></div>
-                                        {/* Sparkle Effect */}
-                                        <div className="absolute -top-2 -right-2 opacity-80">
-                                            <Sparkles className="w-8 h-8 text-yellow-300 animate-pulse" />
+                            <div className="w-full flex-1 overflow-hidden relative mask-image-linear-gradient">
+                                <div className={`grid grid-cols-3 gap-12 w-full perspective-1000 ${sponsors.length > 6 ? 'animate-auto-scroll' : ''}`}>
+                                    {/* Repeat list for seamless scrolling if needed, or just map */}
+                                    {[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (
+                                        <div 
+                                            key={`${s.id}-${idx}`} 
+                                            className="relative aspect-video bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 transition hover:scale-105 hover:bg-white/10 hover:border-indigo-500/50"
+                                        >
+                                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent opacity-50 rounded-3xl pointer-events-none"></div>
+                                            
+                                            {/* Glowing Badge for Premium Feel */}
+                                            <div className="absolute -top-3 -right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="relative">
+                                                    <div className="absolute inset-0 bg-yellow-400 blur-md rounded-full"></div>
+                                                    <Star className="w-8 h-8 text-white fill-yellow-400 relative z-10" />
+                                                </div>
+                                            </div>
+                                            
+                                            <img 
+                                                src={s.logoUrl} 
+                                                className="w-full h-full object-contain filter drop-shadow-xl" 
+                                                alt={s.name} 
+                                            />
+                                            
+                                            <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-none">
+                                                <span className="text-sm font-bold text-white bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">
+                                                    {s.name}
+                                                </span>
+                                            </div>
                                         </div>
-                                        
-                                        <img 
-                                            src={s.logoUrl} 
-                                            className="w-full h-full object-contain filter drop-shadow-xl" 
-                                            alt={s.name} 
-                                        />
-                                        
-                                        {/* Name Label */}
-                                        <div className="absolute bottom-4 left-0 right-0 text-center">
-                                            <span className="text-sm font-bold text-white bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm">
-                                                {s.name}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center animate-pulse">
+                            <div className="flex flex-col items-center animate-pulse mt-20">
                                 <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
                                     <Zap className="w-12 h-12 text-yellow-400" />
                                 </div>
@@ -1301,7 +1307,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
         </div>
 
-        {/* BOTTOM TICKER & SPONSORS */}
+        {/* BOTTOM TICKER & SPONSORS (UPDATED SPEED) */}
         <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
             <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
@@ -1311,7 +1317,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
             
             <div className="flex-1 overflow-hidden relative h-full flex items-center z-10">
-                <div className="absolute whitespace-nowrap animate-marquee px-4 text-3xl font-black text-slate-800 uppercase tracking-wide flex items-center">
+                {/* Slowed down marquee animation duration */}
+                <div className="absolute whitespace-nowrap animate-marquee px-4 text-3xl font-black text-slate-800 uppercase tracking-wide flex items-center" style={{ animationDuration: '80s' }}>
                     {announcements.length > 0 ? announcements.map((a, i) => (
                         <React.Fragment key={i}>
                             <span className="mx-12">{a}</span>
@@ -1322,7 +1329,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     )}
                 </div>
                 
-                {/* Slide Indicators - Centered at bottom over the ticker */}
+                {/* Slide Indicators */}
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-30 bg-white/80 px-2 py-1 rounded-full backdrop-blur-sm border border-slate-200">
                     {slides.map((_, idx) => (
                         <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${currentSlide === idx ? 'bg-indigo-600 w-3' : 'bg-slate-300'}`}></div>
@@ -1361,7 +1368,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             @keyframes slow-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             .animate-slow-spin { animation: slow-spin 60s linear infinite; }
             @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
-            .animate-marquee { animation: marquee 30s linear infinite; }
+            .animate-marquee { animation: marquee 80s linear infinite; } /* SLOWED DOWN from 30s */
             @keyframes marquee-sponsors { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
             .animate-marquee-sponsors { animation: marquee-sponsors 20s linear infinite; display: flex; width: max-content; }
             
@@ -1370,6 +1377,21 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 50% { transform: scale(1.02); opacity: 0.95; }
             }
             .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
+
+            /* New vertical auto-scroll for sponsor wall */
+            @keyframes auto-scroll {
+                0% { transform: translateY(0); }
+                100% { transform: translateY(-50%); }
+            }
+            .animate-auto-scroll {
+                animation: auto-scroll 40s linear infinite;
+            }
+            
+            /* Gradient Mask for Sponsor Wall */
+            .mask-image-linear-gradient {
+                mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+                -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+            }
 
             .text-shadow-glow {
                 text-shadow: 0 0 10px rgba(255,255,255,0.8), 0 0 20px rgba(99,102,241,0.5);
