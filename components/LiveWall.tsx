@@ -61,7 +61,7 @@ const getEmbedUrl = (url: string) => {
     return null; 
 };
 
-// Animated Counter Component
+// Animated Counter Component (Random Shuffle Effect)
 const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?: number }) => {
     const [count, setCount] = useState(0);
     
@@ -72,20 +72,19 @@ const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?:
         const step = (timestamp: number) => {
             if (!startTime) startTime = timestamp;
             const progress = Math.min((timestamp - startTime) / duration, 1);
-            // Ease out quart
-            const easeProgress = 1 - Math.pow(1 - progress, 4);
-            
-            setCount(Math.floor(easeProgress * target));
             
             if (progress < 1) {
+                // Random Number Shuffle Effect (Slot Machine style)
+                // Random number between 0 and roughly 1.5x target to simulate shuffling
+                const randomVal = Math.floor(Math.random() * (Math.max(10, target * 1.5)));
+                setCount(randomVal);
                 animationFrameId = window.requestAnimationFrame(step);
             } else {
                 setCount(target);
             }
         };
         
-        // Reset to 0 when target changes to trigger animation again if needed, 
-        // though usually Key prop on parent handles re-mount
+        // Reset to 0 when target changes
         setCount(0);
         animationFrameId = window.requestAnimationFrame(step);
         
