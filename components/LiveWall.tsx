@@ -301,7 +301,6 @@ const SettingsManagerModal: React.FC<{
 
     const handleToggleTicker = async (id: string, currentStatus: boolean) => {
         // Optimistic UI update
-        // (In real app, update local state first)
         await manageTickerMessage({ subAction: 'toggle', id, isActive: !currentStatus });
         onUpdateTicker();
     };
@@ -604,6 +603,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   ];
   const totalSlides = slides.length;
 
+  // Auto-login for Admin if loaded async
+  useEffect(() => {
+    if (currentUser?.role === 'admin') {
+      setIsAuthenticated(true);
+    }
+  }, [currentUser]);
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
       const id = Date.now();
       setToasts(prev => [...prev, { id, msg, type }]);
@@ -823,6 +829,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   // Active Forecast Matches: Show matches that haven't finished (no winner)
   // Even if no predictions yet, we can show them as "waiting for forecasts"
   const activeForecastMatches = useMemo(() => {
+      // Only matches without a winner
       return upcomingMatches.filter(m => !m.winner);
   }, [upcomingMatches]);
 
@@ -1314,16 +1321,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                          </div>
 
                                          {/* Animated Progress Bar */}
-                                         <div className="relative h-10 bg-black/40 rounded-xl overflow-hidden flex items-center border border-white/5 mt-1">
+                                         <div className="relative h-12 bg-black/50 rounded-xl overflow-hidden mt-3 shadow-inner border border-white/10">
                                              <div 
-                                                className="h-full bg-gradient-to-r from-teal-500 to-cyan-400 flex items-center pl-3 relative transition-all duration-[1500ms] ease-out" 
+                                                className="absolute top-0 left-0 h-full bg-gradient-to-r from-teal-500 to-cyan-400 transition-all duration-[1500ms] ease-out" 
                                                 style={{ width: showBars ? `${percentA}%` : '0%' }}
                                              >
-                                                 <span className={`text-xl font-black text-black drop-shadow-sm whitespace-nowrap transition-opacity duration-500 ${showBars ? 'opacity-100' : 'opacity-0'}`}>{percentA}%</span>
-                                                 <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-black/20 to-transparent"></div>
+                                                 <div className="absolute right-0 top-0 bottom-0 w-1 bg-white/20"></div>
                                              </div>
-                                             <div className="h-full flex-1 flex items-center justify-end pr-3">
-                                                 <span className="text-xl font-black text-white">{percentB}%</span>
+                                             
+                                             <div className="absolute inset-0 flex justify-between items-center px-4 relative z-10">
+                                                 <span className={`text-xl font-black ${percentA > 15 ? 'text-black/70' : 'text-teal-400'} transition-colors duration-500`}>{percentA}%</span>
+                                                 <span className={`text-xl font-black ${percentA > 85 ? 'text-cyan-900/70' : 'text-white'} transition-colors duration-500`}>{percentB}%</span>
                                              </div>
                                          </div>
 
