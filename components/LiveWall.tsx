@@ -593,6 +593,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [tickerMessages, setTickerMessages] = useState<TickerMessage[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [sponsorPageIndex, setSponsorPageIndex] = useState(0);
 
   // Music System
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
@@ -1049,6 +1050,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 8);
   }, [matches, predictions]);
 
+  const sponsorChunks = useMemo(() => {
+      const size = 4;
+      return Array.from({ length: Math.ceil(sponsors.length / size) }, (v, i) =>
+          sponsors.slice(i * size, i * size + size)
+      );
+  }, [sponsors]);
+
   // --- TIMER & SLIDE LOGIC ---
   useEffect(() => {
     const clockTimer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -1085,14 +1093,25 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (currentSlide === 8 && contestEntries.length > 1) { // Adjusted index
           subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
       }
+      if (currentSlide === 9 && sponsors.length > 4) {
+          subTimer = setInterval(() => {
+              setSponsorPageIndex(prev => {
+                  const maxPages = Math.ceil(sponsors.length / 4);
+                  return (prev + 1) % maxPages;
+              });
+          }, 4000);
+      }
       if (currentSlide === 0) {
           onRefresh(true);
           loadExtras();
       }
+      if (currentSlide !== 9) {
+          setSponsorPageIndex(0);
+      }
       return () => {
           if (subTimer) clearInterval(subTimer);
       };
-  }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated]);
+  }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated, sponsors.length]);
 
   const renderMusicPlayer = () => {
       if (!currentTrack || !isPlaying) return null;
@@ -1314,7 +1333,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
                     {/* Content Grid */}
                     <div className="flex-1 flex items-center justify-center overflow-y-auto">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8 2xl:gap-12 w-full max-w-7xl">
+                        <div className="grid grid-cols-2 lg:grid-cols-2 gap-2 md:gap-8 2xl:gap-12 w-full max-w-7xl">
                             {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 4).map((m, idx) => {
                                 const tA = resolveTeam(m.teamA);
                                 const tB = resolveTeam(m.teamB);
@@ -1325,51 +1344,51 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 const predictorsB = predictions.filter(p => p.matchId === m.id && p.prediction === 'B');
 
                                 return (
-                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-xl border-l-4 border-teal-400 p-4 md:p-6 2xl:p-8 rounded-r-3xl shadow-2xl overflow-hidden animate-card-enter hover:bg-slate-800/80 transition-colors" style={{ animationDelay: `${idx * 150}ms` }}>
+                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-xl border-l-4 border-teal-400 p-2 md:p-6 2xl:p-8 rounded-r-3xl shadow-2xl overflow-hidden animate-card-enter hover:bg-slate-800/80 transition-colors" style={{ animationDelay: `${idx * 150}ms` }}>
                                         {/* Background Effect */}
                                         <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-3xl pointer-events-none"></div>
                                         
                                         {/* Match Info Header */}
-                                        <div className="flex justify-between items-start mb-4 md:mb-6 border-b border-white/5 pb-2">
+                                        <div className="flex justify-between items-start mb-2 md:mb-6 border-b border-white/5 pb-2">
                                             <div className="flex flex-col">
-                                                <span className="text-[10px] md:text-xs 2xl:text-sm font-bold text-teal-300 uppercase tracking-widest">{m.roundLabel?.split(':')[0]}</span>
-                                                <span className="text-white text-xs md:text-sm 2xl:text-base opacity-60 font-mono">{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
+                                                <span className="text-[8px] md:text-xs 2xl:text-sm font-bold text-teal-300 uppercase tracking-widest">{m.roundLabel?.split(':')[0]}</span>
+                                                <span className="text-white text-[10px] md:text-sm 2xl:text-base opacity-60 font-mono">{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
                                             </div>
-                                            <div className="bg-black/40 px-3 py-1 rounded text-[10px] md:text-xs text-slate-400 font-mono border border-white/5">
-                                                Total Votes: {stats.total}
+                                            <div className="bg-black/40 px-2 md:px-3 py-0.5 md:py-1 rounded text-[8px] md:text-xs text-slate-400 font-mono border border-white/5 hidden md:block">
+                                                Votes: {stats.total}
                                             </div>
                                         </div>
 
                                         {/* Teams & Percents */}
-                                        <div className="flex items-center justify-between relative z-10 gap-2 md:gap-4">
+                                        <div className="flex items-center justify-between relative z-10 gap-1 md:gap-4">
                                             {/* Team A */}
-                                            <div className="flex flex-col items-center w-1/3 gap-2">
+                                            <div className="flex flex-col items-center w-1/3 gap-1 md:gap-2">
                                                 <div className="relative">
-                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">A</div>}
-                                                    {percentA > 50 && <div className="absolute -top-2 -right-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow">Favorite</div>}
+                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">A</div>}
+                                                    {percentA > 50 && <div className="absolute -top-2 -right-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow hidden md:block">Favorite</div>}
                                                 </div>
-                                                <span className="text-xs md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tA.name}</span>
-                                                <div className="text-2xl md:text-4xl 2xl:text-5xl font-black text-teal-400 drop-shadow-md tabular-nums">{percentA}%</div>
+                                                <span className="text-[10px] md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tA.name}</span>
+                                                <div className="text-xl md:text-4xl 2xl:text-5xl font-black text-teal-400 drop-shadow-md tabular-nums">{percentA}%</div>
                                             </div>
 
                                             {/* VS Graphic */}
                                             <div className="flex flex-col items-center justify-center w-1/5">
-                                                <div className="text-2xl md:text-4xl 2xl:text-6xl font-black text-white/5 italic select-none">VS</div>
+                                                <div className="text-xl md:text-4xl 2xl:text-6xl font-black text-white/5 italic select-none">VS</div>
                                             </div>
 
                                             {/* Team B */}
-                                            <div className="flex flex-col items-center w-1/3 gap-2">
-                                                <div className="text-2xl md:text-4xl 2xl:text-5xl font-black text-white drop-shadow-md tabular-nums text-right w-full">{percentB}%</div>
-                                                <span className="text-xs md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tB.name}</span>
+                                            <div className="flex flex-col items-center w-1/3 gap-1 md:gap-2">
+                                                <div className="text-xl md:text-4xl 2xl:text-5xl font-black text-white drop-shadow-md tabular-nums text-right w-full">{percentB}%</div>
+                                                <span className="text-[10px] md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tB.name}</span>
                                                 <div className="relative">
-                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">B</div>}
-                                                    {percentB > 50 && <div className="absolute -top-2 -left-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow">Favorite</div>}
+                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">B</div>}
+                                                    {percentB > 50 && <div className="absolute -top-2 -left-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow hidden md:block">Favorite</div>}
                                                 </div>
                                             </div>
                                         </div>
 
                                         {/* Tug of War Bar */}
-                                        <div className="mt-4 md:mt-6 relative h-3 md:h-4 2xl:h-6 bg-slate-800 rounded-full overflow-hidden shadow-inner border border-white/5">
+                                        <div className="mt-2 md:mt-6 relative h-2 md:h-4 2xl:h-6 bg-slate-800 rounded-full overflow-hidden shadow-inner border border-white/5">
                                             <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-teal-600 to-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.5)] transition-all duration-1000 ease-out" style={{ width: `${percentA}%` }}></div>
                                             <div className="absolute top-0 right-0 h-full bg-white/10 transition-all duration-1000 ease-out" style={{ width: `${percentB}%` }}></div>
                                             {/* Center Marker */}
@@ -1377,7 +1396,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                         </div>
 
                                         {/* Voters Preview */}
-                                        <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-white/5 flex justify-between items-center text-[10px] md:text-xs text-slate-500">
+                                        <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-white/5 flex justify-between items-center text-[10px] md:text-xs text-slate-500 hidden md:flex">
                                             <div className="flex items-center -space-x-2 pl-2">
                                                 {predictorsA.slice(0, 3).map((p, i) => (
                                                     <div key={i} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
@@ -1399,7 +1418,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                     </div>
                                 );
                             }) : (
-                                <div className="col-span-1 lg:col-span-2 flex flex-col items-center justify-center h-64 md:h-96 opacity-40">
+                                <div className="col-span-2 lg:col-span-2 flex flex-col items-center justify-center h-64 md:h-96 opacity-40">
                                     <BrainCircuit className="w-16 h-16 md:w-24 md:h-24 text-teal-500 animate-pulse mb-4"/>
                                     <h3 className="text-2xl md:text-4xl font-black text-white uppercase tracking-widest">Awaiting Predictions</h3>
                                 </div>
@@ -1695,12 +1714,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         
                         {sponsors.length > 0 ? (
                             <div className="flex-1 w-full flex items-center justify-center overflow-y-auto p-4 custom-scrollbar">
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 w-full max-w-6xl">
-                                    {sponsors.map((s, idx) => (
+                                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4 md:gap-12 w-full max-w-6xl">
+                                    {(sponsorChunks[sponsorPageIndex] || []).map((s, idx) => (
                                         <div 
                                             key={`${s.id}-${idx}`}
-                                            className="group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 md:p-6 flex flex-col items-center gap-4 shadow-xl transition-all duration-700 animate-in zoom-in slide-in-from-bottom-8 fill-mode-backwards"
-                                            style={{ animationDelay: `${idx * 150}ms` }}
+                                            className="group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 md:p-6 flex flex-col items-center gap-4 shadow-xl transition-all duration-700 animate-in slide-in-from-bottom-20 fade-in fill-mode-backwards"
+                                            style={{ animationDelay: `${idx * 200}ms` }}
                                         >
                                             {/* Logo Area */}
                                             <div className="w-full aspect-[3/2] flex items-center justify-center bg-white/5 rounded-xl p-2 md:p-4 overflow-hidden relative">
