@@ -57,7 +57,7 @@ const getEmbedUrl = (url: string, autoplay: boolean = true, muted: boolean = tru
         if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; 
         else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; 
         
-        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=${autoParam}&mute=${muteParam}&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}`; 
+        if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=${autoParam}&mute=${muteParam}&controls=0&showinfo=0&rel=0&loop=1&playlist=${videoId}&playsinline=1`; 
     } 
     if (url.includes('facebook.com')) { 
         const encodedUrl = encodeURIComponent(url); 
@@ -937,7 +937,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           else if (currentTrack.url.includes('youtu.be/')) videoId = currentTrack.url.split('youtu.be/')[1].split('?')[0];
           else videoId = currentTrack.url; 
 
-          const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${videoId}&controls=0&showinfo=0&modestbranding=1&enablejsapi=1`;
+          const src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${videoId}&controls=0&showinfo=0&modestbranding=1&enablejsapi=1&playsinline=1`;
           return (
               <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
                   <iframe width="100%" height="100%" src={src} title="bg-music" frameBorder="0" allow="autoplay; encrypted-media" allowFullScreen />
@@ -946,7 +946,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       } 
       const isDirectAudio = currentTrack.url.match(/\.(mp3|wav|ogg|m4a)$/i);
       if (isDirectAudio) {
-          return <audio ref={audioRef} src={currentTrack.url} autoPlay loop muted={isMuted} onError={handleNextTrack} className="hidden" />;
+          return <audio ref={audioRef} src={currentTrack.url} autoPlay loop muted={isMuted} onError={handleNextTrack} preload="auto" className="hidden" />;
       }
       return <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none"><iframe src={currentTrack.url} allow="autoplay" /></div>;
   };
@@ -1295,13 +1295,38 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
-            {/* SLIDE 8: SPONSORS */}
+            {/* SLIDE 8: SPONSORS - AUTOMATIC ANIMATION */}
             {currentSlide === 8 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
                         <div className="text-center mb-12 animate-in slide-in-from-top-10 duration-1000 shrink-0"><div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse"><Star className="w-6 h-6 text-white fill-white" /><span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span><Star className="w-6 h-6 text-white fill-white" /></div><h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">Official Sponsors</h2></div>
                         {sponsors.length > 0 ? (
-                            <div className="w-full flex-1 flex items-center justify-center"><div className="grid grid-cols-3 gap-12 w-full perspective-1000">{[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (<div key={`${s.id}-${idx}`} className="relative bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 transition-all duration-700 hover:scale-110 hover:bg-white/10 hover:border-amber-500/50 hover:shadow-[0_0_50px_rgba(245,158,11,0.3)] group h-64"><div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-3xl pointer-events-none"></div><div className="absolute -top-4 -right-4 transition-transform duration-500 group-hover:scale-125"><div className="relative"><div className="absolute inset-0 bg-amber-400 blur-lg rounded-full opacity-50"></div><Star className="w-10 h-10 text-white fill-amber-400 relative z-10" /></div></div><img src={s.logoUrl} className="w-full h-full object-contain filter drop-shadow-2xl transition-transform duration-500 group-hover:scale-110" alt={s.name} /><div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 translate-y-4 group-hover:translate-y-0"><span className="text-lg font-bold text-white bg-black/60 px-4 py-2 rounded-full backdrop-blur-md border border-white/10">{s.name}</span></div></div>))}</div></div>
+                            <div className="w-full flex-1 flex items-center justify-center">
+                                <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
+                                    {[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (
+                                        <div key={`${s.id}-${idx}`} className="relative bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 h-64 animate-sponsor-glow" style={{ animationDelay: `${idx * 0.5}s` }}>
+                                            {/* Glow overlay - animating opacity */}
+                                            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent rounded-3xl pointer-events-none animate-pulse-slow"></div>
+                                            
+                                            {/* Star Badge - animating float/scale */}
+                                            <div className="absolute -top-4 -right-4 animate-bounce-slow" style={{ animationDelay: `${idx * 0.3}s` }}>
+                                                <div className="relative">
+                                                    <div className="absolute inset-0 bg-amber-400 blur-lg rounded-full opacity-50 animate-pulse"></div>
+                                                    <Star className="w-10 h-10 text-white fill-amber-400 relative z-10" />
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Image - gentle float */}
+                                            <img src={s.logoUrl} className="w-full h-full object-contain filter drop-shadow-2xl animate-float-orb" style={{ animationDuration: '6s' }} alt={s.name} />
+                                            
+                                            {/* Name Tag - Always visible */}
+                                            <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none">
+                                                <span className="text-lg font-bold text-white bg-black/60 px-4 py-2 rounded-full backdrop-blur-md border border-white/10 shadow-lg">{s.name}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         ) : <div className="flex flex-col items-center animate-pulse mt-20"><div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4"><Zap className="w-12 h-12 text-yellow-400" /></div><div className="text-3xl font-bold text-slate-500">Become a Partner</div></div>}
                     </div>
                 </div>
@@ -1458,6 +1483,19 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .fill-mode-backwards { animation-fill-mode: backwards; }
             @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
             .animate-slide-in-right { animation: slide-in-right 0.3s ease-out forwards; }
+            
+            /* Sponsor Animations */
+            @keyframes sponsor-glow {
+              0%, 100% { border-color: rgba(255,255,255,0.1); box-shadow: 0 0 0 rgba(0,0,0,0); transform: scale(1); }
+              50% { border-color: rgba(245,158,11,0.5); box-shadow: 0 0 30px rgba(245,158,11,0.2); transform: scale(1.05); }
+            }
+            .animate-sponsor-glow { animation: sponsor-glow 4s infinite ease-in-out; }
+            
+            @keyframes bounce-slow {
+              0%, 100% { transform: translateY(-5%); }
+              50% { transform: translateY(5%); }
+            }
+            .animate-bounce-slow { animation: bounce-slow 3s infinite ease-in-out; }
         `}</style>
     </div>
   );
