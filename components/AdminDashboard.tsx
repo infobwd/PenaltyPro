@@ -820,8 +820,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const updates: { teamId: string, group: string }[] = []; 
       
       if (liveGroups) {
-          Object.entries(liveGroups).forEach(([groupName, teams]) => { 
-              (teams as Team[]).forEach(t => { updates.push({ teamId: t.id, group: groupName }); }); 
+          // Fix: Use Object.keys to avoid TS issue with Object.entries destructuring on some configs
+          Object.keys(liveGroups).forEach((groupName) => { 
+              const teams = liveGroups[groupName];
+              teams.forEach(t => { updates.push({ teamId: t.id, group: groupName }); }); 
           }); 
       }
       
@@ -1505,6 +1507,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="p-4 border-t bg-white flex gap-3 shrink-0">
                     <button onClick={() => { setEditForm(null); setSelectedTeam(null); }} className="flex-1 py-3 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition">ยกเลิก</button>
                     {/* Status Button for Admin only (in modal logic, although here it's implicit) */}
+                    {formData.status === 'Pending' && (
+                        <>
+                            <button onClick={() => handleSaveTeamChanges(formData, editForm.players)} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
+                                {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Save className="w-5 h-5"/> บันทึกข้อมูล</>}
+                            </button>
+                        </>
+                    )}
+
                     <button onClick={() => handleSaveTeamChanges(formData, editForm.players)} disabled={isSavingTeam} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 disabled:opacity-70">
                         {isSavingTeam ? <Loader2 className="w-5 h-5 animate-spin"/> : <><Save className="w-5 h-5"/> บันทึกข้อมูล</>}
                     </button>

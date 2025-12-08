@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -13,6 +13,8 @@ interface LiveWallProps {
   onClose: () => void;
   onRefresh: (silent?: boolean) => void;
 }
+
+// --- UTILS ---
 
 const compressImage = async (file: File): Promise<File> => {
     if (file.type === 'application/pdf') return file; 
@@ -93,6 +95,8 @@ const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?:
     return <>{count}</>;
 };
 
+// --- SETTINGS MODAL ---
+
 const SettingsManagerModal: React.FC<{ 
     isOpen: boolean, 
     onClose: () => void, 
@@ -101,7 +105,8 @@ const SettingsManagerModal: React.FC<{
     musicTracks: MusicTrack[], 
     onUpdateMusic: () => void, 
     onPlayMusic: (track: MusicTrack) => void,
-}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic }) => {
+    notify: (msg: string, type: 'success' | 'error') => void
+}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic, notify }) => {
     const [tab, setTab] = useState<'sponsors' | 'music'>('sponsors');
     const [name, setName] = useState('');
     const [file, setFile] = useState<File | null>(null);
@@ -111,6 +116,14 @@ const SettingsManagerModal: React.FC<{
     const [musicName, setMusicName] = useState('');
     const [musicUrl, setMusicUrl] = useState('');
     const [musicType, setMusicType] = useState<'Youtube' | 'Spotify' | 'Suno' | 'Other'>('Youtube');
+
+    // Auto-detect music type
+    useEffect(() => {
+        if (musicUrl.includes('youtube') || musicUrl.includes('youtu.be')) setMusicType('Youtube');
+        else if (musicUrl.includes('suno.com')) setMusicType('Suno');
+        else if (musicUrl.includes('spotify')) setMusicType('Spotify');
+        else setMusicType('Other');
+    }, [musicUrl]);
 
     if (!isOpen) return null;
 
@@ -124,9 +137,10 @@ const SettingsManagerModal: React.FC<{
             onUpdateSponsors();
             setName('');
             setFile(null);
+            notify("Sponsor added successfully", 'success');
         } catch (e) {
             console.error(e);
-            alert("Error adding sponsor");
+            notify("Failed to add sponsor", 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -138,6 +152,7 @@ const SettingsManagerModal: React.FC<{
         try {
             await manageSponsor({ subAction: 'delete', id });
             onUpdateSponsors();
+            notify("Sponsor removed", 'success');
         } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
     };
 
@@ -149,9 +164,10 @@ const SettingsManagerModal: React.FC<{
             onUpdateMusic();
             setMusicName('');
             setMusicUrl('');
+            notify("Track added successfully", 'success');
         } catch(e) {
             console.error(e);
-            alert("Error adding track");
+            notify("Failed to add track", 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -163,75 +179,94 @@ const SettingsManagerModal: React.FC<{
         try {
             await manageMusicTrack({ subAction: 'delete', id });
             onUpdateMusic();
+            notify("Track removed", 'success');
         } catch(e) { console.error(e); } finally { setIsSubmitting(false); }
     };
 
     return (
-        <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80vh] text-slate-800" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center p-4 border-b">
-                    <h3 className="font-bold text-lg flex items-center gap-2"><Settings className="w-5 h-5"/> Live Wall Settings</h3>
-                    <button onClick={onClose}><X className="w-5 h-5"/></button>
+        // Added cursor-auto here to override the parent's cursor-none
+        <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm cursor-auto" onClick={onClose}>
+            <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] text-slate-800 shadow-2xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-5 border-b bg-slate-50">
+                    <div>
+                        <h3 className="font-bold text-xl flex items-center gap-2 text-slate-800"><Settings className="w-6 h-6 text-indigo-600"/> Live Wall Settings</h3>
+                        <p className="text-xs text-slate-500">Manage overlay content</p>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-5 h-5"/></button>
                 </div>
                 
-                <div className="flex border-b bg-slate-50">
-                    <button onClick={() => setTab('sponsors')} className={`flex-1 py-3 font-bold text-sm ${tab==='sponsors' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:bg-slate-100'}`}>Sponsors</button>
-                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm ${tab==='music' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-white' : 'text-slate-500 hover:bg-slate-100'}`}>Music Player</button>
+                <div className="flex border-b border-slate-200 p-1 bg-white">
+                    <button onClick={() => setTab('sponsors')} className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${tab==='sponsors' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}>Sponsors</button>
+                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${tab==='music' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}>Music Player</button>
                 </div>
 
-                <div className="p-4 overflow-y-auto flex-1">
+                <div className="p-5 overflow-y-auto flex-1 bg-slate-50/50">
                     {tab === 'sponsors' && (
-                        <>
-                            <div className="space-y-3 mb-6 p-3 bg-slate-50 rounded border">
-                                <input type="text" placeholder="Sponsor Name" className="w-full p-2 border rounded text-sm" value={name} onChange={e => setName(e.target.value)} />
-                                <input type="file" accept="image/*" onChange={e => setFile(e.target.files?.[0] || null)} className="text-sm w-full" />
-                                <button onClick={handleAddSponsor} disabled={isSubmitting || !name || !file} className="w-full py-2 bg-indigo-600 text-white rounded font-bold flex items-center justify-center gap-2 text-sm">
-                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Sponsor</>}
-                                </button>
+                        <div className="space-y-4">
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Add New Partner</h4>
+                                <div className="space-y-3">
+                                    <input type="text" placeholder="Sponsor Name" className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={name} onChange={e => setName(e.target.value)} />
+                                    <div className="relative">
+                                        <input type="file" accept="image/*" onChange={e => setFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                                    </div>
+                                    <button onClick={handleAddSponsor} disabled={isSubmitting || !name || !file} className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-indigo-700 transition disabled:opacity-50">
+                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Sponsor</>}
+                                    </button>
+                                </div>
                             </div>
+                            
                             <div className="space-y-2">
-                                {sponsors.length === 0 ? <p className="text-center text-slate-400 text-sm">No sponsors yet.</p> : sponsors.map(s => (
-                                    <div key={s.id} className="flex items-center justify-between p-2 bg-slate-50 rounded border">
-                                        <div className="flex items-center gap-2">
-                                            <img src={s.logoUrl} className="w-8 h-8 object-contain bg-white rounded p-0.5 border" />
-                                            <span className="font-bold text-sm truncate w-32">{s.name}</span>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase">Active Sponsors ({sponsors.length})</h4>
+                                {sponsors.length === 0 ? <p className="text-center text-slate-400 text-sm py-4 italic">No sponsors yet.</p> : sponsors.map(s => (
+                                    <div key={s.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-indigo-200 transition">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-lg border bg-slate-50 p-1 flex items-center justify-center"><img src={s.logoUrl} className="max-w-full max-h-full object-contain" /></div>
+                                            <span className="font-bold text-sm text-slate-700 truncate w-40">{s.name}</span>
                                         </div>
-                                        <button onClick={() => handleDeleteSponsor(s.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4"/></button>
+                                        <button onClick={() => handleDeleteSponsor(s.id)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
                                     </div>
                                 ))}
                             </div>
-                        </>
+                        </div>
                     )}
 
                     {tab === 'music' && (
-                        <>
-                            <div className="space-y-3 mb-6 p-3 bg-slate-50 rounded border">
-                                <h4 className="text-xs font-bold text-slate-500 uppercase">Add Track Link</h4>
-                                <input type="text" placeholder="Track Name" className="w-full p-2 border rounded text-sm" value={musicName} onChange={e => setMusicName(e.target.value)} />
-                                <input type="text" placeholder="URL (YouTube / Suno / MP3)" className="w-full p-2 border rounded text-sm" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} />
-                                <select className="w-full p-2 border rounded text-sm bg-white" value={musicType} onChange={(e:any) => setMusicType(e.target.value)}>
-                                    <option value="Youtube">YouTube</option>
-                                    <option value="Suno">Suno / Web / MP3</option>
-                                </select>
-                                <button onClick={handleAddMusic} disabled={isSubmitting || !musicName || !musicUrl} className="w-full py-2 bg-pink-600 text-white rounded font-bold flex items-center justify-center gap-2 text-sm">
-                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Track</>}
-                                </button>
+                        <div className="space-y-4">
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Add Music Track</h4>
+                                <div className="space-y-3">
+                                    <input type="text" placeholder="Track Name" className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={musicName} onChange={e => setMusicName(e.target.value)} />
+                                    <input type="text" placeholder="URL (YouTube / Suno / MP3)" className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} />
+                                    <select className="w-full p-3 border rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500" value={musicType} onChange={(e:any) => setMusicType(e.target.value)}>
+                                        <option value="Youtube">YouTube</option>
+                                        <option value="Suno">Suno AI</option>
+                                        <option value="Other">Direct File (MP3)</option>
+                                    </select>
+                                    <button onClick={handleAddMusic} disabled={isSubmitting || !musicName || !musicUrl} className="w-full py-2.5 bg-pink-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-pink-700 transition disabled:opacity-50">
+                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Track</>}
+                                    </button>
+                                </div>
                             </div>
+                            
                             <div className="space-y-2">
-                                {musicTracks.length === 0 ? <p className="text-center text-slate-400 text-sm">No music tracks.</p> : musicTracks.map(m => (
-                                    <div key={m.id} className="flex items-center justify-between p-2 bg-slate-50 rounded border group">
-                                        <div className="flex items-center gap-2 overflow-hidden">
-                                            {m.type === 'Youtube' ? <Youtube className="w-4 h-4 text-red-600"/> : m.type === 'Spotify' ? <div className="w-4 h-4 bg-green-500 rounded-full"/> : <Music className="w-4 h-4 text-blue-500"/>}
-                                            <span className="font-bold text-sm truncate max-w-[120px]">{m.name}</span>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase">Playlist ({musicTracks.length})</h4>
+                                {musicTracks.length === 0 ? <p className="text-center text-slate-400 text-sm py-4 italic">No music tracks.</p> : musicTracks.map(m => (
+                                    <div key={m.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-indigo-200 transition">
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                                                {m.type === 'Youtube' ? <Youtube className="w-4 h-4 text-red-600"/> : m.type === 'Suno' ? <Sparkles className="w-4 h-4 text-purple-600"/> : <Music className="w-4 h-4 text-blue-500"/>}
+                                            </div>
+                                            <span className="font-bold text-sm text-slate-700 truncate max-w-[150px]">{m.name}</span>
                                         </div>
-                                        <div className="flex gap-1">
-                                            <button onClick={() => onPlayMusic(m)} className="bg-green-100 text-green-700 p-1.5 rounded hover:bg-green-200 text-xs font-bold">Play</button>
-                                            <button onClick={() => handleDeleteMusic(m.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 className="w-4 h-4"/></button>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => onPlayMusic(m)} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-200 text-xs font-bold transition">Play</button>
+                                            <button onClick={() => handleDeleteMusic(m.id)} className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        </>
+                        </div>
                     )}
                 </div>
             </div>
@@ -255,6 +290,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [uiScale, setUiScale] = useState(1);
   const [countdown, setCountdown] = useState<string>('');
   
+  // Notification State
+  const [toasts, setToasts] = useState<Array<{id: number, msg: string, type: 'success' | 'error'}>>([]);
+
   // Video State
   const [videoPlaying, setVideoPlaying] = useState(true);
   const [videoMuted, setVideoMuted] = useState(true);
@@ -275,6 +313,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       'Matches', 'Standings', 'Bracket', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream'
   ];
   const totalSlides = slides.length;
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+      const id = Date.now();
+      setToasts(prev => [...prev, { id, msg, type }]);
+      setTimeout(() => {
+          setToasts(prev => prev.filter(t => t.id !== id));
+      }, 3000);
+  };
 
   // New Wave Gradient Background Logic
   const getGradientColors = (index: number) => {
@@ -338,6 +384,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       setCurrentTrack(track);
       setIsPlaying(true);
       setIsMuted(false); 
+      showToast(`Now Playing: ${track.name}`, 'success');
   };
 
   const togglePlayback = () => {
@@ -456,14 +503,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return matches.filter(m => m.livestreamUrl && m.winner).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [matches]);
 
-  // Set initial video mute state based on if it's LIVE or Recorded
+  // Force mute when entering Live Stream Slide (Slide 10)
   useEffect(() => {
-      if (currentSlide === 10 && liveStreamingMatches.length > 0) {
-          const isLive = !liveStreamingMatches[0].winner;
-          setVideoMuted(!isLive); // Unmute if live, Mute if recorded
+      if (currentSlide === 10) {
+          setVideoMuted(true); // Always start muted
           setVideoPlaying(true);
       }
-  }, [currentSlide, liveStreamingMatches]);
+  }, [currentSlide]);
 
   const nextMatch = upcomingMatches.length > 0 ? upcomingMatches[0] : null;
 
@@ -602,10 +648,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const bracketData = useMemo(() => {
       const semiFinals = matches.filter(m => m.roundLabel?.match(/semi|sf|รองชนะเลิศ/i));
       const final = matches.find(m => m.roundLabel?.match(/final|ching|ชิงชนะเลิศ/i));
-      
-      // If we don't have semis/final, try to find Quarter Finals
       const qf = matches.filter(m => m.roundLabel?.match(/quarter|qf|8/i));
-      
       return { qf, semiFinals, final };
   }, [matches]);
 
@@ -655,7 +698,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (currentSlide === 1 && standingsGroups.length > 1) {
           subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000);
       }
-      if (currentSlide === 7 && contestEntries.length > 1) { // Highlights index shifted
+      if (currentSlide === 7 && contestEntries.length > 1) { 
           subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
       }
       if (currentSlide === 0) {
@@ -669,6 +712,29 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   const renderMusicPlayer = () => {
       if (!currentTrack || !isPlaying) return null;
+
+      if (currentTrack.type === 'Suno' || (currentTrack.url && currentTrack.url.includes('suno.com'))) {
+          // Extract Suno ID from URL
+          // Example: https://suno.com/s/3ct7LVBFiwWT9Xv7 or https://suno.com/song/3ct7LVBFiwWT9Xv7
+          const parts = currentTrack.url.split('/');
+          const id = parts[parts.length - 1]; // Get last part
+          // Construct embed URL
+          const embedUrl = `https://suno.com/embed/${id}/?autoplay=true`;
+          
+          return (
+              <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none">
+                  <iframe 
+                      width="100%" 
+                      height="100%" 
+                      src={embedUrl} 
+                      title="bg-music-suno" 
+                      frameBorder="0" 
+                      allow="autoplay; encrypted-media; clipboard-write" 
+                      allowFullScreen 
+                  />
+              </div>
+          );
+      }
 
       if (currentTrack.type === 'Youtube' || (currentTrack.url && currentTrack.url.includes('youtu'))) {
           let videoId = '';
@@ -724,8 +790,18 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   return (
     <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
         
-        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} />
+        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} notify={showToast} />
         {renderMusicPlayer()}
+
+        {/* NOTIFICATIONS */}
+        <div className="absolute top-28 right-8 z-[7000] flex flex-col gap-3 pointer-events-none">
+            {toasts.map(t => (
+                <div key={t.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-md shadow-2xl animate-slide-in-right ${t.type === 'success' ? 'bg-green-900/80 border-green-500/50 text-green-100' : 'bg-red-900/80 border-red-500/50 text-red-100'}`}>
+                    {t.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertCircle className="w-5 h-5"/>}
+                    <span className="font-bold text-sm">{t.msg}</span>
+                </div>
+            ))}
+        </div>
 
         {/* DYNAMIC ANIMATED BACKGROUND */}
         <div className={`absolute inset-0 z-0 overflow-hidden pointer-events-none transition-colors duration-2000 bg-gradient-to-br ${getGradientColors(currentSlide)} bg-[length:400%_400%] animate-gradient-xy`}>
@@ -785,10 +861,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     <div className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">{currentTime.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => setIsSettingsOpen(true)} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><Settings className="w-6 h-6"/></button>
-                    {currentTrack && <button onClick={handleNextTrack} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm"><SkipForward className="w-6 h-6"/></button>}
-                    <button onClick={enterFullScreen} className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-slate-300 hover:text-white transition backdrop-blur-sm"><Maximize2 className="w-6 h-6"/></button>
-                    <button onClick={onClose} className="p-3 bg-red-500/20 hover:bg-red-500/40 rounded-full text-red-400 hover:text-red-300 transition backdrop-blur-sm"><X className="w-6 h-6"/></button>
+                    <button onClick={() => setIsSettingsOpen(true)} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm pointer-events-auto"><Settings className="w-6 h-6"/></button>
+                    {currentTrack && <button onClick={handleNextTrack} className="p-3 bg-slate-800/80 hover:bg-slate-700 rounded-full text-indigo-400 hover:text-white transition backdrop-blur-sm pointer-events-auto"><SkipForward className="w-6 h-6"/></button>}
+                    <button onClick={enterFullScreen} className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-slate-300 hover:text-white transition backdrop-blur-sm pointer-events-auto"><Maximize2 className="w-6 h-6"/></button>
+                    <button onClick={onClose} className="p-3 bg-red-500/20 hover:bg-red-500/40 rounded-full text-red-400 hover:text-red-300 transition backdrop-blur-sm pointer-events-auto"><X className="w-6 h-6"/></button>
                 </div>
             </div>
         </div>
@@ -1072,12 +1148,12 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                             ) : (
                                 <div className="absolute inset-0 bg-black/80 flex items-center justify-center flex-col z-10">
                                     <h3 className="text-2xl font-bold text-white mb-4">PAUSED</h3>
-                                    <button onClick={() => setVideoPlaying(true)} className="p-4 bg-white/20 rounded-full hover:bg-white/30 transition"><Play className="w-12 h-12 text-white"/></button>
+                                    <button onClick={() => setVideoPlaying(true)} className="p-4 bg-white/20 rounded-full hover:bg-white/30 transition pointer-events-auto"><Play className="w-12 h-12 text-white"/></button>
                                 </div>
                             )}
                             
                             {/* VIDEO CONTROL BAR */}
-                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full border border-white/20 flex items-center gap-6 z-30 transition-opacity duration-300 opacity-0 hover:opacity-100">
+                            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full border border-white/20 flex items-center gap-6 z-30 transition-opacity duration-300 opacity-0 hover:opacity-100 pointer-events-auto">
                                 <button onClick={() => setVideoPlaying(!videoPlaying)} className="hover:scale-110 transition">
                                     {videoPlaying ? <Pause className="w-6 h-6 text-white"/> : <Play className="w-6 h-6 text-white"/>}
                                 </button>
@@ -1185,6 +1261,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             ::-webkit-scrollbar { display: none; }
             .perspective-1000 { perspective: 1000px; }
             .fill-mode-backwards { animation-fill-mode: backwards; }
+            @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+            .animate-slide-in-right { animation: slide-in-right 0.3s ease-out forwards; }
         `}</style>
     </div>
   );
