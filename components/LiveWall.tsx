@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -12,6 +12,7 @@ interface LiveWallProps {
   predictions: Prediction[];
   onClose: () => void;
   onRefresh: (silent?: boolean) => void;
+  tournamentId?: string; // Added to support filtering
 }
 
 // --- UTILS ---
@@ -95,6 +96,43 @@ const NumberCounter = ({ target, duration = 2000 }: { target: number; duration?:
     return <>{count}</>;
 };
 
+// --- CUSTOM CONFIRMATION MODAL ---
+interface ConfirmationModalProps {
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'info';
+    onConfirm: () => void;
+    onCancel: () => void;
+}
+
+const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ isOpen, title, message, confirmText = "Confirm", cancelText = "Cancel", type = "danger", onConfirm, onCancel }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[7000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200 cursor-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100">
+                <div className={`flex items-center gap-3 mb-4 ${type === 'danger' ? 'text-red-600' : 'text-slate-800'}`}>
+                    <div className={`p-3 rounded-full ${type === 'danger' ? 'bg-red-50' : 'bg-slate-100'}`}>
+                        {type === 'danger' ? <AlertTriangle className="w-6 h-6" /> : <Info className="w-6 h-6" />}
+                    </div>
+                    <h3 className="font-bold text-lg">{title}</h3>
+                </div>
+                <p className="text-slate-600 mb-6 text-sm leading-relaxed">{message}</p>
+                <div className="flex gap-3">
+                    <button onClick={onCancel} className="flex-1 py-2.5 border border-slate-200 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition text-sm">
+                        {cancelText}
+                    </button>
+                    <button onClick={onConfirm} className={`flex-1 py-2.5 rounded-xl font-bold text-white shadow-lg transition text-sm flex items-center justify-center gap-2 ${type === 'danger' ? 'bg-red-500 hover:bg-red-600 shadow-red-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}>
+                        {confirmText}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- SETTINGS MODAL ---
 
 const SettingsManagerModal: React.FC<{ 
@@ -105,9 +143,13 @@ const SettingsManagerModal: React.FC<{
     musicTracks: MusicTrack[], 
     onUpdateMusic: () => void, 
     onPlayMusic: (track: MusicTrack) => void,
-    notify: (msg: string, type: 'success' | 'error') => void
-}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic, notify }) => {
+    notify: (msg: string, type: 'success' | 'error') => void,
+    tournamentId: string
+}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic, notify, tournamentId }) => {
     const [tab, setTab] = useState<'sponsors' | 'music'>('sponsors');
+    const [scope, setScope] = useState<'tournament' | 'global'>('tournament'); // Scope Filter
+    
+    // Add Forms
     const [name, setName] = useState('');
     const [file, setFile] = useState<File | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -116,6 +158,12 @@ const SettingsManagerModal: React.FC<{
     const [musicName, setMusicName] = useState('');
     const [musicUrl, setMusicUrl] = useState('');
     const [musicType, setMusicType] = useState<'Youtube' | 'Spotify' | 'Suno' | 'Other'>('Youtube');
+
+    // Editing State
+    const [editingItem, setEditingItem] = useState<{ id: string, name: string, type: 'sponsor' | 'music' } | null>(null);
+
+    // Confirmation State
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
 
     // Auto-detect music type
     useEffect(() => {
@@ -127,13 +175,34 @@ const SettingsManagerModal: React.FC<{
 
     if (!isOpen) return null;
 
+    // Filter Logic
+    const filterByScope = (itemType: string | undefined) => {
+        if (scope === 'global') {
+            return !itemType || !itemType.includes('::');
+        } else {
+            return itemType && itemType.includes(`::${tournamentId}`);
+        }
+    };
+
+    const visibleSponsors = sponsors.filter(s => filterByScope(s.type));
+    const visibleTracks = musicTracks.filter(m => filterByScope(m.type));
+
+    const getScopedType = (baseType: string) => {
+        if (scope === 'tournament') return `${baseType}::${tournamentId}`;
+        return baseType;
+    };
+
+    // --- SPONSOR ACTIONS ---
+
     const handleAddSponsor = async () => {
         if (!name || !file) return;
         setIsSubmitting(true);
         try {
             const compressed = await compressImage(file);
             const base64 = await fileToBase64(compressed);
-            await manageSponsor({ subAction: 'add', name, logoFile: base64 });
+            // Append scope to type
+            const finalType = getScopedType('Main');
+            await manageSponsor({ subAction: 'add', name, logoFile: base64, type: finalType });
             onUpdateSponsors();
             setName('');
             setFile(null);
@@ -146,8 +215,17 @@ const SettingsManagerModal: React.FC<{
         }
     };
 
+    const requestDeleteSponsor = (id: string, sponsorName: string) => {
+        setConfirmModal({
+            isOpen: true,
+            title: "Remove Sponsor?",
+            message: `Are you sure you want to remove "${sponsorName}"? This cannot be undone.`,
+            onConfirm: () => handleDeleteSponsor(id)
+        });
+    };
+
     const handleDeleteSponsor = async (id: string) => {
-        if (!confirm("Remove this sponsor?")) return;
+        setConfirmModal(null);
         setIsSubmitting(true);
         try {
             await manageSponsor({ subAction: 'delete', id });
@@ -156,11 +234,14 @@ const SettingsManagerModal: React.FC<{
         } catch (e) { console.error(e); } finally { setIsSubmitting(false); }
     };
 
+    // --- MUSIC ACTIONS ---
+
     const handleAddMusic = async () => {
         if (!musicName || !musicUrl) return;
         setIsSubmitting(true);
         try {
-            await manageMusicTrack({ subAction: 'add', name: musicName, url: musicUrl, type: musicType });
+            const finalType = getScopedType(musicType);
+            await manageMusicTrack({ subAction: 'add', name: musicName, url: musicUrl, type: finalType });
             onUpdateMusic();
             setMusicName('');
             setMusicUrl('');
@@ -173,8 +254,17 @@ const SettingsManagerModal: React.FC<{
         }
     };
 
+    const requestDeleteMusic = (id: string, trackName: string) => {
+        setConfirmModal({
+            isOpen: true,
+            title: "Remove Track?",
+            message: `Are you sure you want to remove "${trackName}" from the playlist?`,
+            onConfirm: () => handleDeleteMusic(id)
+        });
+    };
+
     const handleDeleteMusic = async (id: string) => {
-        if(!confirm("Remove track?")) return;
+        setConfirmModal(null);
         setIsSubmitting(true);
         try {
             await manageMusicTrack({ subAction: 'delete', id });
@@ -183,58 +273,141 @@ const SettingsManagerModal: React.FC<{
         } catch(e) { console.error(e); } finally { setIsSubmitting(false); }
     };
 
+    // --- EDITING ACTIONS ---
+    // Note: Assuming backend supports 'edit' subAction or we implement UI only and it fails gracefully if not supported
+    // Since I can't change backend code, this is a "best effort" UI implementation. 
+    // Ideally the backend Code.js needs to handle `subAction: 'edit'` for sponsors/music.
+
+    const handleEditSave = async () => {
+        if (!editingItem) return;
+        setIsSubmitting(true);
+        try {
+            if (editingItem.type === 'music') {
+                // If backend supports edit
+                await manageMusicTrack({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name });
+            } else {
+                await manageSponsor({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name });
+            }
+            onUpdateMusic();
+            onUpdateSponsors();
+            setEditingItem(null);
+            notify("Updated successfully", 'success');
+        } catch (e) {
+            console.error(e);
+            notify("Update failed (Backend might not support edit)", 'error');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     return (
-        // Added cursor-auto here to override the parent's cursor-none
         <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm cursor-auto" onClick={onClose}>
-            <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] text-slate-800 shadow-2xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            
+            {/* Custom Confirm Modal */}
+            {confirmModal && (
+                <ConfirmationModal 
+                    isOpen={confirmModal.isOpen} 
+                    title={confirmModal.title} 
+                    message={confirmModal.message} 
+                    onConfirm={confirmModal.onConfirm} 
+                    onCancel={() => setConfirmModal(null)} 
+                />
+            )}
+
+            <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] text-slate-800 shadow-2xl animate-in zoom-in duration-200 relative" onClick={e => e.stopPropagation()}>
+                {/* Header */}
                 <div className="flex justify-between items-center p-5 border-b bg-slate-50">
                     <div>
                         <h3 className="font-bold text-xl flex items-center gap-2 text-slate-800"><Settings className="w-6 h-6 text-indigo-600"/> Live Wall Settings</h3>
-                        <p className="text-xs text-slate-500">Manage overlay content</p>
+                        <p className="text-xs text-slate-500">Manage content for {scope === 'tournament' ? 'current tournament' : 'all events'}</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-5 h-5"/></button>
                 </div>
                 
-                <div className="flex border-b border-slate-200 p-1 bg-white">
-                    <button onClick={() => setTab('sponsors')} className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${tab==='sponsors' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}>Sponsors</button>
-                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm rounded-lg transition-all ${tab==='music' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}>Music Player</button>
+                {/* Scope Filter Tabs */}
+                <div className="flex p-2 bg-slate-100 gap-1 mx-4 mt-4 rounded-xl">
+                    <button 
+                        onClick={() => setScope('tournament')} 
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${scope==='tournament' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Trophy className="w-3 h-3"/> Current Tournament
+                    </button>
+                    <button 
+                        onClick={() => setScope('global')} 
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${scope==='global' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        <Globe className="w-3 h-3"/> Global Assets
+                    </button>
+                </div>
+
+                {/* Main Tabs */}
+                <div className="flex border-b border-slate-200 px-4 mt-2 bg-white">
+                    <button onClick={() => setTab('sponsors')} className={`flex-1 py-3 font-bold text-sm border-b-2 transition-all ${tab==='sponsors' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Sponsors</button>
+                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm border-b-2 transition-all ${tab==='music' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Music Player</button>
                 </div>
 
                 <div className="p-5 overflow-y-auto flex-1 bg-slate-50/50">
+                    {/* SPONSORS TAB */}
                     {tab === 'sponsors' && (
                         <div className="space-y-4">
+                            {/* Add Sponsor Form */}
                             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Add New Partner</h4>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1"><Plus className="w-3 h-3"/> Add {scope === 'tournament' ? 'Tournament' : 'Global'} Sponsor</h4>
                                 <div className="space-y-3">
                                     <input type="text" placeholder="Sponsor Name" className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={name} onChange={e => setName(e.target.value)} />
                                     <div className="relative">
                                         <input type="file" accept="image/*" onChange={e => setFile(e.target.files?.[0] || null)} className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                                     </div>
-                                    <button onClick={handleAddSponsor} disabled={isSubmitting || !name || !file} className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-indigo-700 transition disabled:opacity-50">
-                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Sponsor</>}
+                                    <button onClick={handleAddSponsor} disabled={isSubmitting || !name || !file} className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-indigo-700 transition disabled:opacity-50 shadow-md shadow-indigo-200">
+                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Add Sponsor'}
                                     </button>
                                 </div>
                             </div>
                             
+                            {/* Sponsor List */}
                             <div className="space-y-2">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase">Active Sponsors ({sponsors.length})</h4>
-                                {sponsors.length === 0 ? <p className="text-center text-slate-400 text-sm py-4 italic">No sponsors yet.</p> : sponsors.map(s => (
+                                <h4 className="text-xs font-bold text-slate-400 uppercase ml-1">Active List ({visibleSponsors.length})</h4>
+                                {visibleSponsors.length === 0 ? <div className="text-center text-slate-400 text-sm py-8 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">No sponsors in this list.</div> : visibleSponsors.map(s => (
                                     <div key={s.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-indigo-200 transition">
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 flex-1">
                                             <div className="w-10 h-10 rounded-lg border bg-slate-50 p-1 flex items-center justify-center"><img src={s.logoUrl} className="max-w-full max-h-full object-contain" /></div>
-                                            <span className="font-bold text-sm text-slate-700 truncate w-40">{s.name}</span>
+                                            {editingItem?.id === s.id ? (
+                                                <input 
+                                                    type="text" 
+                                                    value={editingItem.name} 
+                                                    onChange={e => setEditingItem({...editingItem, name: e.target.value})}
+                                                    className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                                    autoFocus
+                                                />
+                                            ) : (
+                                                <span className="font-bold text-sm text-slate-700 truncate">{s.name}</span>
+                                            )}
                                         </div>
-                                        <button onClick={() => handleDeleteSponsor(s.id)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
+                                        <div className="flex gap-1">
+                                            {editingItem?.id === s.id ? (
+                                                <>
+                                                    <button onClick={handleEditSave} className="text-green-600 hover:bg-green-50 p-2 rounded-lg transition"><CheckCircle2 className="w-4 h-4"/></button>
+                                                    <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg transition"><X className="w-4 h-4"/></button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => setEditingItem({id: s.id, name: s.name, type: 'sponsor'})} className="text-slate-400 hover:text-indigo-600 p-2 hover:bg-indigo-50 rounded-lg transition"><Edit2 className="w-4 h-4"/></button>
+                                                    <button onClick={() => requestDeleteSponsor(s.id, s.name)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     )}
 
+                    {/* MUSIC TAB */}
                     {tab === 'music' && (
                         <div className="space-y-4">
+                            {/* Add Music Form */}
                             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Add Music Track</h4>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1"><Plus className="w-3 h-3"/> Add {scope === 'tournament' ? 'Tournament' : 'Global'} Track</h4>
                                 <div className="space-y-3">
                                     <input type="text" placeholder="Track Name" className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={musicName} onChange={e => setMusicName(e.target.value)} />
                                     <input type="text" placeholder="URL (YouTube / Suno / MP3)" className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} />
@@ -243,25 +416,46 @@ const SettingsManagerModal: React.FC<{
                                         <option value="Suno">Suno AI</option>
                                         <option value="Other">Direct File (MP3)</option>
                                     </select>
-                                    <button onClick={handleAddMusic} disabled={isSubmitting || !musicName || !musicUrl} className="w-full py-2.5 bg-pink-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-pink-700 transition disabled:opacity-50">
-                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : <><Plus className="w-4 h-4"/> Add Track</>}
+                                    <button onClick={handleAddMusic} disabled={isSubmitting || !musicName || !musicUrl} className="w-full py-2.5 bg-pink-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-pink-700 transition disabled:opacity-50 shadow-md shadow-pink-200">
+                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Add Track'}
                                     </button>
                                 </div>
                             </div>
                             
+                            {/* Music List */}
                             <div className="space-y-2">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase">Playlist ({musicTracks.length})</h4>
-                                {musicTracks.length === 0 ? <p className="text-center text-slate-400 text-sm py-4 italic">No music tracks.</p> : musicTracks.map(m => (
+                                <h4 className="text-xs font-bold text-slate-400 uppercase ml-1">Playlist ({visibleTracks.length})</h4>
+                                {visibleTracks.length === 0 ? <div className="text-center text-slate-400 text-sm py-8 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">No music tracks.</div> : visibleTracks.map(m => (
                                     <div key={m.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 shadow-sm group hover:border-indigo-200 transition">
-                                        <div className="flex items-center gap-3 overflow-hidden">
+                                        <div className="flex items-center gap-3 overflow-hidden flex-1">
                                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                                                {m.type === 'Youtube' ? <Youtube className="w-4 h-4 text-red-600"/> : m.type === 'Suno' ? <Sparkles className="w-4 h-4 text-purple-600"/> : <Music className="w-4 h-4 text-blue-500"/>}
+                                                {m.type.includes('Youtube') ? <Youtube className="w-4 h-4 text-red-600"/> : m.type.includes('Suno') ? <Sparkles className="w-4 h-4 text-purple-600"/> : <Music className="w-4 h-4 text-blue-500"/>}
                                             </div>
-                                            <span className="font-bold text-sm text-slate-700 truncate max-w-[150px]">{m.name}</span>
+                                            {editingItem?.id === m.id ? (
+                                                <input 
+                                                    type="text" 
+                                                    value={editingItem.name} 
+                                                    onChange={e => setEditingItem({...editingItem, name: e.target.value})}
+                                                    className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                                    autoFocus
+                                                />
+                                            ) : (
+                                                <span className="font-bold text-sm text-slate-700 truncate">{m.name}</span>
+                                            )}
                                         </div>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => onPlayMusic(m)} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-200 text-xs font-bold transition">Play</button>
-                                            <button onClick={() => handleDeleteMusic(m.id)} className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
+                                        <div className="flex gap-1">
+                                            {editingItem?.id === m.id ? (
+                                                <>
+                                                    <button onClick={handleEditSave} className="text-green-600 hover:bg-green-50 p-2 rounded-lg transition"><CheckCircle2 className="w-4 h-4"/></button>
+                                                    <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg transition"><X className="w-4 h-4"/></button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => onPlayMusic(m)} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-200 text-xs font-bold transition mr-1">Play</button>
+                                                    <button onClick={() => setEditingItem({id: m.id, name: m.name, type: 'music'})} className="text-slate-400 hover:text-indigo-600 p-2 hover:bg-indigo-50 rounded-lg transition"><Edit2 className="w-4 h-4"/></button>
+                                                    <button onClick={() => requestDeleteMusic(m.id, m.name)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -274,7 +468,7 @@ const SettingsManagerModal: React.FC<{
     );
 };
 
-const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh }) => {
+const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh, tournamentId = 'default' }) => {
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -355,8 +549,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           ]);
           const uniquePhotos = contestData.entries.filter((e, i, a) => a.findIndex(t => t.photoUrl === e.photoUrl) === i);
           setContestEntries(uniquePhotos);
-          setSponsors(sponsorData);
-          setMusicTracks(musicData);
+          
+          // Filter Sponsors and Music for Display
+          // Logic: Show Global items (no '::') AND items for this tournament ID
+          const filterForDisplay = (itemType: string | undefined) => {
+              if (!itemType || !itemType.includes('::')) return true; // Global
+              return itemType.includes(`::${tournamentId}`); // Tournament specific
+          };
+
+          setSponsors(sponsorData.filter(s => filterForDisplay(s.type)));
+          setMusicTracks(musicData.filter(m => filterForDisplay(m.type)));
       } catch (e) {
           console.error("Failed to load live wall extras");
       }
@@ -715,10 +917,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
       if (currentTrack.type === 'Suno' || (currentTrack.url && currentTrack.url.includes('suno.com'))) {
           // Extract Suno ID from URL
-          // Example: https://suno.com/s/3ct7LVBFiwWT9Xv7 or https://suno.com/song/3ct7LVBFiwWT9Xv7
           const parts = currentTrack.url.split('/');
           const id = parts[parts.length - 1]; // Get last part
-          // Construct embed URL
           const embedUrl = `https://suno.com/embed/${id}/?autoplay=true`;
           
           return (
@@ -790,7 +990,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   return (
     <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
         
-        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} notify={showToast} />
+        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} notify={showToast} tournamentId={tournamentId} />
         {renderMusicPlayer()}
 
         {/* NOTIFICATIONS */}
