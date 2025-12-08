@@ -1400,65 +1400,60 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
-            {/* SLIDE 8: SPONSORS - BUBBLE FLOAT ANIMATION */}
+            {/* SLIDE 8: SPONSORS (REDESIGNED) */}
             {currentSlide === 8 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
-                    <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
-                        <div className="text-center mb-4 animate-in slide-in-from-top-10 duration-1000 shrink-0 z-20">
-                            <div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse">
-                                <Star className="w-6 h-6 text-white fill-white" />
-                                <span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span>
-                                <Star className="w-6 h-6 text-white fill-white" />
+                    <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full pt-8 pb-12">
+                        
+                        {/* Header */}
+                        <div className="text-center mb-10 animate-in slide-in-from-top-10 duration-1000 shrink-0 z-20">
+                            <div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-4 animate-pulse-slow">
+                                <Star className="w-5 h-5 text-white fill-white" />
+                                <span className="text-base font-black text-white tracking-widest uppercase">Our Partners</span>
+                                <Star className="w-5 h-5 text-white fill-white" />
                             </div>
-                            <h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
+                            <h2 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
                                 Official Sponsors
                             </h2>
                         </div>
                         
                         {sponsors.length > 0 ? (
-                            <div className="w-full flex-1 relative overflow-hidden">
-                                {/* Sponsor Bubbles Container */}
-                                <div className="absolute inset-0">
-                                    {/* Repeat sponsors if few to create flow */}
-                                    {[...sponsors, ...sponsors, ...sponsors, ...sponsors].map((s, idx) => {
-                                        // Randomize position and timing for natural effect
-                                        const randomLeft = Math.floor(Math.random() * 90) + 5; // 5% to 95% width
-                                        const randomDuration = Math.floor(Math.random() * 10) + 10; // 10s to 20s
-                                        const randomDelay = Math.floor(Math.random() * 10); // 0s to 10s delay
-                                        const size = Math.floor(Math.random() * 40) + 120; // 120px to 160px size
-
-                                        return (
-                                            <div 
-                                                key={`${s.id}-${idx}`} 
-                                                className="absolute bottom-[-200px] flex flex-col items-center animate-float-up"
-                                                style={{
-                                                    left: `${randomLeft}%`,
-                                                    animationDuration: `${randomDuration}s`,
-                                                    animationDelay: `${randomDelay}s`,
-                                                    width: `${size}px`
-                                                }}
-                                            >
-                                                <div className="relative bg-white/10 backdrop-blur-xl rounded-full border border-white/20 flex items-center justify-center p-6 shadow-2xl aspect-square w-full transform hover:scale-110 transition-transform duration-300">
-                                                    <img 
-                                                        src={s.logoUrl} 
-                                                        className="w-full h-full object-contain filter drop-shadow-lg" 
-                                                        alt={s.name} 
-                                                    />
-                                                </div>
-                                                <span className="mt-4 text-lg font-bold text-white bg-black/60 px-4 py-1 rounded-full backdrop-blur-md border border-white/10 shadow-lg whitespace-nowrap">
-                                                    {s.name}
-                                                </span>
+                            <div className="flex-1 w-full flex items-center justify-center overflow-y-auto p-4 custom-scrollbar">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 w-full max-w-6xl">
+                                    {sponsors.map((s, idx) => (
+                                        <div 
+                                            key={`${s.id}-${idx}`}
+                                            className="group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 flex flex-col items-center gap-4 shadow-xl transition-all duration-700 animate-in zoom-in slide-in-from-bottom-8 fill-mode-backwards"
+                                            style={{ animationDelay: `${idx * 150}ms` }}
+                                        >
+                                            {/* Logo Area */}
+                                            <div className="w-full aspect-[3/2] flex items-center justify-center bg-white/5 rounded-xl p-4 overflow-hidden relative">
+                                                <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                                <img 
+                                                    src={s.logoUrl} 
+                                                    alt={s.name}
+                                                    className="w-full h-full object-contain filter drop-shadow-lg transform transition-transform duration-1000 hover:scale-110"
+                                                />
+                                                {/* Automatic shimmer effect */}
+                                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_3s_infinite]"></div>
                                             </div>
-                                        );
-                                    })}
+                                            
+                                            {/* Name Tag */}
+                                            <div className="text-center w-full">
+                                                <div className="bg-slate-900/50 rounded-lg py-2 px-4 border border-white/5">
+                                                    <h3 className="text-lg font-bold text-slate-100 truncate">{s.name}</h3>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center animate-pulse mt-20">
-                                <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
-                                    <Zap className="w-12 h-12 text-yellow-400" />
+                            <div className="flex flex-col items-center animate-pulse mt-10">
+                                <div className="w-24 h-24 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                                    <Zap className="w-10 h-10 text-yellow-400" />
                                 </div>
-                                <div className="text-3xl font-bold text-slate-500">Become a Partner</div>
+                                <div className="text-2xl font-bold text-slate-500">No Sponsors Yet</div>
                             </div>
                         )}
                     </div>
@@ -1618,13 +1613,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .animate-slide-in-right { animation: slide-in-right 0.3s ease-out forwards; }
             
             /* Sponsor Animations */
-            @keyframes float-up {
-              0% { transform: translateY(100vh) scale(0.8); opacity: 0; }
-              10% { opacity: 1; }
-              90% { opacity: 1; }
-              100% { transform: translateY(-120vh) scale(1); opacity: 0; }
+            @keyframes shimmer {
+              0% { transform: translateX(-100%); }
+              100% { transform: translateX(100%); }
             }
-            .animate-float-up { animation: float-up linear infinite; }
             
             @keyframes bounce-slow {
               0%, 100% { transform: translateY(-5%); }
