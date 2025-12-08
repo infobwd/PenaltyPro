@@ -681,7 +681,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           // Responsive Scaling Logic
           const handleResize = () => {
               const width = window.innerWidth;
-              const newScale = Math.max(1, width / 1920);
+              const height = window.innerHeight;
+              
+              // Scale to fit the viewport based on a 1920x1080 design baseline
+              const widthScale = width / 1920;
+              const heightScale = height / 1080;
+              
+              // Use the minimum scale to ensure content fits within the screen without cropping
+              // This handles iPad (4:3) and other ratios by fitting the content properly
+              const newScale = Math.min(widthScale, heightScale);
+              
               setUiScale(newScale);
           };
           
