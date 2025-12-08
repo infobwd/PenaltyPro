@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage, UserProfile } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users, Radio } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings, fetchTickerMessages, manageTickerMessage } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -577,6 +577,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [isSmallScreen, setIsSmallScreen] = useState(window.innerWidth < 1920); // NEW: Responsive State
   const [countdown, setCountdown] = useState<string>('');
   
+  // Manual Live Match Selection
+  const [manualLiveMatchId, setManualLiveMatchId] = useState<string | null>(null);
+  
   // Touch Swipe State
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [touchEnd, setTouchEnd] = useState<number | null>(null);
@@ -880,6 +883,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return matches.filter(m => m.livestreamUrl && m.winner).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [matches]);
 
+  const activeLiveMatch = useMemo(() => {
+      if (manualLiveMatchId) {
+          const found = liveStreamingMatches.find(m => m.id === manualLiveMatchId);
+          if (found) return found;
+      }
+      return liveStreamingMatches.length > 0 ? liveStreamingMatches[0] : null;
+  }, [liveStreamingMatches, manualLiveMatchId]);
+
   // Force mute when entering Live Stream Slide (Slide 11 - adjusted index)
   useEffect(() => {
       if (currentSlide === 11) {
@@ -1128,9 +1139,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       };
   }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated, sponsors.length, isSmallScreen, activeForecastMatches.length]);
 
-  // Match Forecast Slicing Logic
+  // Match Forecast Slicing Logic - UPDATED: Increased Grid Density
   const currentForecastMatches = useMemo(() => {
-      const pageSize = isSmallScreen ? 2 : 4;
+      const pageSize = isSmallScreen ? 2 : 4; 
       return activeForecastMatches.slice(forecastPage * pageSize, (forecastPage + 1) * pageSize);
   }, [activeForecastMatches, forecastPage, isSmallScreen]);
 
@@ -1338,7 +1349,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 1: MATCH FORECAST (BROADCAST REDESIGN) */}
+            {/* SLIDE 1: MATCH FORECAST (BROADCAST REDESIGN - UPDATED for smaller cards) */}
             {currentSlide === 1 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal px-2 md:px-12 py-2 md:py-4">
                     {/* TV Broadcast Header */}
@@ -1352,9 +1363,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         </div>
                     </div>
 
-                    {/* Content Grid */}
+                    {/* Content Grid - MODIFIED FOR SMALLER CARDS */}
                     <div className="flex-1 flex items-center justify-center overflow-y-auto">
-                        <div className={`grid ${isSmallScreen ? 'grid-cols-2' : 'grid-cols-2'} gap-2 md:gap-8 2xl:gap-12 w-full max-w-7xl`}>
+                        <div className={`grid ${isSmallScreen ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'} gap-4 md:gap-6 2xl:gap-8 w-full max-w-[95%]`}>
                             {currentForecastMatches.length > 0 ? currentForecastMatches.map((m, idx) => {
                                 const tA = resolveTeam(m.teamA);
                                 const tB = resolveTeam(m.teamB);
@@ -1365,81 +1376,81 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 const predictorsB = predictions.filter(p => p.matchId === m.id && p.prediction === 'B');
 
                                 return (
-                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-xl border-l-4 border-teal-400 p-2 md:p-6 2xl:p-8 rounded-r-3xl shadow-2xl overflow-hidden animate-card-enter hover:bg-slate-800/80 transition-colors" style={{ animationDelay: `${idx * 150}ms` }}>
+                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-xl border-l-4 border-teal-400 p-2 md:p-4 rounded-r-2xl shadow-lg overflow-hidden animate-card-enter hover:bg-slate-800/80 transition-colors" style={{ animationDelay: `${idx * 150}ms` }}>
                                         {/* Background Effect */}
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-3xl pointer-events-none"></div>
+                                        <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/5 rounded-full blur-2xl pointer-events-none"></div>
                                         
-                                        {/* Match Info Header */}
-                                        <div className="flex justify-between items-start mb-2 md:mb-6 border-b border-white/5 pb-2">
+                                        {/* Match Info Header - Compact */}
+                                        <div className="flex justify-between items-start mb-2 border-b border-white/5 pb-1">
                                             <div className="flex flex-col">
-                                                <span className="text-[8px] md:text-xs 2xl:text-sm font-bold text-teal-300 uppercase tracking-widest">{m.roundLabel?.split(':')[0]}</span>
-                                                <span className="text-white text-[10px] md:text-sm 2xl:text-base opacity-60 font-mono">{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
+                                                <span className="text-[8px] md:text-[10px] font-bold text-teal-300 uppercase tracking-widest">{m.roundLabel?.split(':')[0]}</span>
+                                                <span className="text-white text-[9px] md:text-xs opacity-60 font-mono">{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
                                             </div>
-                                            <div className="bg-black/40 px-2 md:px-3 py-0.5 md:py-1 rounded text-[8px] md:text-xs text-slate-400 font-mono border border-white/5 hidden md:block">
+                                            <div className="bg-black/40 px-2 py-0.5 rounded text-[8px] text-slate-400 font-mono border border-white/5 hidden md:block">
                                                 Votes: {stats.total}
                                             </div>
                                         </div>
 
-                                        {/* Teams & Percents */}
-                                        <div className="flex items-center justify-between relative z-10 gap-1 md:gap-4">
+                                        {/* Teams & Percents - Compact */}
+                                        <div className="flex items-center justify-between relative z-10 gap-1 md:gap-2">
                                             {/* Team A */}
-                                            <div className="flex flex-col items-center w-1/3 gap-1 md:gap-2">
+                                            <div className="flex flex-col items-center w-1/3 gap-1">
                                                 <div className="relative">
-                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">A</div>}
-                                                    {percentA > 50 && <div className="absolute -top-2 -right-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow hidden md:block">Favorite</div>}
+                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-8 h-8 md:w-12 md:h-12 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-8 h-8 md:w-12 md:h-12 bg-white/10 rounded-full flex items-center justify-center text-lg font-black">A</div>}
+                                                    {percentA > 50 && <div className="absolute -top-1 -right-1 bg-teal-500 text-slate-900 text-[6px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase shadow-sm animate-bounce-slow hidden md:block">Fav</div>}
                                                 </div>
-                                                <span className="text-[10px] md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tA.name}</span>
-                                                <div className="text-xl md:text-4xl 2xl:text-5xl font-black text-teal-400 drop-shadow-md tabular-nums">{percentA}%</div>
+                                                <span className="text-[9px] md:text-[11px] font-black text-white text-center leading-tight uppercase truncate w-full">{tA.name}</span>
+                                                <div className="text-lg md:text-2xl font-black text-teal-400 drop-shadow-md tabular-nums">{percentA}%</div>
                                             </div>
 
                                             {/* VS Graphic */}
                                             <div className="flex flex-col items-center justify-center w-1/5">
-                                                <div className="text-xl md:text-4xl 2xl:text-6xl font-black text-white/5 italic select-none">VS</div>
+                                                <div className="text-lg md:text-2xl font-black text-white/5 italic select-none">VS</div>
                                             </div>
 
                                             {/* Team B */}
-                                            <div className="flex flex-col items-center w-1/3 gap-1 md:gap-2">
-                                                <div className="text-xl md:text-4xl 2xl:text-5xl font-black text-white drop-shadow-md tabular-nums text-right w-full">{percentB}%</div>
-                                                <span className="text-[10px] md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tB.name}</span>
+                                            <div className="flex flex-col items-center w-1/3 gap-1">
+                                                <div className="text-lg md:text-2xl font-black text-white drop-shadow-md tabular-nums text-right w-full">{percentB}%</div>
+                                                <span className="text-[9px] md:text-[11px] font-black text-white text-center leading-tight uppercase truncate w-full">{tB.name}</span>
                                                 <div className="relative">
-                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-8 h-8 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">B</div>}
-                                                    {percentB > 50 && <div className="absolute -top-2 -left-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow hidden md:block">Favorite</div>}
+                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-8 h-8 md:w-12 md:h-12 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-8 h-8 md:w-12 md:h-12 bg-white/10 rounded-full flex items-center justify-center text-lg font-black">B</div>}
+                                                    {percentB > 50 && <div className="absolute -top-1 -left-1 bg-teal-500 text-slate-900 text-[6px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase shadow-sm animate-bounce-slow hidden md:block">Fav</div>}
                                                 </div>
                                             </div>
                                         </div>
 
                                         {/* Tug of War Bar */}
-                                        <div className="mt-2 md:mt-6 relative h-2 md:h-4 2xl:h-6 bg-slate-800 rounded-full overflow-hidden shadow-inner border border-white/5">
+                                        <div className="mt-2 relative h-1.5 md:h-2 bg-slate-800 rounded-full overflow-hidden shadow-inner border border-white/5">
                                             <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-teal-600 to-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.5)] transition-all duration-1000 ease-out" style={{ width: `${percentA}%` }}></div>
                                             <div className="absolute top-0 right-0 h-full bg-white/10 transition-all duration-1000 ease-out" style={{ width: `${percentB}%` }}></div>
                                             {/* Center Marker */}
-                                            <div className="absolute top-0 left-1/2 w-[2px] h-full bg-white/30 -translate-x-1/2 z-10"></div>
+                                            <div className="absolute top-0 left-1/2 w-[1px] h-full bg-white/30 -translate-x-1/2 z-10"></div>
                                         </div>
 
-                                        {/* Voters Preview */}
-                                        <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-white/5 flex justify-between items-center text-[10px] md:text-xs text-slate-500 hidden md:flex">
-                                            <div className="flex items-center -space-x-2 pl-2">
+                                        {/* Voters Preview - Compact */}
+                                        <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center text-[8px] md:text-[10px] text-slate-500 hidden md:flex">
+                                            <div className="flex items-center -space-x-1.5 pl-1">
                                                 {predictorsA.slice(0, 3).map((p, i) => (
-                                                    <div key={i} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
-                                                        {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover"/> : <span className="text-[8px] text-white">{p.userDisplayName[0]}</span>}
+                                                    <div key={i} className="w-4 h-4 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
+                                                        {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover"/> : <span className="text-[6px] text-white">{p.userDisplayName[0]}</span>}
                                                     </div>
                                                 ))}
-                                                {predictorsA.length > 3 && <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-slate-800 flex items-center justify-center text-[8px] text-white border border-slate-900">+{predictorsA.length-3}</div>}
+                                                {predictorsA.length > 3 && <div className="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center text-[6px] text-white border border-slate-900">+{predictorsA.length-3}</div>}
                                             </div>
-                                            <div className="uppercase font-bold tracking-wider text-teal-500/50">Community Vote</div>
-                                            <div className="flex items-center -space-x-2 flex-row-reverse pr-2">
+                                            <div className="uppercase font-bold tracking-wider text-teal-500/50 text-[8px]">Vote</div>
+                                            <div className="flex items-center -space-x-1.5 flex-row-reverse pr-1">
                                                 {predictorsB.slice(0, 3).map((p, i) => (
-                                                    <div key={i} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
-                                                        {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover"/> : <span className="text-[8px] text-white">{p.userDisplayName[0]}</span>}
+                                                    <div key={i} className="w-4 h-4 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
+                                                        {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover"/> : <span className="text-[6px] text-white">{p.userDisplayName[0]}</span>}
                                                     </div>
                                                 ))}
-                                                {predictorsB.length > 3 && <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-slate-800 flex items-center justify-center text-[8px] text-white border border-slate-900">+{predictorsB.length-3}</div>}
+                                                {predictorsB.length > 3 && <div className="w-4 h-4 rounded-full bg-slate-800 flex items-center justify-center text-[6px] text-white border border-slate-900">+{predictorsB.length-3}</div>}
                                             </div>
                                         </div>
                                     </div>
                                 );
                             }) : (
-                                <div className="col-span-2 lg:col-span-2 flex flex-col items-center justify-center h-64 md:h-96 opacity-40">
+                                <div className="col-span-full flex flex-col items-center justify-center h-64 md:h-96 opacity-40">
                                     <BrainCircuit className="w-16 h-16 md:w-24 md:h-24 text-teal-500 animate-pulse mb-4"/>
                                     <h3 className="text-2xl md:text-4xl font-black text-white uppercase tracking-widest">Awaiting Predictions</h3>
                                 </div>
@@ -1716,10 +1727,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-xl md:text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
-            {/* SLIDE 9: SPONSORS */}
+            {/* SLIDE 9: SPONSORS - UPDATED GRID FOR 4 COLUMNS */}
             {currentSlide === 9 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
-                    <div className="relative z-10 w-full max-w-7xl px-4 md:px-8 flex flex-col items-center justify-center h-full pt-4 md:pt-8 pb-8 md:pb-12">
+                    <div className="relative z-10 w-full max-w-[90%] px-4 flex flex-col items-center justify-center h-full pt-4 md:pt-8 pb-8 md:pb-12">
                         
                         {/* Header */}
                         <div className="text-center mb-6 md:mb-10 animate-in slide-in-from-top-10 duration-1000 shrink-0 z-20">
@@ -1735,15 +1746,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                         
                         {sponsors.length > 0 ? (
                             <div className="flex-1 w-full flex items-center justify-center overflow-y-auto p-4 custom-scrollbar">
-                                <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4 md:gap-12 w-full max-w-6xl">
+                                {/* CHANGED: grid-cols-2 md:grid-cols-4 for better batch visibility */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-7xl">
                                     {(sponsorChunks[sponsorPageIndex] || []).map((s, idx) => (
                                         <div 
                                             key={`${s.id}-${idx}`}
-                                            className="group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 md:p-6 flex flex-col items-center gap-4 shadow-xl transition-all duration-700 animate-in slide-in-from-bottom-20 fade-in fill-mode-backwards"
+                                            className="group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 flex flex-col items-center gap-4 shadow-xl transition-all duration-700 animate-in slide-in-from-bottom-20 fade-in fill-mode-backwards"
                                             style={{ animationDelay: `${idx * 200}ms` }}
                                         >
                                             {/* Logo Area */}
-                                            <div className="w-full aspect-[3/2] flex items-center justify-center bg-white/5 rounded-xl p-2 md:p-4 overflow-hidden relative">
+                                            <div className="w-full aspect-square flex items-center justify-center bg-white/5 rounded-xl p-2 md:p-4 overflow-hidden relative">
                                                 <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                                                 <img 
                                                     src={s.logoUrl} 
@@ -1756,8 +1768,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                             
                                             {/* Name Tag */}
                                             <div className="text-center w-full">
-                                                <div className="bg-slate-900/50 rounded-lg py-1 md:py-2 px-2 md:px-4 border border-white/5">
-                                                    <h3 className="text-sm md:text-lg font-bold text-slate-100 truncate">{s.name}</h3>
+                                                <div className="bg-slate-900/50 rounded-lg py-1 md:py-2 px-2 border border-white/5">
+                                                    <h3 className="text-xs md:text-sm font-bold text-slate-100 truncate">{s.name}</h3>
                                                 </div>
                                             </div>
                                         </div>
@@ -1796,14 +1808,15 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 11: LIVE STREAM (AUTO PLAY & CONTROLS) */}
+            {/* SLIDE 11: LIVE STREAM (AUTO PLAY & CONTROLS + SELECTION) */}
             {currentSlide === 11 && (
                 <div className="h-full w-full relative flex flex-col bg-black animate-broadcast-reveal">
-                    {liveStreamingMatches.length > 0 ? (
+                    {/* Active Stream */}
+                    {activeLiveMatch ? (
                         <div className="flex-1 relative w-full h-full flex items-center justify-center">
                             {videoPlaying ? (
                                 <iframe 
-                                    src={getEmbedUrl(liveStreamingMatches[0].livestreamUrl, true, videoMuted) || ""} 
+                                    src={getEmbedUrl(activeLiveMatch.livestreamUrl, true, videoMuted) || ""} 
                                     className="w-full h-full absolute inset-0 object-cover pointer-events-auto" 
                                     allow="autoplay; encrypted-media; picture-in-picture"
                                     allowFullScreen
@@ -1829,28 +1842,52 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
                             {/* Overlay Info (Top Left) */}
                             <div className="absolute top-8 left-8 bg-gradient-to-r from-black/80 to-transparent p-4 rounded-xl flex items-center gap-4 z-20 animate-slide-in-left pointer-events-none">
-                                <div className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold uppercase animate-pulse ${liveStreamingMatches[0].winner ? 'bg-indigo-600' : 'bg-red-600'}`}>
-                                    <span className="w-2 h-2 bg-white rounded-full"></span> {liveStreamingMatches[0].winner ? 'REPLAY' : 'LIVE'}
+                                <div className={`flex items-center gap-2 px-3 py-1 rounded text-xs font-bold uppercase animate-pulse ${activeLiveMatch.winner ? 'bg-indigo-600' : 'bg-red-600'}`}>
+                                    <span className="w-2 h-2 bg-white rounded-full"></span> {activeLiveMatch.winner ? 'REPLAY' : 'LIVE'}
                                 </div>
                                 <div>
                                     <div className="text-lg md:text-2xl font-black uppercase drop-shadow-md">
-                                        {resolveTeam(liveStreamingMatches[0].teamA).name} <span className="text-yellow-400">vs</span> {resolveTeam(liveStreamingMatches[0].teamB).name}
+                                        {resolveTeam(activeLiveMatch.teamA).name} <span className="text-yellow-400">vs</span> {resolveTeam(activeLiveMatch.teamB).name}
                                     </div>
-                                    <div className="text-xs md:text-sm font-bold text-slate-300">{liveStreamingMatches[0].roundLabel}</div>
+                                    <div className="text-xs md:text-sm font-bold text-slate-300">{activeLiveMatch.roundLabel}</div>
                                 </div>
                             </div>
+
+                            {/* MATCH SELECTOR (Right Side) - NEW FEATURE */}
+                            {liveStreamingMatches.length > 1 && (
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-40 bg-black/40 backdrop-blur-sm p-2 rounded-xl border border-white/10 pointer-events-auto max-h-[80vh] overflow-y-auto custom-scrollbar">
+                                    {liveStreamingMatches.map(m => {
+                                        const tA = resolveTeam(m.teamA);
+                                        const tB = resolveTeam(m.teamB);
+                                        const isActive = m.id === activeLiveMatch.id;
+                                        return (
+                                            <button 
+                                                key={m.id} 
+                                                onClick={() => setManualLiveMatchId(m.id)}
+                                                className={`flex items-center gap-2 p-2 rounded-lg transition text-left w-48 ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'bg-black/60 text-slate-400 hover:bg-black/80 hover:text-white'}`}
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-[10px] font-bold uppercase truncate">{tA.shortName} vs {tB.shortName}</div>
+                                                    <div className="text-[8px] opacity-70 truncate">{m.roundLabel}</div>
+                                                </div>
+                                                {isActive && <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
 
                             {/* Score Overlay (Bottom Center - Hidden if paused) */}
                             {videoPlaying && (
                                 <div className="absolute bottom-10 right-10 bg-black/60 backdrop-blur-md px-6 md:px-8 py-2 md:py-3 rounded-2xl border border-white/10 flex items-center gap-4 md:gap-6 z-20 pointer-events-none">
                                     <div className="text-center">
-                                        <div className="text-2xl md:text-3xl font-black">{liveStreamingMatches[0].scoreA}</div>
-                                        <div className="text-[8px] md:text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamA).shortName}</div>
+                                        <div className="text-2xl md:text-3xl font-black">{activeLiveMatch.scoreA}</div>
+                                        <div className="text-[8px] md:text-[10px] uppercase font-bold text-slate-400">{resolveTeam(activeLiveMatch.teamA).shortName}</div>
                                     </div>
                                     <div className="text-lg md:text-xl font-bold text-slate-500">:</div>
                                     <div className="text-center">
-                                        <div className="text-2xl md:text-3xl font-black">{liveStreamingMatches[0].scoreB}</div>
-                                        <div className="text-[8px] md:text-[10px] uppercase font-bold text-slate-400">{resolveTeam(liveStreamingMatches[0].teamB).shortName}</div>
+                                        <div className="text-2xl md:text-3xl font-black">{activeLiveMatch.scoreB}</div>
+                                        <div className="text-[8px] md:text-[10px] uppercase font-bold text-slate-400">{resolveTeam(activeLiveMatch.teamB).shortName}</div>
                                     </div>
                                 </div>
                             )}
