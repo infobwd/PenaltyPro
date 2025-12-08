@@ -427,6 +427,19 @@ function manageSponsor(data) {
     }
     const id = "SPN_" + Date.now();
     sheet.appendRow([id, data.name, logoUrl, data.type || 'Main']);
+  } else if (data.subAction === 'edit') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        if (data.name) sheet.getRange(i + 1, 2).setValue(data.name);
+        if (data.logoFile && data.logoFile.startsWith('data:')) {
+           const url = saveFileToDrive(data.logoFile, `sponsor_${Date.now()}`);
+           sheet.getRange(i + 1, 3).setValue(url);
+        }
+        if (data.type) sheet.getRange(i + 1, 4).setValue(data.type);
+        break;
+      }
+    }
   } else if (data.subAction === 'delete') {
     const rows = sheet.getDataRange().getValues();
     for (let i = 1; i < rows.length; i++) {
@@ -476,6 +489,16 @@ function manageMusicTrack(data) {
   if (data.subAction === 'add') {
     const id = "MSC_" + Date.now();
     sheet.appendRow([id, data.name, data.url, data.type]);
+  } else if (data.subAction === 'edit') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        if (data.name) sheet.getRange(i + 1, 2).setValue(data.name);
+        if (data.url) sheet.getRange(i + 1, 3).setValue(data.url);
+        if (data.type) sheet.getRange(i + 1, 4).setValue(data.type);
+        break;
+      }
+    }
   } else if (data.subAction === 'delete') {
     const rows = sheet.getDataRange().getValues();
     for (let i = 1; i < rows.length; i++) {

@@ -274,16 +274,12 @@ const SettingsManagerModal: React.FC<{
     };
 
     // --- EDITING ACTIONS ---
-    // Note: Assuming backend supports 'edit' subAction or we implement UI only and it fails gracefully if not supported
-    // Since I can't change backend code, this is a "best effort" UI implementation. 
-    // Ideally the backend Code.js needs to handle `subAction: 'edit'` for sponsors/music.
 
     const handleEditSave = async () => {
         if (!editingItem) return;
         setIsSubmitting(true);
         try {
             if (editingItem.type === 'music') {
-                // If backend supports edit
                 await manageMusicTrack({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name });
             } else {
                 await manageSponsor({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name });
@@ -294,7 +290,7 @@ const SettingsManagerModal: React.FC<{
             notify("Updated successfully", 'success');
         } catch (e) {
             console.error(e);
-            notify("Update failed (Backend might not support edit)", 'error');
+            notify("Update failed", 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -550,8 +546,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           const uniquePhotos = contestData.entries.filter((e, i, a) => a.findIndex(t => t.photoUrl === e.photoUrl) === i);
           setContestEntries(uniquePhotos);
           
-          // Filter Sponsors and Music for Display
-          // Logic: Show Global items (no '::') AND items for this tournament ID
+          // Filter Sponsors and Music for Display (Include Global AND Tournament Specific)
           const filterForDisplay = (itemType: string | undefined) => {
               if (!itemType || !itemType.includes('::')) return true; // Global
               return itemType.includes(`::${tournamentId}`); // Tournament specific
