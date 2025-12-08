@@ -568,11 +568,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [currentSlide, setCurrentSlide] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [standingsPage, setStandingsPage] = useState(0);
+  const [forecastPage, setForecastPage] = useState(0); // NEW: Pagination for Match Forecast
   const [contestEntries, setContestEntries] = useState<ContestEntry[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [uiScale, setUiScale] = useState(1);
+  const [isSmallScreen, setIsSmallScreen] = useState(window.innerWidth < 1920); // NEW: Responsive State
   const [countdown, setCountdown] = useState<string>('');
   
   // Touch Swipe State
@@ -686,6 +688,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
           // Responsive Scaling Logic
           const handleResize = () => {
               const width = window.innerWidth;
+              // Check small screen threshold
+              setIsSmallScreen(width < 1920);
+
               // If wider than 1920 (large LED wall), scale up.
               // If between 1024 and 1920 or smaller (tablet/laptop), keep scale at 1 and use CSS responsiveness.
               if (width >= 1920) {
@@ -863,7 +868,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   }, [upcomingMatches, predictions]);
 
   // Active Forecast Matches: Show matches that haven't finished (no winner)
-  // Even if no predictions yet, we can show them as "waiting for forecasts"
   const activeForecastMatches = useMemo(() => {
       // Only matches without a winner
       return upcomingMatches.filter(m => !m.winner);
@@ -981,14 +985,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       sortedKeys.forEach(k => {
           groups[k].sort((a,b) => b.points - a.points || (b.goalsFor-b.goalsAgainst) - (a.goalsFor-a.goalsAgainst) || b.goalsFor - a.goalsFor);
       });
-      const chunkSize = 4;
+      
+      // Update chunk logic based on screen size
+      const chunkSize = isSmallScreen ? 2 : 4;
       const pages = [];
       for (let i = 0; i < sortedKeys.length; i += chunkSize) {
           const groupKeys = sortedKeys.slice(i, i + chunkSize);
           pages.push(groupKeys.map(k => ({ name: k, teams: groups[k] })));
       }
       return pages;
-  }, [matches, teams]);
+  }, [matches, teams, isSmallScreen]);
 
   const topScorers = useMemo(() => {
       const scores: Record<string, {name: string, team: string, goals: number, photoUrl?: string}> = {};
@@ -1076,7 +1082,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       const timer = setTimeout(() => {
           setCurrentSlide(prev => {
               const next = (prev + 1) % totalSlides;
-              if (next === 2) setStandingsPage(0); // Adjusted index for Standings
+              if (next === 2) setStandingsPage(0); // Reset Standings
+              if (next === 1) setForecastPage(0); // Reset Forecast
               return next;
           });
       }, duration);
@@ -1087,10 +1094,18 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   useEffect(() => {
       if (!isAuthenticated) return;
       let subTimer: any;
-      if (currentSlide === 2 && standingsGroups.length > 1) { // Adjusted index
+      if (currentSlide === 2 && standingsGroups.length > 1) { 
           subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000);
       }
-      if (currentSlide === 8 && contestEntries.length > 1) { // Adjusted index
+      
+      // Match Forecast Pagination
+      const forecastPageSize = isSmallScreen ? 2 : 4;
+      const totalForecastPages = Math.ceil(activeForecastMatches.length / forecastPageSize);
+      if (currentSlide === 1 && totalForecastPages > 1) {
+          subTimer = setInterval(() => setForecastPage(p => (p + 1) % totalForecastPages), 8000);
+      }
+
+      if (currentSlide === 8 && contestEntries.length > 1) { 
           subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
       }
       if (currentSlide === 9 && sponsors.length > 4) {
@@ -1111,7 +1126,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return () => {
           if (subTimer) clearInterval(subTimer);
       };
-  }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated, sponsors.length]);
+  }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated, sponsors.length, isSmallScreen, activeForecastMatches.length]);
+
+  // Match Forecast Slicing Logic
+  const currentForecastMatches = useMemo(() => {
+      const pageSize = isSmallScreen ? 2 : 4;
+      return activeForecastMatches.slice(forecastPage * pageSize, (forecastPage + 1) * pageSize);
+  }, [activeForecastMatches, forecastPage, isSmallScreen]);
 
   const renderMusicPlayer = () => {
       if (!currentTrack || !isPlaying) return null;
@@ -1333,8 +1354,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
                     {/* Content Grid */}
                     <div className="flex-1 flex items-center justify-center overflow-y-auto">
-                        <div className="grid grid-cols-2 lg:grid-cols-2 gap-2 md:gap-8 2xl:gap-12 w-full max-w-7xl">
-                            {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 4).map((m, idx) => {
+                        <div className={`grid ${isSmallScreen ? 'grid-cols-2' : 'grid-cols-2'} gap-2 md:gap-8 2xl:gap-12 w-full max-w-7xl`}>
+                            {currentForecastMatches.length > 0 ? currentForecastMatches.map((m, idx) => {
                                 const tA = resolveTeam(m.teamA);
                                 const tB = resolveTeam(m.teamB);
                                 const stats = matchPredictionsStats[m.id] || { a: 0, b: 0, total: 0 };
