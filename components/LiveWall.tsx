@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings, fetchTickerMessages, manageTickerMessage } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -594,9 +594,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   
   const audioRef = useRef<HTMLAudioElement>(null);
   
-  // Slides Configuration
+  // Slides Configuration - Added MatchForecast (Predictions)
   const slides = [
-      'Matches', 'Standings', 'Bracket', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream'
+      'Matches', 'MatchForecast', 'Standings', 'Bracket', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream'
   ];
   const totalSlides = slides.length;
 
@@ -612,16 +612,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const getGradientColors = (index: number) => {
       switch (index) {
           case 0: return 'from-blue-900 via-indigo-950 to-slate-950'; // Matches
-          case 1: return 'from-indigo-900 via-purple-950 to-slate-950'; // Standings
-          case 2: return 'from-slate-800 via-zinc-900 to-black'; // Bracket
-          case 3: return 'from-emerald-900 via-green-950 to-slate-950'; // Results
-          case 4: return 'from-amber-900 via-orange-950 to-slate-950'; // Top Scorers
-          case 5: return 'from-cyan-900 via-blue-950 to-slate-950'; // Keepers
-          case 6: return 'from-fuchsia-900 via-pink-950 to-slate-950'; // Fan
-          case 7: return 'from-rose-900 via-red-950 to-slate-950'; // Highlights
-          case 8: return 'from-slate-800 via-gray-900 to-black'; // Sponsors
-          case 9: return 'from-red-900 via-orange-900 to-slate-950'; // Versus
-          case 10: return 'from-black via-slate-950 to-black'; // Stream (Darker for video)
+          case 1: return 'from-teal-900 via-cyan-950 to-slate-950'; // Match Forecast (New)
+          case 2: return 'from-indigo-900 via-purple-950 to-slate-950'; // Standings
+          case 3: return 'from-slate-800 via-zinc-900 to-black'; // Bracket
+          case 4: return 'from-emerald-900 via-green-950 to-slate-950'; // Results
+          case 5: return 'from-amber-900 via-orange-950 to-slate-950'; // Top Scorers
+          case 6: return 'from-cyan-900 via-blue-950 to-slate-950'; // Keepers
+          case 7: return 'from-fuchsia-900 via-pink-950 to-slate-950'; // Fan
+          case 8: return 'from-rose-900 via-red-950 to-slate-950'; // Highlights
+          case 9: return 'from-slate-800 via-gray-900 to-black'; // Sponsors
+          case 10: return 'from-red-900 via-orange-900 to-slate-950'; // Versus
+          case 11: return 'from-black via-slate-950 to-black'; // Stream (Darker for video)
           default: return 'from-slate-900 via-slate-950 to-black';
       }
   };
@@ -774,7 +775,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const handleStartExperience = () => {
       setHasInteracted(true);
       
-      // Auto-play music if playlist exists
+      // Force un-mute when starting
+      setIsMuted(false); 
+      
+      // Auto-play music logic: Pick a random track if none selected
       if (musicTracks.length > 0 && !currentTrack) {
           const startIdx = Math.floor(Math.random() * musicTracks.length);
           handlePlayMusic(musicTracks[startIdx]);
@@ -783,6 +787,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       }
       
       if (audioRef.current) {
+          // Explicitly call play() on the audio element to satisfy browser policies
           audioRef.current.play().catch(e => console.log("Audio play caught", e));
       }
   };
@@ -798,6 +803,26 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return [...live, ...scheduled];
   }, [matches]);
 
+  // Memoize Match Forecast Stats
+  const matchPredictionsStats = useMemo(() => {
+      const stats: Record<string, {a: number, b: number, total: number}> = {};
+      upcomingMatches.forEach(m => {
+          const votes = predictions.filter(p => p.matchId === m.id);
+          const a = votes.filter(p => p.prediction === 'A').length;
+          const b = votes.filter(p => p.prediction === 'B').length;
+          stats[m.id] = { a, b, total: a + b };
+      });
+      return stats;
+  }, [upcomingMatches, predictions]);
+
+  // Active Forecast Matches: Must have predictions AND be real match
+  const activeForecastMatches = useMemo(() => {
+      return upcomingMatches.filter(m => {
+          const stats = matchPredictionsStats[m.id];
+          return stats && stats.total > 0;
+      });
+  }, [upcomingMatches, matchPredictionsStats]);
+
   const liveStreamingMatches = useMemo(() => {
       // Prioritize LIVE, then finished matches with video
       const live = matches.filter(m => m.livestreamUrl && !m.winner);
@@ -805,9 +830,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return matches.filter(m => m.livestreamUrl && m.winner).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [matches]);
 
-  // Force mute when entering Live Stream Slide (Slide 10)
+  // Force mute when entering Live Stream Slide (Slide 11 - adjusted index)
   useEffect(() => {
-      if (currentSlide === 10) {
+      if (currentSlide === 11) {
           setVideoMuted(true); // Always start muted
           setVideoPlaying(true);
       }
@@ -978,7 +1003,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (!isAuthenticated) return;
       
       const SLIDE_DURATIONS: Record<number, number> = {
-          10: 45000, // Live Stream
+          1: 20000, // Match Forecast (longer to see details)
+          11: 45000, // Live Stream (index shift +1 due to new slide)
       };
       const defaultDuration = 15000;
       const duration = SLIDE_DURATIONS[currentSlide] || defaultDuration;
@@ -986,7 +1012,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       const timer = setTimeout(() => {
           setCurrentSlide(prev => {
               const next = (prev + 1) % totalSlides;
-              if (next === 1) setStandingsPage(0); 
+              if (next === 2) setStandingsPage(0); // Adjusted index for Standings
               return next;
           });
       }, duration);
@@ -997,10 +1023,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   useEffect(() => {
       if (!isAuthenticated) return;
       let subTimer: any;
-      if (currentSlide === 1 && standingsGroups.length > 1) {
+      if (currentSlide === 2 && standingsGroups.length > 1) { // Adjusted index
           subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000);
       }
-      if (currentSlide === 7 && contestEntries.length > 1) { 
+      if (currentSlide === 8 && contestEntries.length > 1) { // Adjusted index
           subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000);
       }
       if (currentSlide === 0) {
@@ -1205,8 +1231,128 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 1: STANDINGS */}
+            {/* SLIDE 1: MATCH FORECAST (UPDATED) */}
             {currentSlide === 1 && (
+                <div className="h-full w-full flex flex-col relative overflow-hidden animate-broadcast-reveal">
+                    {/* TV Header Overlay */}
+                    <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-black/80 to-transparent z-10 p-8 flex justify-between items-start">
+                         <div className="flex flex-col">
+                            <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-cyan-300 uppercase tracking-tighter drop-shadow-lg italic">
+                                MATCH FORECAST
+                            </h2>
+                            <div className="flex items-center gap-2 mt-2">
+                                <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded animate-pulse">LIVE ANALYSIS</span>
+                                <span className="text-slate-300 text-sm font-mono tracking-widest uppercase">Community Insights</span>
+                            </div>
+                         </div>
+                         {/* CTA QR */}
+                         <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/20 animate-slide-in-right">
+                             <div className="text-right">
+                                 <div className="text-yellow-400 font-bold text-sm uppercase leading-none">Join Now</div>
+                                 <div className="text-white text-xs opacity-80">Scan to Predict</div>
+                             </div>
+                             <div className="bg-white p-1 rounded-lg">
+                                 <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
+                             </div>
+                         </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 flex items-center justify-center p-8 pt-32">
+                         {/* Grid of Matches */}
+                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 w-full max-w-7xl">
+                             {/* Match Cards */}
+                             {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 2).map((m, idx) => {
+                                 const tA = resolveTeam(m.teamA);
+                                 const tB = resolveTeam(m.teamB);
+                                 const stats = matchPredictionsStats[m.id] || { a: 0, b: 0, total: 0 };
+                                 const percentA = stats.total > 0 ? Math.round((stats.a / stats.total) * 100) : 50;
+                                 const percentB = stats.total > 0 ? Math.round((stats.b / stats.total) * 100) : 50;
+                                 const isAFave = percentA > 55;
+                                 const isBFave = percentB > 55;
+
+                                 const predictorsA = predictions.filter(p => p.matchId === m.id && p.prediction === 'A');
+                                 const predictorsB = predictions.filter(p => p.matchId === m.id && p.prediction === 'B');
+
+                                 return (
+                                     <div key={m.id} className="bg-slate-900/80 backdrop-blur-xl border-t-4 border-teal-500 rounded-3xl shadow-2xl overflow-hidden relative p-6 flex flex-col gap-6 animate-card-enter" style={{ animationDelay: `${idx * 200}ms` }}>
+                                         <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-teal-400/80">
+                                             <span>{m.roundLabel?.split(':')[0]}</span>
+                                             <span>{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
+                                         </div>
+
+                                         <div className="flex justify-between items-center relative z-10">
+                                             <div className="flex flex-col items-center gap-2">
+                                                 {tA.logoUrl ? <img src={tA.logoUrl} className="w-20 h-20 object-contain drop-shadow-lg"/> : <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center text-2xl font-black text-white">A</div>}
+                                                 <span className="text-xl font-bold text-white uppercase tracking-tight">{tA.name}</span>
+                                                 {isAFave && <div className="bg-teal-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Favorite</div>}
+                                             </div>
+                                             
+                                             <div className="flex flex-col items-center gap-1">
+                                                 <div className="text-6xl font-black text-white/10 italic">VS</div>
+                                             </div>
+
+                                             <div className="flex flex-col items-center gap-2">
+                                                 {tB.logoUrl ? <img src={tB.logoUrl} className="w-20 h-20 object-contain drop-shadow-lg"/> : <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center text-2xl font-black text-white">B</div>}
+                                                 <span className="text-xl font-bold text-white uppercase tracking-tight">{tB.name}</span>
+                                                 {isBFave && <div className="bg-teal-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Favorite</div>}
+                                             </div>
+                                         </div>
+
+                                         {/* Progress Bar */}
+                                         <div className="relative h-12 bg-black/40 rounded-xl overflow-hidden flex items-center border border-white/5">
+                                             <div className="h-full bg-gradient-to-r from-teal-500 to-cyan-400 flex items-center pl-4 transition-all duration-1000 relative" style={{ width: `${percentA}%` }}>
+                                                 <span className="text-2xl font-black text-black drop-shadow-sm">{percentA}%</span>
+                                                 <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-black/20 to-transparent"></div>
+                                             </div>
+                                             <div className="h-full flex-1 flex items-center justify-end pr-4">
+                                                 <span className="text-2xl font-black text-white">{percentB}%</span>
+                                             </div>
+                                         </div>
+
+                                         {/* Guru Faces */}
+                                         <div className="flex justify-between items-start gap-4 mt-2">
+                                             <div className="flex flex-col gap-1 w-1/2">
+                                                 <div className="text-[10px] text-teal-400 uppercase font-bold tracking-wider mb-1">Backed By</div>
+                                                 <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1">
+                                                     {predictorsA.slice(0, 5).map((p, i) => (
+                                                         <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-900 relative z-10" title={p.userDisplayName}>
+                                                             {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover rounded-full"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center text-[8px] text-white">{p.userDisplayName.charAt(0)}</div>}
+                                                         </div>
+                                                     ))}
+                                                     {predictorsA.length > 5 && <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-white font-bold z-0">+{predictorsA.length - 5}</div>}
+                                                     {predictorsA.length === 0 && <span className="text-xs text-slate-600 italic">Be the first!</span>}
+                                                 </div>
+                                             </div>
+                                             <div className="flex flex-col gap-1 w-1/2 items-end">
+                                                 <div className="text-[10px] text-teal-400 uppercase font-bold tracking-wider mb-1">Backed By</div>
+                                                 <div className="flex items-center flex-row-reverse -space-x-2 space-x-reverse overflow-hidden py-1 pr-1">
+                                                     {predictorsB.slice(0, 5).map((p, i) => (
+                                                         <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-900 relative z-10" title={p.userDisplayName}>
+                                                             {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover rounded-full"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center text-[8px] text-white">{p.userDisplayName.charAt(0)}</div>}
+                                                         </div>
+                                                     ))}
+                                                     {predictorsB.length > 5 && <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-white font-bold z-0">+{predictorsB.length - 5}</div>}
+                                                     {predictorsB.length === 0 && <span className="text-xs text-slate-600 italic">Be the first!</span>}
+                                                 </div>
+                                             </div>
+                                         </div>
+                                     </div>
+                                 )
+                             }) : (
+                                <div className="col-span-2 flex flex-col items-center justify-center text-center opacity-50">
+                                    <BarChart3 className="w-24 h-24 text-teal-500 mb-4 animate-pulse" />
+                                    <h3 className="text-3xl font-black text-white uppercase tracking-widest">Awaiting Forecasts</h3>
+                                    <p className="text-slate-400 mt-2">Predictions will appear here for upcoming matches.</p>
+                                </div>
+                             )}
+                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SLIDE 2: STANDINGS */}
+            {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center justify-between mb-6 mt-2">
                         <div className="flex items-center gap-4"><div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div><h2 className="text-4xl font-black text-white uppercase tracking-tight">Current Standings</h2></div>
@@ -1227,8 +1373,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 2: BRACKET */}
-            {currentSlide === 2 && (
+            {/* SLIDE 3: BRACKET */}
+            {currentSlide === 3 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center justify-center mb-6 mt-2">
                         <div className="bg-white/10 p-4 rounded-full border-4 border-white/20 shadow-2xl flex items-center justify-center backdrop-blur-md">
@@ -1292,8 +1438,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 3: RESULTS */}
-            {currentSlide === 3 && (
+            {/* SLIDE 4: RESULTS */}
+            {currentSlide === 4 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
                     <div className="flex items-center justify-between mb-6 mt-2 px-4">
                         <div className="flex items-center gap-4">
@@ -1325,8 +1471,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 4: TOP SCORERS */}
-            {currentSlide === 4 && (
+            {/* SLIDE 5: TOP SCORERS */}
+            {currentSlide === 5 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="text-center mb-6 mt-2">
                         <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
@@ -1342,8 +1488,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 5: TOP KEEPERS (Modified for Logo) */}
-            {currentSlide === 5 && (
+            {/* SLIDE 6: TOP KEEPERS */}
+            {currentSlide === 6 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
                     <div className="flex items-center gap-4 mb-6 mt-2">
                         <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
@@ -1372,8 +1518,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 6: FAN PREDICTION */}
-            {currentSlide === 6 && (
+            {/* SLIDE 7: FAN PREDICTION */}
+            {currentSlide === 7 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
                     <div className="text-center mb-6 mt-2"><h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2></div>
                     <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
@@ -1387,8 +1533,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 7: HIGHLIGHTS */}
-            {currentSlide === 7 && (
+            {/* SLIDE 8: HIGHLIGHTS */}
+            {currentSlide === 8 && (
                 contestEntries.length > 0 ? (
                     <div key={highlightIndex} className="h-full flex flex-col items-center justify-center relative overflow-hidden rounded-3xl animate-broadcast-reveal">
                         <div className="absolute inset-0 z-0"><img src={contestEntries[highlightIndex].photoUrl} className="w-full h-full object-cover blur-3xl opacity-30 scale-110 animate-pulse-slow" /></div>
@@ -1400,8 +1546,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
-            {/* SLIDE 8: SPONSORS (REDESIGNED) */}
-            {currentSlide === 8 && (
+            {/* SLIDE 9: SPONSORS */}
+            {currentSlide === 9 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full pt-8 pb-12">
                         
@@ -1460,8 +1606,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 9: VERSUS */}
-            {currentSlide === 9 && (
+            {/* SLIDE 10: VERSUS */}
+            {currentSlide === 10 && (
                 <div className="h-full w-full relative overflow-hidden bg-slate-950 flex flex-col animate-broadcast-reveal">
                     {nextMatch ? (
                         <>
@@ -1480,8 +1626,8 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 10: LIVE STREAM (AUTO PLAY & CONTROLS) */}
-            {currentSlide === 10 && (
+            {/* SLIDE 11: LIVE STREAM (AUTO PLAY & CONTROLS) */}
+            {currentSlide === 11 && (
                 <div className="h-full w-full relative flex flex-col bg-black animate-broadcast-reveal">
                     {liveStreamingMatches.length > 0 ? (
                         <div className="flex-1 relative w-full h-full flex items-center justify-center">
@@ -1611,6 +1757,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .fill-mode-backwards { animation-fill-mode: backwards; }
             @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
             .animate-slide-in-right { animation: slide-in-right 0.3s ease-out forwards; }
+            @keyframes slide-in-left { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+            .animate-slide-in-left { animation: slide-in-left 0.3s ease-out forwards; }
+            @keyframes slide-in-down { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+            .animate-slide-in-down { animation: slide-in-down 0.5s ease-out forwards; }
             
             /* Sponsor Animations */
             @keyframes shimmer {
