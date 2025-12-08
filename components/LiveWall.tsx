@@ -1046,7 +1046,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
               scores[p.userId].correct++;
           }
       });
-      return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 5);
+      return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 8);
   }, [matches, predictions]);
 
   // --- TIMER & SLIDE LOGIC ---
@@ -1059,7 +1059,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (!isAuthenticated) return;
       
       const SLIDE_DURATIONS: Record<number, number> = {
-          1: 25000, // Match Forecast (Longer to show 4 matches)
+          1: 25000, // Match Forecast (Longer to show matches)
           11: 45000, // Live Stream (index shift +1 due to new slide)
       };
       const defaultDuration = 15000;
@@ -1298,122 +1298,113 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 1: MATCH FORECAST */}
+            {/* SLIDE 1: MATCH FORECAST (BROADCAST REDESIGN) */}
             {currentSlide === 1 && (
-                <div className="h-full w-full flex flex-col relative overflow-hidden animate-broadcast-reveal">
-                    {/* TV Header Overlay */}
-                    <div className="absolute top-0 left-0 w-full h-24 md:h-32 bg-gradient-to-b from-black/80 to-transparent z-10 p-4 md:p-8 flex justify-between items-start">
-                         <div className="flex flex-col">
-                            <h2 className="text-2xl md:text-4xl 2xl:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-cyan-300 uppercase tracking-tighter drop-shadow-lg italic">
-                                MATCH FORECAST
-                            </h2>
-                            <div className="flex items-center gap-2 mt-2">
-                                <span className="bg-red-600 text-white text-[10px] md:text-xs font-bold px-2 py-0.5 rounded animate-pulse">LIVE ANALYSIS</span>
-                                <span className="text-slate-300 text-[10px] md:text-sm font-mono tracking-widest uppercase">Community Insights</span>
-                            </div>
-                         </div>
-                         {/* CTA QR */}
-                         <div className="hidden md:flex items-center gap-4 bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/20 animate-slide-in-right">
-                             <div className="text-right">
-                                 <div className="text-yellow-400 font-bold text-sm uppercase leading-none">Join Now</div>
-                                 <div className="text-white text-xs opacity-80">Scan to Predict</div>
-                             </div>
-                             <div className="bg-white p-1 rounded-lg">
-                                 <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(currentUrl)}`} className="w-12 h-12" />
-                             </div>
-                         </div>
+                <div className="h-full flex flex-col animate-broadcast-reveal px-2 md:px-12 py-2 md:py-4">
+                    {/* TV Broadcast Header */}
+                    <div className="flex items-center gap-6 mb-8 relative z-20">
+                        <div className="bg-teal-500 text-slate-900 font-black px-4 md:px-8 py-2 md:py-3 text-lg md:text-3xl 2xl:text-4xl uppercase tracking-tighter transform -skew-x-12 shadow-[0_0_30px_rgba(20,184,166,0.6)] border-2 border-white/20">
+                            LIVE PREDICTION
+                        </div>
+                        <div className="h-1 flex-1 bg-gradient-to-r from-teal-500 to-transparent opacity-50 rounded-full"></div>
+                        <div className="flex items-center gap-2 text-teal-300 animate-pulse text-xs md:text-sm font-bold uppercase tracking-widest">
+                            <Signal className="w-4 h-4 md:w-5 md:h-5"/> Real-time Stats
+                        </div>
                     </div>
 
-                    {/* Content */}
-                    <div className="flex-1 flex items-center justify-center p-2 md:p-8 pt-24 md:pt-32 overflow-y-auto">
-                         {/* Grid of Matches - Support up to 4 */}
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 w-full max-w-7xl">
-                             {/* Match Cards - Show up to 4 pending matches */}
-                             {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 4).map((m, idx) => {
-                                 const tA = resolveTeam(m.teamA);
-                                 const tB = resolveTeam(m.teamB);
-                                 const stats = matchPredictionsStats[m.id] || { a: 0, b: 0, total: 0 };
-                                 const percentA = stats.total > 0 ? Math.round((stats.a / stats.total) * 100) : 50;
-                                 const percentB = stats.total > 0 ? Math.round((stats.b / stats.total) * 100) : 50;
-                                 const isAFave = percentA > 55;
-                                 const isBFave = percentB > 55;
+                    {/* Content Grid */}
+                    <div className="flex-1 flex items-center justify-center overflow-y-auto">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8 2xl:gap-12 w-full max-w-7xl">
+                            {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 4).map((m, idx) => {
+                                const tA = resolveTeam(m.teamA);
+                                const tB = resolveTeam(m.teamB);
+                                const stats = matchPredictionsStats[m.id] || { a: 0, b: 0, total: 0 };
+                                const percentA = stats.total > 0 ? Math.round((stats.a / stats.total) * 100) : 50;
+                                const percentB = stats.total > 0 ? Math.round((stats.b / stats.total) * 100) : 50;
+                                const predictorsA = predictions.filter(p => p.matchId === m.id && p.prediction === 'A');
+                                const predictorsB = predictions.filter(p => p.matchId === m.id && p.prediction === 'B');
 
-                                 const predictorsA = predictions.filter(p => p.matchId === m.id && p.prediction === 'A');
-                                 const predictorsB = predictions.filter(p => p.matchId === m.id && p.prediction === 'B');
+                                return (
+                                    <div key={m.id} className="relative group bg-slate-900/80 backdrop-blur-xl border-l-4 border-teal-400 p-4 md:p-6 2xl:p-8 rounded-r-3xl shadow-2xl overflow-hidden animate-card-enter hover:bg-slate-800/80 transition-colors" style={{ animationDelay: `${idx * 150}ms` }}>
+                                        {/* Background Effect */}
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-3xl pointer-events-none"></div>
+                                        
+                                        {/* Match Info Header */}
+                                        <div className="flex justify-between items-start mb-4 md:mb-6 border-b border-white/5 pb-2">
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] md:text-xs 2xl:text-sm font-bold text-teal-300 uppercase tracking-widest">{m.roundLabel?.split(':')[0]}</span>
+                                                <span className="text-white text-xs md:text-sm 2xl:text-base opacity-60 font-mono">{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
+                                            </div>
+                                            <div className="bg-black/40 px-3 py-1 rounded text-[10px] md:text-xs text-slate-400 font-mono border border-white/5">
+                                                Total Votes: {stats.total}
+                                            </div>
+                                        </div>
 
-                                 return (
-                                     <div key={m.id} className="bg-slate-900/80 backdrop-blur-xl border-t-4 border-teal-500 rounded-3xl shadow-2xl overflow-hidden relative p-3 md:p-4 2xl:p-5 flex flex-col gap-2 md:gap-3 2xl:gap-4 animate-card-enter" style={{ animationDelay: `${idx * 200}ms` }}>
-                                         <div className="flex justify-between items-center text-[10px] md:text-[11px] 2xl:text-xs font-bold uppercase tracking-wider text-teal-400/80">
-                                             <span>{m.roundLabel?.split(':')[0]}</span>
-                                             <span>{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
-                                         </div>
+                                        {/* Teams & Percents */}
+                                        <div className="flex items-center justify-between relative z-10 gap-2 md:gap-4">
+                                            {/* Team A */}
+                                            <div className="flex flex-col items-center w-1/3 gap-2">
+                                                <div className="relative">
+                                                    {tA.logoUrl ? <img src={tA.logoUrl} className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">A</div>}
+                                                    {percentA > 50 && <div className="absolute -top-2 -right-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow">Favorite</div>}
+                                                </div>
+                                                <span className="text-xs md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tA.name}</span>
+                                                <div className="text-2xl md:text-4xl 2xl:text-5xl font-black text-teal-400 drop-shadow-md tabular-nums">{percentA}%</div>
+                                            </div>
 
-                                         <div className="flex justify-between items-center relative z-10">
-                                             <div className="flex flex-col items-center gap-2 w-1/3">
-                                                 {tA.logoUrl ? <img src={tA.logoUrl} className="w-10 h-10 md:w-12 md:h-12 2xl:w-16 2xl:h-16 object-contain drop-shadow-lg"/> : <div className="w-10 h-10 md:w-12 md:h-12 2xl:w-16 2xl:h-16 bg-white/10 rounded-full flex items-center justify-center text-xl font-black text-white">A</div>}
-                                                 <span className="text-xs md:text-sm 2xl:text-lg font-bold text-white uppercase tracking-tight text-center leading-tight">{tA.name}</span>
-                                                 {isAFave && <div className="bg-teal-500 text-black text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase animate-pulse">Favorite</div>}
-                                             </div>
-                                             
-                                             <div className="flex flex-col items-center gap-1 w-1/3">
-                                                 <div className="text-xl md:text-2xl 2xl:text-4xl font-black text-white/10 italic">VS</div>
-                                             </div>
+                                            {/* VS Graphic */}
+                                            <div className="flex flex-col items-center justify-center w-1/5">
+                                                <div className="text-2xl md:text-4xl 2xl:text-6xl font-black text-white/5 italic select-none">VS</div>
+                                            </div>
 
-                                             <div className="flex flex-col items-center gap-2 w-1/3">
-                                                 {tB.logoUrl ? <img src={tB.logoUrl} className="w-10 h-10 md:w-12 md:h-12 2xl:w-16 2xl:h-16 object-contain drop-shadow-lg"/> : <div className="w-10 h-10 md:w-12 md:h-12 2xl:w-16 2xl:h-16 bg-white/10 rounded-full flex items-center justify-center text-xl font-black text-white">B</div>}
-                                                 <span className="text-xs md:text-sm 2xl:text-lg font-bold text-white uppercase tracking-tight text-center leading-tight">{tB.name}</span>
-                                                 {isBFave && <div className="bg-teal-500 text-black text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase animate-pulse">Favorite</div>}
-                                             </div>
-                                         </div>
+                                            {/* Team B */}
+                                            <div className="flex flex-col items-center w-1/3 gap-2">
+                                                <div className="text-2xl md:text-4xl 2xl:text-5xl font-black text-white drop-shadow-md tabular-nums text-right w-full">{percentB}%</div>
+                                                <span className="text-xs md:text-sm 2xl:text-lg font-black text-white text-center leading-tight uppercase truncate w-full">{tB.name}</span>
+                                                <div className="relative">
+                                                    {tB.logoUrl ? <img src={tB.logoUrl} className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"/> : <div className="w-12 h-12 md:w-16 md:h-16 2xl:w-20 2xl:h-20 bg-white/10 rounded-full flex items-center justify-center text-xl font-black">B</div>}
+                                                    {percentB > 50 && <div className="absolute -top-2 -left-2 bg-teal-500 text-slate-900 text-[8px] md:text-[10px] font-black px-2 py-0.5 rounded-full uppercase shadow-lg animate-bounce-slow">Favorite</div>}
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                         {/* Animated Progress Bar */}
-                                         <div className="relative h-6 md:h-8 2xl:h-12 bg-black/50 rounded-xl overflow-hidden mt-2 md:mt-3 shadow-inner border border-white/10">
-                                             <div 
-                                                className="absolute top-0 left-0 h-full bg-gradient-to-r from-teal-500 to-cyan-400 transition-all duration-[1500ms] ease-out" 
-                                                style={{ width: showBars ? `${percentA}%` : '0%' }}
-                                             >
-                                                 <div className="absolute right-0 top-0 bottom-0 w-1 bg-white/20"></div>
-                                             </div>
-                                             
-                                             <div className="absolute inset-0 flex justify-between items-center px-4 relative z-10">
-                                                 <span className={`text-sm md:text-base 2xl:text-xl font-black ${percentA > 15 ? 'text-black/70' : 'text-teal-400'} transition-colors duration-500`}>{percentA}%</span>
-                                                 <span className={`text-sm md:text-base 2xl:text-xl font-black ${percentA > 85 ? 'text-cyan-900/70' : 'text-white'} transition-colors duration-500`}>{percentB}%</span>
-                                             </div>
-                                         </div>
+                                        {/* Tug of War Bar */}
+                                        <div className="mt-4 md:mt-6 relative h-3 md:h-4 2xl:h-6 bg-slate-800 rounded-full overflow-hidden shadow-inner border border-white/5">
+                                            <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-teal-600 to-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.5)] transition-all duration-1000 ease-out" style={{ width: `${percentA}%` }}></div>
+                                            <div className="absolute top-0 right-0 h-full bg-white/10 transition-all duration-1000 ease-out" style={{ width: `${percentB}%` }}></div>
+                                            {/* Center Marker */}
+                                            <div className="absolute top-0 left-1/2 w-[2px] h-full bg-white/30 -translate-x-1/2 z-10"></div>
+                                        </div>
 
-                                         {/* Guru Faces */}
-                                         <div className="flex justify-between items-start gap-4">
-                                             <div className="flex flex-col gap-1 w-1/2">
-                                                 <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1 h-8">
-                                                     {predictorsA.slice(0, 4).map((p, i) => (
-                                                         <div key={i} className="w-5 h-5 md:w-5 md:h-5 2xl:w-6 2xl:h-6 rounded-full border border-slate-900 relative z-10" title={p.userDisplayName}>
-                                                             {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover rounded-full"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center text-[8px] text-white">{p.userDisplayName.charAt(0)}</div>}
-                                                         </div>
-                                                     ))}
-                                                     {predictorsA.length > 4 && <div className="w-5 h-5 md:w-5 md:h-5 2xl:w-6 2xl:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center text-[8px] text-white font-bold z-0">+{predictorsA.length - 4}</div>}
-                                                 </div>
-                                             </div>
-                                             <div className="flex flex-col gap-1 w-1/2 items-end">
-                                                 <div className="flex items-center flex-row-reverse -space-x-2 space-x-reverse overflow-hidden py-1 pr-1 h-8">
-                                                     {predictorsB.slice(0, 4).map((p, i) => (
-                                                         <div key={i} className="w-5 h-5 md:w-5 md:h-5 2xl:w-6 2xl:h-6 rounded-full border border-slate-900 relative z-10" title={p.userDisplayName}>
-                                                             {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover rounded-full"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center text-[8px] text-white">{p.userDisplayName.charAt(0)}</div>}
-                                                         </div>
-                                                     ))}
-                                                     {predictorsB.length > 4 && <div className="w-5 h-5 md:w-5 md:h-5 2xl:w-6 2xl:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center text-[8px] text-white font-bold z-0">+{predictorsB.length - 4}</div>}
-                                                 </div>
-                                             </div>
-                                         </div>
-                                     </div>
-                                 )
-                             }) : (
-                                <div className="col-span-1 md:col-span-2 flex flex-col items-center justify-center text-center opacity-50 h-full min-h-[300px]">
-                                    <BarChart3 className="w-16 h-16 md:w-24 md:h-24 text-teal-500 mb-4 animate-pulse" />
-                                    <h3 className="text-xl md:text-3xl font-black text-white uppercase tracking-widest">Awaiting Forecasts</h3>
-                                    <p className="text-slate-400 mt-2 text-sm md:text-base">Predictions will appear here for pending matches.</p>
+                                        {/* Voters Preview */}
+                                        <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-white/5 flex justify-between items-center text-[10px] md:text-xs text-slate-500">
+                                            <div className="flex items-center -space-x-2 pl-2">
+                                                {predictorsA.slice(0, 3).map((p, i) => (
+                                                    <div key={i} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
+                                                        {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover"/> : <span className="text-[8px] text-white">{p.userDisplayName[0]}</span>}
+                                                    </div>
+                                                ))}
+                                                {predictorsA.length > 3 && <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-slate-800 flex items-center justify-center text-[8px] text-white border border-slate-900">+{predictorsA.length-3}</div>}
+                                            </div>
+                                            <div className="uppercase font-bold tracking-wider text-teal-500/50">Community Vote</div>
+                                            <div className="flex items-center -space-x-2 flex-row-reverse pr-2">
+                                                {predictorsB.slice(0, 3).map((p, i) => (
+                                                    <div key={i} className="w-5 h-5 md:w-6 md:h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center overflow-hidden">
+                                                        {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover"/> : <span className="text-[8px] text-white">{p.userDisplayName[0]}</span>}
+                                                    </div>
+                                                ))}
+                                                {predictorsB.length > 3 && <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-slate-800 flex items-center justify-center text-[8px] text-white border border-slate-900">+{predictorsB.length-3}</div>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            }) : (
+                                <div className="col-span-1 lg:col-span-2 flex flex-col items-center justify-center h-64 md:h-96 opacity-40">
+                                    <BrainCircuit className="w-16 h-16 md:w-24 md:h-24 text-teal-500 animate-pulse mb-4"/>
+                                    <h3 className="text-2xl md:text-4xl font-black text-white uppercase tracking-widest">Awaiting Predictions</h3>
                                 </div>
-                             )}
-                         </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -1585,17 +1576,89 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
-            {/* SLIDE 7: FAN PREDICTION */}
+            {/* SLIDE 7: FAN PREDICTION (TV LEADERBOARD REDESIGN) */}
             {currentSlide === 7 && (
-                <div className="h-full flex flex-col animate-broadcast-reveal relative">
-                    <div className="text-center mb-4 md:mb-6 mt-2"><h2 className="text-2xl md:text-4xl 2xl:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2></div>
-                    <div className="flex-1 flex flex-col gap-2 md:gap-3 2xl:gap-4 max-w-4xl mx-auto w-full overflow-y-auto">
-                        {fanRankings.length > 0 ? fanRankings.map((fan, idx) => (
-                            <div key={idx} className={`bg-white/5 rounded-2xl p-3 md:p-3 2xl:p-4 flex items-center justify-between border border-white/10 opacity-0 animate-card-enter ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`} style={{ animationDelay: `${idx * 100}ms` }}>
-                                <div className="flex items-center gap-3 md:gap-4"><div className={`w-8 h-8 md:w-9 md:h-9 2xl:w-10 2xl:h-10 flex items-center justify-center font-black rounded-full ${idx < 3 ? 'bg-white text-black' : 'bg-slate-700 text-slate-400'}`}>{idx + 1}</div><div className="w-8 h-8 md:w-10 md:h-10 2xl:w-12 2xl:h-12 rounded-full overflow-hidden border-2 border-white/20">{fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-slate-500 bg-slate-800"/>}</div><span className="text-base md:text-lg 2xl:text-xl font-bold">{fan.name}</span></div>
-                                <div className="text-right"><div className="text-lg md:text-2xl 2xl:text-3xl font-black text-purple-400">{fan.points} <span className="text-xs md:text-sm text-slate-500 font-bold">PTS</span></div><div className="text-[10px] md:text-xs text-slate-400">Correct: {fan.correct}</div></div>
-                            </div>
-                        )) : <div className="flex items-center justify-center h-full text-slate-500 text-xl md:text-2xl font-bold">No Predictions Yet</div>}
+                <div className="h-full flex flex-col animate-broadcast-reveal relative px-2 md:px-12 py-2 md:py-4">
+                    {/* Header */}
+                    <div className="flex items-center gap-6 mb-8 relative z-20">
+                        <div className="bg-fuchsia-600 text-white font-black px-4 md:px-8 py-2 md:py-3 text-lg md:text-3xl 2xl:text-4xl uppercase tracking-tighter transform -skew-x-12 shadow-[0_0_30px_rgba(192,38,211,0.6)] border-2 border-white/20">
+                            LEADERBOARD
+                        </div>
+                        <div className="h-1 flex-1 bg-gradient-to-r from-fuchsia-600 to-transparent opacity-50 rounded-full"></div>
+                        <div className="flex items-center gap-2 text-fuchsia-300 animate-pulse text-xs md:text-sm font-bold uppercase tracking-widest">
+                            <Sparkles className="w-4 h-4 md:w-5 md:h-5"/> Top Predictors
+                        </div>
+                    </div>
+
+                    <div className="flex-1 flex flex-col md:flex-row gap-8 overflow-hidden">
+                        {/* Top 3 Podium (Left) */}
+                        <div className="w-full md:w-1/3 flex flex-col justify-end items-center gap-2 pb-4">
+                            {fanRankings.length > 0 && (
+                                <div className="relative w-full aspect-square flex items-end justify-center gap-2 md:gap-4">
+                                    {fanRankings[1] && (
+                                        <div className="w-1/3 flex flex-col items-center animate-in slide-in-from-bottom-12 duration-700 delay-100">
+                                            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border-4 border-slate-300 bg-slate-200 overflow-hidden mb-2 relative shadow-lg">
+                                                {fanRankings[1].pic ? <img src={fanRankings[1].pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-slate-500"/>}
+                                                <div className="absolute bottom-0 w-full bg-slate-800 text-white text-[8px] md:text-[10px] text-center font-bold">2nd</div>
+                                            </div>
+                                            <div className="bg-gradient-to-t from-slate-400 to-slate-300 w-full h-24 md:h-32 rounded-t-lg shadow-inner flex flex-col justify-end items-center p-2">
+                                                <div className="text-2xl md:text-3xl font-black text-slate-800">{fanRankings[1].points}</div>
+                                                <div className="text-[8px] md:text-[10px] font-bold text-slate-600 truncate w-full text-center">{fanRankings[1].name}</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {fanRankings[0] && (
+                                        <div className="w-1/3 flex flex-col items-center z-10 animate-in slide-in-from-bottom-20 duration-700">
+                                            <div className="absolute -top-10"><Trophy className="w-12 h-12 text-yellow-400 drop-shadow-lg animate-bounce-slow"/></div>
+                                            <div className="w-20 h-20 md:w-28 md:h-28 rounded-full border-4 border-yellow-400 bg-yellow-100 overflow-hidden mb-2 relative shadow-[0_0_30px_rgba(250,204,21,0.5)]">
+                                                {fanRankings[0].pic ? <img src={fanRankings[0].pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-yellow-600"/>}
+                                                <div className="absolute bottom-0 w-full bg-yellow-600 text-white text-[10px] md:text-xs text-center font-black">1st</div>
+                                            </div>
+                                            <div className="bg-gradient-to-t from-yellow-500 to-yellow-300 w-full h-32 md:h-48 rounded-t-lg shadow-2xl flex flex-col justify-end items-center p-2 border-t border-yellow-200">
+                                                <div className="text-3xl md:text-5xl font-black text-yellow-900 drop-shadow-sm">{fanRankings[0].points}</div>
+                                                <div className="text-[10px] md:text-sm font-bold text-yellow-900 truncate w-full text-center mb-1">{fanRankings[0].name}</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {fanRankings[2] && (
+                                        <div className="w-1/3 flex flex-col items-center animate-in slide-in-from-bottom-12 duration-700 delay-200">
+                                            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border-4 border-orange-400 bg-orange-100 overflow-hidden mb-2 relative shadow-lg">
+                                                {fanRankings[2].pic ? <img src={fanRankings[2].pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-2 text-orange-500"/>}
+                                                <div className="absolute bottom-0 w-full bg-orange-700 text-white text-[8px] md:text-[10px] text-center font-bold">3rd</div>
+                                            </div>
+                                            <div className="bg-gradient-to-t from-orange-500 to-orange-300 w-full h-16 md:h-24 rounded-t-lg shadow-inner flex flex-col justify-end items-center p-2">
+                                                <div className="text-2xl md:text-3xl font-black text-orange-900">{fanRankings[2].points}</div>
+                                                <div className="text-[8px] md:text-[10px] font-bold text-orange-800 truncate w-full text-center">{fanRankings[2].name}</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* List 4-10 (Right) */}
+                        <div className="w-full md:w-2/3 flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar">
+                            {fanRankings.slice(3).map((fan, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-3 md:p-4 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition animate-in slide-in-from-right-8" style={{ animationDelay: `${idx * 100}ms` }}>
+                                    <div className="flex items-center gap-4">
+                                        <div className="text-lg md:text-2xl font-black text-slate-500 w-8 text-center">{idx + 4}</div>
+                                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-800 border border-slate-600 overflow-hidden">
+                                            {fan.pic ? <img src={fan.pic} className="w-full h-full object-cover"/> : <User className="w-full h-full p-1.5 text-slate-500"/>}
+                                        </div>
+                                        <div className="font-bold text-sm md:text-lg text-white">{fan.name}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-lg md:text-2xl font-black text-fuchsia-400">{fan.points}</div>
+                                        <div className="text-[10px] md:text-xs text-slate-400 uppercase">Points</div>
+                                    </div>
+                                </div>
+                            ))}
+                            {fanRankings.length === 0 && (
+                                <div className="h-full flex items-center justify-center text-slate-500 font-bold text-xl uppercase tracking-widest">
+                                    Awaiting Predictions
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
