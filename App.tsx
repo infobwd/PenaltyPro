@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation, Prediction } from './types';
 import MatchSetup from './components/MatchSetup';
@@ -443,7 +442,8 @@ export default function App() {
               config={effectiveSettings} 
               predictions={activePredictions}
               onClose={() => setCurrentView('tournament')} 
-              onRefresh={(silent) => loadData(true, silent)} 
+              onRefresh={(silent) => loadData(true, silent)}
+              currentUser={currentUser}
           />
       );
   }

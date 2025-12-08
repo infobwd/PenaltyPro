@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage } from '../types';
+import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage, UserProfile } from '../types';
 import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings, fetchTickerMessages, manageTickerMessage } from '../services/sheetService';
 
@@ -12,7 +12,8 @@ interface LiveWallProps {
   predictions: Prediction[];
   onClose: () => void;
   onRefresh: (silent?: boolean) => void;
-  tournamentId?: string; // Added to support filtering
+  tournamentId?: string;
+  currentUser?: UserProfile | null;
 }
 
 // --- UTILS ---
@@ -559,9 +560,9 @@ const SettingsManagerModal: React.FC<{
     );
 };
 
-const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh, tournamentId = 'default' }) => {
-  // Auth State
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, predictions, onClose, onRefresh, tournamentId = 'default', currentUser }) => {
+  // Auth State - Admin bypass logic
+  const [isAuthenticated, setIsAuthenticated] = useState(currentUser?.role === 'admin');
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
@@ -574,6 +575,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [isMuted, setIsMuted] = useState(false);
   const [uiScale, setUiScale] = useState(1);
   const [countdown, setCountdown] = useState<string>('');
+  
+  // Animation State for Match Forecast
+  const [showBars, setShowBars] = useState(false);
   
   // Notification State
   const [toasts, setToasts] = useState<Array<{id: number, msg: string, type: 'success' | 'error'}>>([]);
@@ -796,6 +800,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
   // --- DATA PROCESSING MEMOS ---
   const upcomingMatches = useMemo(() => {
+      // Prioritize LIVE matches, then Scheduled matches that have no winner
       const live = matches.filter(m => m.livestreamUrl && !m.winner);
       const scheduled = matches
         .filter(m => !m.winner && !m.livestreamUrl)
@@ -815,13 +820,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return stats;
   }, [upcomingMatches, predictions]);
 
-  // Active Forecast Matches: Must have predictions AND be real match
+  // Active Forecast Matches: Show matches that haven't finished (no winner)
+  // Even if no predictions yet, we can show them as "waiting for forecasts"
   const activeForecastMatches = useMemo(() => {
-      return upcomingMatches.filter(m => {
-          const stats = matchPredictionsStats[m.id];
-          return stats && stats.total > 0;
-      });
-  }, [upcomingMatches, matchPredictionsStats]);
+      return upcomingMatches.filter(m => !m.winner);
+  }, [upcomingMatches]);
 
   const liveStreamingMatches = useMemo(() => {
       // Prioritize LIVE, then finished matches with video
@@ -835,6 +838,17 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (currentSlide === 11) {
           setVideoMuted(true); // Always start muted
           setVideoPlaying(true);
+      }
+  }, [currentSlide]);
+
+  // Bar Animation Trigger
+  useEffect(() => {
+      if (currentSlide === 1) {
+          setShowBars(false);
+          const timer = setTimeout(() => setShowBars(true), 300);
+          return () => clearTimeout(timer);
+      } else {
+          setShowBars(false);
       }
   }, [currentSlide]);
 
@@ -1003,7 +1017,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       if (!isAuthenticated) return;
       
       const SLIDE_DURATIONS: Record<number, number> = {
-          1: 20000, // Match Forecast (longer to see details)
+          1: 25000, // Match Forecast (Longer to show 4 matches)
           11: 45000, // Live Stream (index shift +1 due to new slide)
       };
       const defaultDuration = 15000;
@@ -1259,10 +1273,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
                     {/* Content */}
                     <div className="flex-1 flex items-center justify-center p-8 pt-32">
-                         {/* Grid of Matches */}
-                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 w-full max-w-7xl">
-                             {/* Match Cards */}
-                             {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 2).map((m, idx) => {
+                         {/* Grid of Matches - Support up to 4 */}
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-7xl">
+                             {/* Match Cards - Show up to 4 pending matches */}
+                             {activeForecastMatches.length > 0 ? activeForecastMatches.slice(0, 4).map((m, idx) => {
                                  const tA = resolveTeam(m.teamA);
                                  const tB = resolveTeam(m.teamB);
                                  const stats = matchPredictionsStats[m.id] || { a: 0, b: 0, total: 0 };
@@ -1275,75 +1289,74 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                  const predictorsB = predictions.filter(p => p.matchId === m.id && p.prediction === 'B');
 
                                  return (
-                                     <div key={m.id} className="bg-slate-900/80 backdrop-blur-xl border-t-4 border-teal-500 rounded-3xl shadow-2xl overflow-hidden relative p-6 flex flex-col gap-6 animate-card-enter" style={{ animationDelay: `${idx * 200}ms` }}>
+                                     <div key={m.id} className="bg-slate-900/80 backdrop-blur-xl border-t-4 border-teal-500 rounded-3xl shadow-2xl overflow-hidden relative p-5 flex flex-col gap-4 animate-card-enter" style={{ animationDelay: `${idx * 200}ms` }}>
                                          <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-teal-400/80">
                                              <span>{m.roundLabel?.split(':')[0]}</span>
                                              <span>{new Date(m.scheduledTime || m.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
                                          </div>
 
                                          <div className="flex justify-between items-center relative z-10">
-                                             <div className="flex flex-col items-center gap-2">
-                                                 {tA.logoUrl ? <img src={tA.logoUrl} className="w-20 h-20 object-contain drop-shadow-lg"/> : <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center text-2xl font-black text-white">A</div>}
-                                                 <span className="text-xl font-bold text-white uppercase tracking-tight">{tA.name}</span>
-                                                 {isAFave && <div className="bg-teal-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Favorite</div>}
+                                             <div className="flex flex-col items-center gap-2 w-1/3">
+                                                 {tA.logoUrl ? <img src={tA.logoUrl} className="w-16 h-16 object-contain drop-shadow-lg"/> : <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-xl font-black text-white">A</div>}
+                                                 <span className="text-lg font-bold text-white uppercase tracking-tight text-center leading-tight">{tA.name}</span>
+                                                 {isAFave && <div className="bg-teal-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase animate-pulse">Favorite</div>}
                                              </div>
                                              
-                                             <div className="flex flex-col items-center gap-1">
-                                                 <div className="text-6xl font-black text-white/10 italic">VS</div>
+                                             <div className="flex flex-col items-center gap-1 w-1/3">
+                                                 <div className="text-4xl font-black text-white/10 italic">VS</div>
                                              </div>
 
-                                             <div className="flex flex-col items-center gap-2">
-                                                 {tB.logoUrl ? <img src={tB.logoUrl} className="w-20 h-20 object-contain drop-shadow-lg"/> : <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center text-2xl font-black text-white">B</div>}
-                                                 <span className="text-xl font-bold text-white uppercase tracking-tight">{tB.name}</span>
-                                                 {isBFave && <div className="bg-teal-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Favorite</div>}
+                                             <div className="flex flex-col items-center gap-2 w-1/3">
+                                                 {tB.logoUrl ? <img src={tB.logoUrl} className="w-16 h-16 object-contain drop-shadow-lg"/> : <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-xl font-black text-white">B</div>}
+                                                 <span className="text-lg font-bold text-white uppercase tracking-tight text-center leading-tight">{tB.name}</span>
+                                                 {isBFave && <div className="bg-teal-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full uppercase animate-pulse">Favorite</div>}
                                              </div>
                                          </div>
 
-                                         {/* Progress Bar */}
-                                         <div className="relative h-12 bg-black/40 rounded-xl overflow-hidden flex items-center border border-white/5">
-                                             <div className="h-full bg-gradient-to-r from-teal-500 to-cyan-400 flex items-center pl-4 transition-all duration-1000 relative" style={{ width: `${percentA}%` }}>
-                                                 <span className="text-2xl font-black text-black drop-shadow-sm">{percentA}%</span>
+                                         {/* Animated Progress Bar */}
+                                         <div className="relative h-10 bg-black/40 rounded-xl overflow-hidden flex items-center border border-white/5 mt-1">
+                                             <div 
+                                                className="h-full bg-gradient-to-r from-teal-500 to-cyan-400 flex items-center pl-3 relative transition-all duration-[1500ms] ease-out" 
+                                                style={{ width: showBars ? `${percentA}%` : '0%' }}
+                                             >
+                                                 <span className={`text-xl font-black text-black drop-shadow-sm whitespace-nowrap transition-opacity duration-500 ${showBars ? 'opacity-100' : 'opacity-0'}`}>{percentA}%</span>
                                                  <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-black/20 to-transparent"></div>
                                              </div>
-                                             <div className="h-full flex-1 flex items-center justify-end pr-4">
-                                                 <span className="text-2xl font-black text-white">{percentB}%</span>
+                                             <div className="h-full flex-1 flex items-center justify-end pr-3">
+                                                 <span className="text-xl font-black text-white">{percentB}%</span>
                                              </div>
                                          </div>
 
                                          {/* Guru Faces */}
-                                         <div className="flex justify-between items-start gap-4 mt-2">
+                                         <div className="flex justify-between items-start gap-4">
                                              <div className="flex flex-col gap-1 w-1/2">
-                                                 <div className="text-[10px] text-teal-400 uppercase font-bold tracking-wider mb-1">Backed By</div>
-                                                 <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1">
-                                                     {predictorsA.slice(0, 5).map((p, i) => (
-                                                         <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-900 relative z-10" title={p.userDisplayName}>
+                                                 <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1 h-8">
+                                                     {predictorsA.slice(0, 4).map((p, i) => (
+                                                         <div key={i} className="w-6 h-6 rounded-full border border-slate-900 relative z-10" title={p.userDisplayName}>
                                                              {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover rounded-full"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center text-[8px] text-white">{p.userDisplayName.charAt(0)}</div>}
                                                          </div>
                                                      ))}
-                                                     {predictorsA.length > 5 && <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-white font-bold z-0">+{predictorsA.length - 5}</div>}
-                                                     {predictorsA.length === 0 && <span className="text-xs text-slate-600 italic">Be the first!</span>}
+                                                     {predictorsA.length > 4 && <div className="w-6 h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center text-[8px] text-white font-bold z-0">+{predictorsA.length - 4}</div>}
                                                  </div>
                                              </div>
                                              <div className="flex flex-col gap-1 w-1/2 items-end">
-                                                 <div className="text-[10px] text-teal-400 uppercase font-bold tracking-wider mb-1">Backed By</div>
-                                                 <div className="flex items-center flex-row-reverse -space-x-2 space-x-reverse overflow-hidden py-1 pr-1">
-                                                     {predictorsB.slice(0, 5).map((p, i) => (
-                                                         <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-900 relative z-10" title={p.userDisplayName}>
+                                                 <div className="flex items-center flex-row-reverse -space-x-2 space-x-reverse overflow-hidden py-1 pr-1 h-8">
+                                                     {predictorsB.slice(0, 4).map((p, i) => (
+                                                         <div key={i} className="w-6 h-6 rounded-full border border-slate-900 relative z-10" title={p.userDisplayName}>
                                                              {p.userPictureUrl ? <img src={p.userPictureUrl} className="w-full h-full object-cover rounded-full"/> : <div className="w-full h-full bg-slate-700 flex items-center justify-center text-[8px] text-white">{p.userDisplayName.charAt(0)}</div>}
                                                          </div>
                                                      ))}
-                                                     {predictorsB.length > 5 && <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-white font-bold z-0">+{predictorsB.length - 5}</div>}
-                                                     {predictorsB.length === 0 && <span className="text-xs text-slate-600 italic">Be the first!</span>}
+                                                     {predictorsB.length > 4 && <div className="w-6 h-6 rounded-full border border-slate-900 bg-slate-800 flex items-center justify-center text-[8px] text-white font-bold z-0">+{predictorsB.length - 4}</div>}
                                                  </div>
                                              </div>
                                          </div>
                                      </div>
                                  )
                              }) : (
-                                <div className="col-span-2 flex flex-col items-center justify-center text-center opacity-50">
+                                <div className="col-span-1 md:col-span-2 flex flex-col items-center justify-center text-center opacity-50 h-full min-h-[300px]">
                                     <BarChart3 className="w-24 h-24 text-teal-500 mb-4 animate-pulse" />
                                     <h3 className="text-3xl font-black text-white uppercase tracking-widest">Awaiting Forecasts</h3>
-                                    <p className="text-slate-400 mt-2">Predictions will appear here for upcoming matches.</p>
+                                    <p className="text-slate-400 mt-2">Predictions will appear here for pending matches.</p>
                                 </div>
                              )}
                          </div>
