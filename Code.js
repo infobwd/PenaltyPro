@@ -24,6 +24,8 @@ function doGet(e) {
       return getSponsors();
     } else if (action === 'getMusicTracks') {
       return getMusicTracks();
+    } else if (action === 'getTickerMessages') {
+      return getTickerMessages();
     }
     
     return successResponse({ status: 'running', message: 'Penalty Pro API is active' });
@@ -73,6 +75,8 @@ function doPost(e) {
     else if (action === 'manageSponsor') return manageSponsor(data);
     // Music Logic
     else if (action === 'manageMusicTrack') return manageMusicTrack(data);
+    // Ticker Logic
+    else if (action === 'manageTickerMessage') return manageTickerMessage(data);
     
     return errorResponse("Unknown action: " + action);
     
@@ -496,6 +500,71 @@ function manageMusicTrack(data) {
         if (data.name) sheet.getRange(i + 1, 2).setValue(data.name);
         if (data.url) sheet.getRange(i + 1, 3).setValue(data.url);
         if (data.type) sheet.getRange(i + 1, 4).setValue(data.type);
+        break;
+      }
+    }
+  } else if (data.subAction === 'delete') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        sheet.deleteRow(i + 1);
+        break;
+      }
+    }
+  }
+  return successResponse({ status: 'success' });
+}
+
+// ... TICKER MESSAGE FUNCTIONS ...
+
+function getTickerMessages() {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("TickerMessages");
+  if (!sheet) {
+    sheet = ss.insertSheet("TickerMessages");
+    sheet.appendRow(["ID", "Message", "IsActive", "Type"]);
+    return successResponse({ messages: [] });
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  const messages = [];
+  for (let i = 1; i < data.length; i++) {
+    if(data[i][0]) {
+      messages.push({
+        id: String(data[i][0]),
+        message: data[i][1],
+        isActive: data[i][2] === true,
+        type: data[i][3] || 'global'
+      });
+    }
+  }
+  return successResponse({ messages });
+}
+
+function manageTickerMessage(data) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName("TickerMessages");
+  if (!sheet) {
+    sheet = ss.insertSheet("TickerMessages");
+    sheet.appendRow(["ID", "Message", "IsActive", "Type"]);
+  }
+  
+  if (data.subAction === 'add') {
+    const id = "TCK_" + Date.now();
+    sheet.appendRow([id, data.message, data.isActive, data.type || 'global']);
+  } else if (data.subAction === 'edit') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        if (data.message !== undefined) sheet.getRange(i + 1, 2).setValue(data.message);
+        break;
+      }
+    }
+  } else if (data.subAction === 'toggle') {
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        sheet.getRange(i + 1, 3).setValue(data.isActive);
         break;
       }
     }

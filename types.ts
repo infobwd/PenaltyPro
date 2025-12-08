@@ -350,3 +350,10 @@ export interface MusicTrack {
   url: string;
   type: 'Youtube' | 'Spotify' | 'Suno' | 'Other';
 }
+
+export interface TickerMessage {
+  id: string;
+  message: string;
+  isActive: boolean;
+  type?: string; // e.g., 'global' or 'tournament_id'
+}

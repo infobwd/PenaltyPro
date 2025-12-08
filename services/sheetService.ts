@@ -1,6 +1,6 @@
 
 // ... existing imports ...
-import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction, Sponsor, MusicTrack } from '../types';
+import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction, Sponsor, MusicTrack, TickerMessage } from '../types';
 
 const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
@@ -11,7 +11,34 @@ export const getStoredScriptUrl = (): string | null => {
   return API_URL;
 };
 
-// ... existing functions fetchDatabase, fetchUsers ...
+// ... existing functions ...
+
+// --- TICKER FUNCTIONS ---
+
+export const fetchTickerMessages = async (): Promise<TickerMessage[]> => {
+    try {
+        const response = await fetch(`${API_URL}?action=getTickerMessages&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return data.messages || [];
+    } catch (error) {
+        return [];
+    }
+};
+
+export const manageTickerMessage = async (data: { subAction: 'add' | 'delete' | 'toggle', id?: string, message?: string, type?: string, isActive?: boolean }): Promise<boolean> => {
+    try {
+        await fetch(API_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'manageTickerMessage', ...data })
+        });
+        return true;
+    } catch (e) { return false; }
+};
+
+// ... existing functions submitDonation, submitPrediction etc ...
 
 export const submitDonation = async (data: any): Promise<boolean> => {
     try {
@@ -192,7 +219,7 @@ export const fetchSponsors = async (): Promise<Sponsor[]> => {
     }
 };
 
-export const manageSponsor = async (data: { subAction: 'add' | 'delete', id?: string, name?: string, logoFile?: string, type?: string }): Promise<boolean> => {
+export const manageSponsor = async (data: { subAction: 'add' | 'delete' | 'edit', id?: string, name?: string, logoFile?: string, type?: string }): Promise<boolean> => {
     try {
         await fetch(API_URL, {
             method: 'POST',
@@ -217,7 +244,7 @@ export const fetchMusicTracks = async (): Promise<MusicTrack[]> => {
     }
 };
 
-export const manageMusicTrack = async (data: { subAction: 'add' | 'delete', id?: string, name?: string, url?: string, type?: string }): Promise<boolean> => {
+export const manageMusicTrack = async (data: { subAction: 'add' | 'delete' | 'edit', id?: string, name?: string, url?: string, type?: string }): Promise<boolean> => {
     try {
         await fetch(API_URL, {
             method: 'POST',
@@ -242,7 +269,6 @@ export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ te
         if (cachedData && cachedTime) {
             const now = Date.now();
             if (now - parseInt(cachedTime) < CACHE_DURATION) {
-                console.log("Using Cached Data");
                 return JSON.parse(cachedData);
             }
         }

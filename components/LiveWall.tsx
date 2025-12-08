@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid } from 'lucide-react';
-import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings } from '../services/sheetService';
+import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage } from '../types';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type } from 'lucide-react';
+import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings, fetchTickerMessages, manageTickerMessage } from '../services/sheetService';
 
 interface LiveWallProps {
   matches: Match[];
@@ -143,10 +143,12 @@ const SettingsManagerModal: React.FC<{
     musicTracks: MusicTrack[], 
     onUpdateMusic: () => void, 
     onPlayMusic: (track: MusicTrack) => void,
+    tickerMessages: TickerMessage[],
+    onUpdateTicker: () => void,
     notify: (msg: string, type: 'success' | 'error') => void,
     tournamentId: string
-}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic, notify, tournamentId }) => {
-    const [tab, setTab] = useState<'sponsors' | 'music'>('sponsors');
+}> = ({ isOpen, onClose, sponsors, onUpdateSponsors, musicTracks, onUpdateMusic, onPlayMusic, tickerMessages, onUpdateTicker, notify, tournamentId }) => {
+    const [tab, setTab] = useState<'sponsors' | 'music' | 'ticker'>('sponsors');
     const [scope, setScope] = useState<'tournament' | 'global'>('tournament'); // Scope Filter
     
     // Add Forms
@@ -159,8 +161,11 @@ const SettingsManagerModal: React.FC<{
     const [musicUrl, setMusicUrl] = useState('');
     const [musicType, setMusicType] = useState<'Youtube' | 'Spotify' | 'Suno' | 'Other'>('Youtube');
 
+    // Ticker Form
+    const [tickerText, setTickerText] = useState('');
+
     // Editing State
-    const [editingItem, setEditingItem] = useState<{ id: string, name: string, type: 'sponsor' | 'music' } | null>(null);
+    const [editingItem, setEditingItem] = useState<{ id: string, name: string, type: 'sponsor' | 'music' | 'ticker' } | null>(null);
 
     // Confirmation State
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
@@ -186,6 +191,7 @@ const SettingsManagerModal: React.FC<{
 
     const visibleSponsors = sponsors.filter(s => filterByScope(s.type));
     const visibleTracks = musicTracks.filter(m => filterByScope(m.type));
+    const visibleTicker = tickerMessages.filter(t => filterByScope(t.type));
 
     const getScopedType = (baseType: string) => {
         if (scope === 'tournament') return `${baseType}::${tournamentId}`;
@@ -273,6 +279,41 @@ const SettingsManagerModal: React.FC<{
         } catch(e) { console.error(e); } finally { setIsSubmitting(false); }
     };
 
+    // --- TICKER ACTIONS ---
+
+    const handleAddTicker = async () => {
+        if (!tickerText) return;
+        setIsSubmitting(true);
+        try {
+            const finalType = getScopedType('ticker');
+            await manageTickerMessage({ subAction: 'add', message: tickerText, type: finalType, isActive: true });
+            onUpdateTicker();
+            setTickerText('');
+            notify("Message added", 'success');
+        } catch(e) {
+            console.error(e);
+            notify("Failed to add message", 'error');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleToggleTicker = async (id: string, currentStatus: boolean) => {
+        // Optimistic UI update
+        // (In real app, update local state first)
+        await manageTickerMessage({ subAction: 'toggle', id, isActive: !currentStatus });
+        onUpdateTicker();
+    };
+
+    const handleDeleteTicker = async (id: string) => {
+        if (!confirm("Delete this message?")) return;
+        setIsSubmitting(true);
+        try {
+            await manageTickerMessage({ subAction: 'delete', id });
+            onUpdateTicker();
+        } catch(e) { console.error(e); } finally { setIsSubmitting(false); }
+    };
+
     // --- EDITING ACTIONS ---
 
     const handleEditSave = async () => {
@@ -281,11 +322,14 @@ const SettingsManagerModal: React.FC<{
         try {
             if (editingItem.type === 'music') {
                 await manageMusicTrack({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name });
-            } else {
+                onUpdateMusic();
+            } else if (editingItem.type === 'sponsor') {
                 await manageSponsor({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name });
+                onUpdateSponsors();
+            } else if (editingItem.type === 'ticker') {
+                await manageTickerMessage({ subAction: 'edit' as any, id: editingItem.id, message: editingItem.name });
+                onUpdateTicker();
             }
-            onUpdateMusic();
-            onUpdateSponsors();
             setEditingItem(null);
             notify("Updated successfully", 'success');
         } catch (e) {
@@ -339,7 +383,8 @@ const SettingsManagerModal: React.FC<{
                 {/* Main Tabs */}
                 <div className="flex border-b border-slate-200 px-4 mt-2 bg-white">
                     <button onClick={() => setTab('sponsors')} className={`flex-1 py-3 font-bold text-sm border-b-2 transition-all ${tab==='sponsors' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Sponsors</button>
-                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm border-b-2 transition-all ${tab==='music' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Music Player</button>
+                    <button onClick={() => setTab('music')} className={`flex-1 py-3 font-bold text-sm border-b-2 transition-all ${tab==='music' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Music</button>
+                    <button onClick={() => setTab('ticker')} className={`flex-1 py-3 font-bold text-sm border-b-2 transition-all ${tab==='ticker' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Ticker</button>
                 </div>
 
                 <div className="p-5 overflow-y-auto flex-1 bg-slate-50/50">
@@ -458,6 +503,56 @@ const SettingsManagerModal: React.FC<{
                             </div>
                         </div>
                     )}
+
+                    {/* TICKER TAB */}
+                    {tab === 'ticker' && (
+                        <div className="space-y-4">
+                            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-1"><Type className="w-3 h-3"/> Add {scope === 'tournament' ? 'Tournament' : 'Global'} Message</h4>
+                                <div className="space-y-3">
+                                    <input type="text" placeholder="Ticker Message..." className="w-full p-3 border rounded-lg text-sm bg-slate-50 focus:bg-white transition outline-none focus:ring-2 focus:ring-indigo-500" value={tickerText} onChange={e => setTickerText(e.target.value)} />
+                                    <button onClick={handleAddTicker} disabled={isSubmitting || !tickerText} className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 text-sm hover:bg-blue-700 transition disabled:opacity-50 shadow-md shadow-blue-200">
+                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin"/> : 'Add Message'}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase ml-1">Messages ({visibleTicker.length})</h4>
+                                {visibleTicker.length === 0 ? <div className="text-center text-slate-400 text-sm py-8 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">No ticker messages.</div> : visibleTicker.map(t => (
+                                    <div key={t.id} className={`flex items-center justify-between p-3 bg-white rounded-xl border shadow-sm group transition ${t.isActive ? 'border-green-200' : 'border-slate-100 opacity-60'}`}>
+                                        <div className="flex items-center gap-3 overflow-hidden flex-1">
+                                            <input type="checkbox" checked={t.isActive} onChange={() => handleToggleTicker(t.id, t.isActive)} className="w-4 h-4 accent-green-600 cursor-pointer" />
+                                            {editingItem?.id === t.id ? (
+                                                <input 
+                                                    type="text" 
+                                                    value={editingItem.name} 
+                                                    onChange={e => setEditingItem({...editingItem, name: e.target.value})}
+                                                    className="border border-indigo-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                                                    autoFocus
+                                                />
+                                            ) : (
+                                                <span className="font-bold text-sm text-slate-700 truncate">{t.message}</span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-1">
+                                            {editingItem?.id === t.id ? (
+                                                <>
+                                                    <button onClick={handleEditSave} className="text-green-600 hover:bg-green-50 p-2 rounded-lg transition"><CheckCircle2 className="w-4 h-4"/></button>
+                                                    <button onClick={() => setEditingItem(null)} className="text-slate-400 hover:bg-slate-100 p-2 rounded-lg transition"><X className="w-4 h-4"/></button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button onClick={() => setEditingItem({id: t.id, name: t.message, type: 'ticker'})} className="text-slate-400 hover:text-indigo-600 p-2 hover:bg-indigo-50 rounded-lg transition"><Edit2 className="w-4 h-4"/></button>
+                                                    <button onClick={() => handleDeleteTicker(t.id)} className="text-slate-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4"/></button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -487,8 +582,9 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [videoPlaying, setVideoPlaying] = useState(true);
   const [videoMuted, setVideoMuted] = useState(true);
   
-  // Sponsors
+  // Sponsors & Tickers
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [tickerMessages, setTickerMessages] = useState<TickerMessage[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Music System
@@ -530,18 +626,26 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       }
   };
 
+  // TICKER CONTENT LOGIC: Use Sheet Ticker if available, else Config
   const announcements = useMemo(() => {
+      // Filter active tickers for current scope
+      const activeTickers = tickerMessages.filter(t => t.isActive && (!t.type || !t.type.includes('::') || t.type.includes(`::${tournamentId}`)));
+      
+      if (activeTickers.length > 0) {
+          return activeTickers.map(t => t.message);
+      }
       return config.announcement ? config.announcement.split('|').filter(s => s.trim() !== '') : [];
-  }, [config.announcement]);
+  }, [tickerMessages, config.announcement, tournamentId]);
 
   const currentUrl = window.location.href.split('?')[0];
 
   const loadExtras = async () => {
       try {
-          const [contestData, sponsorData, musicData] = await Promise.all([
+          const [contestData, sponsorData, musicData, tickerData] = await Promise.all([
               fetchContests(),
               fetchSponsors(),
-              fetchMusicTracks()
+              fetchMusicTracks(),
+              fetchTickerMessages()
           ]);
           const uniquePhotos = contestData.entries.filter((e, i, a) => a.findIndex(t => t.photoUrl === e.photoUrl) === i);
           setContestEntries(uniquePhotos);
@@ -554,6 +658,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
 
           setSponsors(sponsorData.filter(s => filterForDisplay(s.type)));
           setMusicTracks(musicData.filter(m => filterForDisplay(m.type)));
+          setTickerMessages(tickerData); // Ticker data filtered in useMemo
       } catch (e) {
           console.error("Failed to load live wall extras");
       }
@@ -985,7 +1090,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   return (
     <div className="fixed inset-0 z-[5000] bg-slate-950 text-white overflow-hidden flex flex-col font-kanit select-none cursor-none" style={{ fontFamily: "'Kanit', sans-serif" }}>
         
-        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} notify={showToast} tournamentId={tournamentId} />
+        <SettingsManagerModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} sponsors={sponsors} onUpdateSponsors={loadExtras} musicTracks={musicTracks} onUpdateMusic={loadExtras} onPlayMusic={handlePlayMusic} tickerMessages={tickerMessages} onUpdateTicker={loadExtras} notify={showToast} tournamentId={tournamentId} />
         {renderMusicPlayer()}
 
         {/* NOTIFICATIONS */}
@@ -1295,39 +1400,67 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 ) : <div className="flex items-center justify-center h-full text-slate-500 text-2xl font-bold animate-broadcast-reveal">No Photos Yet</div>
             )}
 
-            {/* SLIDE 8: SPONSORS - AUTOMATIC ANIMATION */}
+            {/* SLIDE 8: SPONSORS - BUBBLE FLOAT ANIMATION */}
             {currentSlide === 8 && (
                 <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal">
                     <div className="relative z-10 w-full max-w-7xl px-8 flex flex-col items-center justify-center h-full">
-                        <div className="text-center mb-12 animate-in slide-in-from-top-10 duration-1000 shrink-0"><div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse"><Star className="w-6 h-6 text-white fill-white" /><span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span><Star className="w-6 h-6 text-white fill-white" /></div><h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">Official Sponsors</h2></div>
+                        <div className="text-center mb-4 animate-in slide-in-from-top-10 duration-1000 shrink-0 z-20">
+                            <div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-8 py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-6 animate-pulse">
+                                <Star className="w-6 h-6 text-white fill-white" />
+                                <span className="text-lg font-black text-white tracking-widest uppercase">Premium Partners</span>
+                                <Star className="w-6 h-6 text-white fill-white" />
+                            </div>
+                            <h2 className="text-7xl md:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">
+                                Official Sponsors
+                            </h2>
+                        </div>
+                        
                         {sponsors.length > 0 ? (
-                            <div className="w-full flex-1 flex items-center justify-center">
-                                <div className="grid grid-cols-3 gap-12 w-full perspective-1000">
-                                    {[...sponsors, ...(sponsors.length > 6 ? sponsors : [])].map((s, idx) => (
-                                        <div key={`${s.id}-${idx}`} className="relative bg-white/5 backdrop-blur-xl rounded-3xl border border-white/10 flex items-center justify-center p-8 h-64 animate-sponsor-glow" style={{ animationDelay: `${idx * 0.5}s` }}>
-                                            {/* Glow overlay - animating opacity */}
-                                            <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent rounded-3xl pointer-events-none animate-pulse-slow"></div>
-                                            
-                                            {/* Star Badge - animating float/scale */}
-                                            <div className="absolute -top-4 -right-4 animate-bounce-slow" style={{ animationDelay: `${idx * 0.3}s` }}>
-                                                <div className="relative">
-                                                    <div className="absolute inset-0 bg-amber-400 blur-lg rounded-full opacity-50 animate-pulse"></div>
-                                                    <Star className="w-10 h-10 text-white fill-amber-400 relative z-10" />
+                            <div className="w-full flex-1 relative overflow-hidden">
+                                {/* Sponsor Bubbles Container */}
+                                <div className="absolute inset-0">
+                                    {/* Repeat sponsors if few to create flow */}
+                                    {[...sponsors, ...sponsors, ...sponsors, ...sponsors].map((s, idx) => {
+                                        // Randomize position and timing for natural effect
+                                        const randomLeft = Math.floor(Math.random() * 90) + 5; // 5% to 95% width
+                                        const randomDuration = Math.floor(Math.random() * 10) + 10; // 10s to 20s
+                                        const randomDelay = Math.floor(Math.random() * 10); // 0s to 10s delay
+                                        const size = Math.floor(Math.random() * 40) + 120; // 120px to 160px size
+
+                                        return (
+                                            <div 
+                                                key={`${s.id}-${idx}`} 
+                                                className="absolute bottom-[-200px] flex flex-col items-center animate-float-up"
+                                                style={{
+                                                    left: `${randomLeft}%`,
+                                                    animationDuration: `${randomDuration}s`,
+                                                    animationDelay: `${randomDelay}s`,
+                                                    width: `${size}px`
+                                                }}
+                                            >
+                                                <div className="relative bg-white/10 backdrop-blur-xl rounded-full border border-white/20 flex items-center justify-center p-6 shadow-2xl aspect-square w-full transform hover:scale-110 transition-transform duration-300">
+                                                    <img 
+                                                        src={s.logoUrl} 
+                                                        className="w-full h-full object-contain filter drop-shadow-lg" 
+                                                        alt={s.name} 
+                                                    />
                                                 </div>
+                                                <span className="mt-4 text-lg font-bold text-white bg-black/60 px-4 py-1 rounded-full backdrop-blur-md border border-white/10 shadow-lg whitespace-nowrap">
+                                                    {s.name}
+                                                </span>
                                             </div>
-                                            
-                                            {/* Image - gentle float */}
-                                            <img src={s.logoUrl} className="w-full h-full object-contain filter drop-shadow-2xl animate-float-orb" style={{ animationDuration: '6s' }} alt={s.name} />
-                                            
-                                            {/* Name Tag - Always visible */}
-                                            <div className="absolute bottom-6 left-0 right-0 text-center pointer-events-none">
-                                                <span className="text-lg font-bold text-white bg-black/60 px-4 py-2 rounded-full backdrop-blur-md border border-white/10 shadow-lg">{s.name}</span>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
-                        ) : <div className="flex flex-col items-center animate-pulse mt-20"><div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4"><Zap className="w-12 h-12 text-yellow-400" /></div><div className="text-3xl font-bold text-slate-500">Become a Partner</div></div>}
+                        ) : (
+                            <div className="flex flex-col items-center animate-pulse mt-20">
+                                <div className="w-32 h-32 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                                    <Zap className="w-12 h-12 text-yellow-400" />
+                                </div>
+                                <div className="text-3xl font-bold text-slate-500">Become a Partner</div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -1485,11 +1618,13 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             .animate-slide-in-right { animation: slide-in-right 0.3s ease-out forwards; }
             
             /* Sponsor Animations */
-            @keyframes sponsor-glow {
-              0%, 100% { border-color: rgba(255,255,255,0.1); box-shadow: 0 0 0 rgba(0,0,0,0); transform: scale(1); }
-              50% { border-color: rgba(245,158,11,0.5); box-shadow: 0 0 30px rgba(245,158,11,0.2); transform: scale(1.05); }
+            @keyframes float-up {
+              0% { transform: translateY(100vh) scale(0.8); opacity: 0; }
+              10% { opacity: 1; }
+              90% { opacity: 1; }
+              100% { transform: translateY(-120vh) scale(1); opacity: 0; }
             }
-            .animate-sponsor-glow { animation: sponsor-glow 4s infinite ease-in-out; }
+            .animate-float-up { animation: float-up linear infinite; }
             
             @keyframes bounce-slow {
               0%, 100% { transform: translateY(-5%); }

@@ -820,11 +820,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const updates: { teamId: string, group: string }[] = []; 
       
       if (liveGroups) {
-          // Fix: Use Object.keys to avoid TS issue with Object.entries destructuring on some configs
-          Object.keys(liveGroups).forEach((groupName) => { 
+          // Use standard loops to avoid potential iterator issues on some platforms
+          const groupNames = Object.keys(liveGroups);
+          for (let i = 0; i < groupNames.length; i++) {
+              const groupName = groupNames[i];
               const teams = liveGroups[groupName];
-              teams.forEach(t => { updates.push({ teamId: t.id, group: groupName }); }); 
-          }); 
+              if (teams) {
+                  for (let j = 0; j < teams.length; j++) {
+                      updates.push({ teamId: teams[j].id, group: groupName });
+                  }
+              }
+          }
       }
       
       executeWithReload(async () => {
