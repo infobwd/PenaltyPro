@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage, UserProfile } from '../types';
-import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users, Radio, Unlock, Film } from 'lucide-react';
+import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users, Radio, Unlock, Film, Grid, ArrowLeft } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings, fetchTickerMessages, manageTickerMessage } from '../services/sheetService';
 
 interface LiveWallProps {
@@ -1214,11 +1214,56 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
       return <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none"><iframe src={currentTrack.url} allow="autoplay" /></div>;
   };
 
-  // ... (Login Check Code)
+  if (!isAuthenticated) {
+      return (
+          <div className="fixed inset-0 z-[5000] bg-slate-950 text-white flex flex-col items-center justify-center font-kanit">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+              <div className="z-10 bg-slate-900/50 backdrop-blur-xl p-8 md:p-12 rounded-3xl border border-white/10 shadow-2xl flex flex-col items-center max-w-md w-full mx-4">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(79,70,229,0.5)]">
+                      <Lock className="w-10 h-10 text-white" />
+                  </div>
+                  <h1 className="text-3xl font-black uppercase tracking-widest mb-2 text-center">Live Wall Access</h1>
+                  <p className="text-slate-400 mb-8 text-center text-sm">Restricted Area for Tournament Admins Only</p>
+                  
+                  <form onSubmit={handlePinSubmit} className="w-full space-y-4">
+                      <div className="relative">
+                          <input 
+                              type="password" 
+                              value={pinInput}
+                              onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
+                              className={`w-full bg-slate-800 border ${pinError ? 'border-red-500' : 'border-slate-700'} rounded-xl py-3 px-4 text-center text-2xl font-mono tracking-[0.5em] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all`}
+                              placeholder="••••"
+                              maxLength={6}
+                              autoFocus
+                          />
+                          {pinError && <div className="absolute -bottom-6 left-0 right-0 text-center text-red-400 text-xs font-bold animate-pulse">Incorrect PIN</div>}
+                      </div>
+                      <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center gap-2">
+                          <Unlock className="w-4 h-4" /> Unlock Display
+                      </button>
+                  </form>
+                  
+                  <button onClick={onClose} className="mt-6 text-slate-500 hover:text-white text-sm transition flex items-center gap-1">
+                      <ArrowLeft className="w-3 h-3" /> Return to Dashboard
+                  </button>
+              </div>
+          </div>
+      );
+  }
 
-  // ... (isAuthenticated Guard Code)
-
-  // ... (Tap to Start Code)
+  if (!hasInteracted) {
+      return (
+          <div className="fixed inset-0 z-[5000] bg-slate-950 text-white flex flex-col items-center justify-center font-kanit cursor-pointer" onClick={handleStartExperience}>
+              <div className="animate-pulse flex flex-col items-center">
+                  <div className="w-24 h-24 rounded-full border-4 border-white/20 flex items-center justify-center mb-6">
+                      <Monitor className="w-10 h-10 text-white" />
+                  </div>
+                  <h1 className="text-4xl md:text-6xl font-black uppercase tracking-widest">Tap to Start</h1>
+                  <p className="text-slate-400 mt-2">Initialize Audio & Visual Experience</p>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div 
@@ -1358,11 +1403,41 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {currentSlide === 9 && ( <div className="h-full w-full flex flex-col items-center justify-center relative overflow-hidden animate-broadcast-reveal"><div className="relative z-10 w-full max-w-[90%] px-4 flex flex-col items-center justify-center h-full pt-4 md:pt-8 pb-8 md:pb-12"><div className="text-center mb-6 md:mb-10 animate-in slide-in-from-top-10 duration-1000 shrink-0 z-20"><div className="inline-flex items-center gap-3 bg-gradient-to-r from-yellow-600 to-amber-600 px-6 md:px-8 py-2 md:py-3 rounded-full border border-yellow-400 shadow-[0_0_50px_rgba(251,191,36,0.3)] mb-2 md:mb-4 animate-pulse-slow"><Star className="w-4 h-4 md:w-5 md:h-5 text-white fill-white" /><span className="text-xs md:text-base font-black text-white tracking-widest uppercase">Our Partners</span><Star className="w-4 h-4 md:w-5 md:h-5 text-white fill-white" /></div><h2 className="text-3xl md:text-6xl lg:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 uppercase tracking-tighter drop-shadow-2xl">Official Sponsors</h2></div>{sponsors.length > 0 ? (<div className="flex-1 w-full flex items-center justify-center overflow-y-auto p-4 custom-scrollbar"><div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 w-full max-w-7xl">{(sponsorChunks[sponsorPageIndex] || []).map((s, idx) => (<div key={`${s.id}-${idx}`} className="group relative bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-4 flex flex-col items-center gap-4 shadow-xl transition-all duration-700 animate-in slide-in-from-bottom-20 fade-in fill-mode-backwards" style={{ animationDelay: `${idx * 200}ms` }}><div className="w-full aspect-square flex items-center justify-center bg-white/5 rounded-xl p-2 md:p-4 overflow-hidden relative"><div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div><img src={s.logoUrl} alt={s.name} className="w-full h-full object-contain filter drop-shadow-lg transform transition-transform duration-1000 hover:scale-110"/><div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full animate-[shimmer_3s_infinite]"></div></div><div className="text-center w-full"><div className="bg-slate-900/50 rounded-lg py-1 md:py-2 px-2 border border-white/5"><h3 className="text-xs md:text-sm font-bold text-slate-100 truncate">{s.name}</h3></div></div></div>))}</div></div>) : (<div className="flex flex-col items-center animate-pulse mt-10"><div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4"><Zap className="w-8 h-8 md:w-10 md:h-10 text-yellow-400" /></div><div className="text-xl md:text-2xl font-bold text-slate-500">No Sponsors Yet</div></div>)}</div></div> ) }
             {currentSlide === 10 && ( <div className="h-full w-full relative overflow-hidden bg-slate-950 flex flex-col animate-broadcast-reveal">{nextMatch ? (<><div className="absolute inset-0 z-0 flex"><div className="w-1/2 h-full bg-gradient-to-r from-blue-900 to-slate-900 opacity-50 relative overflow-hidden"><div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div><div className="absolute bottom-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-blue-500/20 to-transparent animate-pulse"></div></div><div className="w-1/2 h-full bg-gradient-to-l from-red-900 to-slate-900 opacity-50 relative overflow-hidden"><div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div><div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-red-500/20 to-transparent animate-pulse"></div></div></div><div className="relative z-10 flex-1 flex flex-col justify-center items-center w-full max-w-7xl mx-auto px-4"><div className="text-center mb-4 md:mb-8"><span className="bg-white/10 backdrop-blur-md border border-white/20 px-3 md:px-4 py-1 rounded-full text-indigo-300 font-bold tracking-widest text-[10px] md:text-sm uppercase mb-2 inline-block">Coming Up Next</span><h2 className="text-2xl md:text-3xl 2xl:text-4xl font-black text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">{nextMatch.roundLabel?.split(':')[0] || 'MATCH DAY'}</h2></div><div className="flex items-center justify-center w-full gap-4 md:gap-20 flex-wrap md:flex-nowrap"><div className="flex flex-col items-center w-1/3 min-w-[120px] md:min-w-[150px] animate-in slide-in-from-left-20 duration-1000"><div className="w-24 h-24 md:w-32 md:h-32 2xl:w-64 2xl:h-64 bg-white/5 rounded-full p-3 md:p-4 border-4 border-blue-500/50 shadow-[0_0_60px_rgba(59,130,246,0.3)] backdrop-blur-sm flex items-center justify-center mb-4 md:mb-6 relative group"><div className="absolute inset-0 rounded-full border-2 border-white/10 animate-[spin_10s_linear_infinite]"></div>{resolveTeam(nextMatch.teamA).logoUrl ? <img src={resolveTeam(nextMatch.teamA).logoUrl} className="w-full h-full object-contain drop-shadow-2xl transform group-hover:scale-110 transition duration-500" /> : <div className="text-6xl md:text-8xl font-black text-white/20">A</div>}</div><h3 className="text-lg md:text-2xl 2xl:text-5xl font-black text-white text-center leading-tight drop-shadow-lg uppercase">{resolveTeam(nextMatch.teamA).name}</h3></div><div className="flex flex-col items-center justify-center relative z-20"><div className="text-4xl md:text-6xl 2xl:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 italic tracking-tighter drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] transform scale-125 md:scale-150 mb-4 md:mb-8">VS</div>{h2hStats && (<div className="mb-6 bg-white/5 border border-white/10 px-4 md:px-6 py-1 md:py-2 rounded-full backdrop-blur-md flex items-center gap-3 md:gap-6 shadow-xl"><div className="flex flex-col items-center"><span className="text-lg md:text-2xl font-black text-blue-400">{h2hStats.winsA}</span><span className="text-[8px] md:text-[9px] uppercase text-slate-400 font-bold">WINS</span></div><div className="h-6 md:h-8 w-[1px] bg-white/20"></div><div className="flex flex-col items-center"><span className="text-lg md:text-2xl font-black text-slate-300">{h2hStats.draws}</span><span className="text-[8px] md:text-[9px] uppercase text-slate-400 font-bold">DRAWS</span></div><div className="h-6 md:h-8 w-[1px] bg-white/20"></div><div className="flex flex-col items-center"><span className="text-lg md:text-2xl font-black text-red-400">{h2hStats.winsB}</span><span className="text-[8px] md:text-[9px] uppercase text-slate-400 font-bold">WINS</span></div></div>)}{countdown && <div className="bg-black/50 backdrop-blur-md border border-white/10 px-4 md:px-6 py-2 md:py-3 rounded-2xl flex flex-col items-center gap-1 shadow-2xl"><span className="text-[10px] md:text-xs text-slate-400 font-bold uppercase tracking-widest">Kick Off In</span><div className="text-xl md:text-4xl font-mono font-bold text-white tracking-widest tabular-nums text-shadow-glow">{countdown}</div></div>}</div><div className="flex flex-col items-center w-1/3 min-w-[120px] md:min-w-[150px] animate-in slide-in-from-right-20 duration-1000"><div className="w-24 h-24 md:w-32 md:h-32 2xl:w-64 2xl:h-64 bg-white/5 rounded-full p-3 md:p-4 border-4 border-red-500/50 shadow-[0_0_60px_rgba(239,68,68,0.3)] backdrop-blur-sm flex items-center justify-center mb-4 md:mb-6 relative group"><div className="absolute inset-0 rounded-full border-2 border-white/10 animate-[spin_10s_linear_infinite_reverse]"></div>{resolveTeam(nextMatch.teamB).logoUrl ? <img src={resolveTeam(nextMatch.teamB).logoUrl} className="w-full h-full object-contain drop-shadow-2xl transform group-hover:scale-110 transition duration-500" /> : <div className="text-6xl md:text-8xl font-black text-white/20">B</div>}</div><h3 className="text-lg md:text-2xl 2xl:text-5xl font-black text-white text-center leading-tight drop-shadow-lg uppercase">{resolveTeam(nextMatch.teamB).name}</h3></div></div><div className="mt-6 md:mt-12 flex flex-col md:flex-row items-center gap-2 md:gap-6 text-slate-300 text-sm md:text-base 2xl:text-xl font-bold bg-black/30 px-6 md:px-8 py-2 md:py-3 rounded-full border border-white/5 backdrop-blur-sm"><span className="flex items-center gap-2"><MapPin className="w-4 h-4 md:w-5 md:h-5 2xl:w-6 2xl:h-6 text-red-500"/> {nextMatch.venue || 'Main Stadium'}</span><span className="hidden md:block w-1.5 h-1.5 bg-slate-500 rounded-full"></span><span className="flex items-center gap-2"><Clock className="w-4 h-4 md:w-5 md:h-5 2xl:w-6 2xl:h-6 text-indigo-500"/> {new Date(nextMatch.scheduledTime || nextMatch.date).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span></div></div></>) : <div className="flex-1 flex flex-col items-center justify-center text-slate-500"><Swords className="w-16 h-16 md:w-24 md:h-24 mb-4 opacity-20" /><h2 className="text-2xl md:text-4xl font-black uppercase tracking-widest opacity-50">Tournament Continues</h2><p className="text-base md:text-xl mt-2">Stay Tuned for More Action</p></div>}</div> ) }
 
-            {/* SLIDE 11: LIVE STREAM (AUTO PLAY & CONTROLS + SELECTION) - UPDATED WITH CONTROLS */}
+            {/* SLIDE 11: LIVE STREAM (AUTO PLAY & CONTROLS + SELECTION) - UPDATED WITH MULTI-VIEW */}
             {currentSlide === 11 && (
                 <div className="h-full w-full relative flex flex-col bg-black animate-broadcast-reveal">
-                    {/* Active Stream */}
-                    {activeLiveMatch ? (
+                    {/* Multiview Grid Check */}
+                    {liveStreamingMatches.length > 1 && !activeLiveMatch ? (
+                        <div className="flex-1 w-full h-full flex flex-col items-center justify-center p-8 overflow-y-auto">
+                            <h2 className="text-3xl font-black text-white mb-8 flex items-center gap-3"><Monitor className="w-8 h-8 text-red-500"/> Live Multiview</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-7xl">
+                                {liveStreamingMatches.map(m => {
+                                    const tA = resolveTeam(m.teamA);
+                                    const tB = resolveTeam(m.teamB);
+                                    return (
+                                        <div key={m.id} onClick={() => setManualLiveMatchId(m.id)} className="bg-slate-900 border border-white/10 rounded-2xl overflow-hidden hover:scale-105 transition-transform duration-300 cursor-pointer shadow-2xl group">
+                                            <div className="aspect-video bg-black relative">
+                                                {/* Thumbnail logic can go here, using team logos for now */}
+                                                <div className="absolute inset-0 flex items-center justify-center gap-4 opacity-50 group-hover:opacity-100 transition-opacity">
+                                                    {tA.logoUrl && <img src={tA.logoUrl} className="w-16 h-16 object-contain"/>}
+                                                    <span className="text-2xl font-black text-white/20">VS</span>
+                                                    {tB.logoUrl && <img src={tB.logoUrl} className="w-16 h-16 object-contain"/>}
+                                                </div>
+                                                <div className="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">LIVE</div>
+                                            </div>
+                                            <div className="p-4">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <h3 className="font-bold text-white truncate">{tA.name} vs {tB.name}</h3>
+                                                    <span className="text-green-400 font-mono font-bold">{m.scoreA}-{m.scoreB}</span>
+                                                </div>
+                                                <div className="text-xs text-slate-400">{m.roundLabel}</div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    ) : activeLiveMatch ? (
                         <div className="flex-1 relative w-full h-full flex items-center justify-center group/player">
                             {videoPlaying ? (
                                 <iframe 
@@ -1379,8 +1454,16 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 </div>
                             )}
                             
-                            {/* VIDEO CONTROL BAR - UPDATED with Lock & Volume Slider */}
+                            {/* VIDEO CONTROL BAR */}
                             <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-3 rounded-full border border-white/20 flex items-center gap-6 z-30 transition-opacity duration-300 opacity-0 group-hover/player:opacity-100 pointer-events-auto">
+                                {liveStreamingMatches.length > 1 && (
+                                    <>
+                                        <button onClick={() => setManualLiveMatchId(null)} className="hover:scale-110 transition text-slate-400 hover:text-white flex items-center gap-2" title="Back to Multiview">
+                                            <Grid className="w-5 h-5"/> <span className="text-xs font-bold uppercase">Grid</span>
+                                        </button>
+                                        <div className="h-6 w-[1px] bg-white/20"></div>
+                                    </>
+                                )}
                                 <button onClick={() => setIsSlidePaused(!isSlidePaused)} className={`hover:scale-110 transition flex items-center gap-2 ${isSlidePaused ? 'text-red-400' : 'text-slate-400 hover:text-white'}`} title={isSlidePaused ? "Resume Rotation" : "Lock Slide"}>
                                     {isSlidePaused ? <Lock className="w-5 h-5"/> : <Unlock className="w-5 h-5"/>}
                                     {isSlidePaused && <span className="text-[10px] font-bold uppercase tracking-wider">Locked</span>}
@@ -1419,30 +1502,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                 </div>
                             </div>
 
-                            {/* MATCH SELECTOR (Right Side) */}
-                            {liveStreamingMatches.length > 1 && (
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-40 bg-black/40 backdrop-blur-sm p-2 rounded-xl border border-white/10 pointer-events-auto max-h-[80vh] overflow-y-auto custom-scrollbar">
-                                    {liveStreamingMatches.map(m => {
-                                        const tA = resolveTeam(m.teamA);
-                                        const tB = resolveTeam(m.teamB);
-                                        const isActive = m.id === activeLiveMatch.id;
-                                        return (
-                                            <button 
-                                                key={m.id} 
-                                                onClick={() => setManualLiveMatchId(m.id)}
-                                                className={`flex items-center gap-2 p-2 rounded-lg transition text-left w-48 ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'bg-black/60 text-slate-400 hover:bg-black/80 hover:text-white'}`}
-                                            >
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-[10px] font-bold uppercase truncate">{tA.shortName} vs {tB.shortName}</div>
-                                                    <div className="text-[8px] opacity-70 truncate">{m.roundLabel}</div>
-                                                </div>
-                                                {isActive && <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-
                             {/* Score Overlay */}
                             {videoPlaying && (
                                 <div className="absolute bottom-10 right-10 bg-black/60 backdrop-blur-md px-6 md:px-8 py-2 md:py-3 rounded-2xl border border-white/10 flex items-center gap-4 md:gap-6 z-20 pointer-events-none">
@@ -1474,7 +1533,37 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 12: MATCH HIGHLIGHTS (NEW) */}
             {currentSlide === 12 && (
                 <div className="h-full w-full relative flex flex-col bg-black animate-broadcast-reveal">
-                    {activeHighlightMatch ? (
+                    {/* Highlight Grid Check */}
+                    {finishedStreamingMatches.length > 1 && !activeHighlightMatch ? (
+                        <div className="flex-1 w-full h-full flex flex-col items-center justify-center p-8 overflow-y-auto">
+                            <h2 className="text-3xl font-black text-white mb-8 flex items-center gap-3"><Film className="w-8 h-8 text-indigo-500"/> Replay Gallery</h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-7xl">
+                                {finishedStreamingMatches.map(m => {
+                                    const tA = resolveTeam(m.teamA);
+                                    const tB = resolveTeam(m.teamB);
+                                    return (
+                                        <div key={m.id} onClick={() => setManualHighlightMatchId(m.id)} className="bg-slate-900 border border-white/10 rounded-2xl overflow-hidden hover:scale-105 transition-transform duration-300 cursor-pointer shadow-2xl group">
+                                            <div className="aspect-video bg-black relative">
+                                                <div className="absolute inset-0 flex items-center justify-center gap-4 opacity-50 group-hover:opacity-100 transition-opacity">
+                                                    {tA.logoUrl && <img src={tA.logoUrl} className="w-16 h-16 object-contain"/>}
+                                                    <span className="text-2xl font-black text-white/20">VS</span>
+                                                    {tB.logoUrl && <img src={tB.logoUrl} className="w-16 h-16 object-contain"/>}
+                                                </div>
+                                                <div className="absolute top-2 left-2 bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded">REPLAY</div>
+                                            </div>
+                                            <div className="p-4">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <h3 className="font-bold text-white truncate">{tA.name} vs {tB.name}</h3>
+                                                    <span className="text-slate-300 font-mono font-bold">{m.scoreA}-{m.scoreB}</span>
+                                                </div>
+                                                <div className="text-xs text-slate-400">{m.roundLabel}</div>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    ) : activeHighlightMatch ? (
                         <div className="flex-1 relative w-full h-full flex items-center justify-center group/player">
                             {videoPlaying ? (
                                 <iframe 
@@ -1493,6 +1582,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                             
                             {/* VIDEO CONTROL BAR */}
                             <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-6 py-3 rounded-full border border-white/20 flex items-center gap-6 z-30 transition-opacity duration-300 opacity-0 group-hover/player:opacity-100 pointer-events-auto">
+                                {finishedStreamingMatches.length > 1 && (
+                                    <>
+                                        <button onClick={() => setManualHighlightMatchId(null)} className="hover:scale-110 transition text-slate-400 hover:text-white flex items-center gap-2" title="Back to Gallery">
+                                            <Grid className="w-5 h-5"/> <span className="text-xs font-bold uppercase">Gallery</span>
+                                        </button>
+                                        <div className="h-6 w-[1px] bg-white/20"></div>
+                                    </>
+                                )}
                                 <button onClick={() => setIsSlidePaused(!isSlidePaused)} className={`hover:scale-110 transition flex items-center gap-2 ${isSlidePaused ? 'text-red-400' : 'text-slate-400 hover:text-white'}`} title={isSlidePaused ? "Resume Rotation" : "Lock Slide"}>
                                     {isSlidePaused ? <Lock className="w-5 h-5"/> : <Unlock className="w-5 h-5"/>}
                                     {isSlidePaused && <span className="text-[10px] font-bold uppercase tracking-wider">Locked</span>}
@@ -1531,30 +1628,6 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                                     </div>
                                 </div>
                             </div>
-
-                            {/* HIGHLIGHT SELECTOR (Right Side) */}
-                            {finishedStreamingMatches.length > 1 && (
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-40 bg-black/40 backdrop-blur-sm p-2 rounded-xl border border-white/10 pointer-events-auto max-h-[80vh] overflow-y-auto custom-scrollbar">
-                                    {finishedStreamingMatches.map(m => {
-                                        const tA = resolveTeam(m.teamA);
-                                        const tB = resolveTeam(m.teamB);
-                                        const isActive = m.id === activeHighlightMatch.id;
-                                        return (
-                                            <button 
-                                                key={m.id} 
-                                                onClick={() => setManualHighlightMatchId(m.id)}
-                                                className={`flex items-center gap-2 p-2 rounded-lg transition text-left w-48 ${isActive ? 'bg-indigo-600 text-white shadow-lg' : 'bg-black/60 text-slate-400 hover:bg-black/80 hover:text-white'}`}
-                                            >
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-[10px] font-bold uppercase truncate">{tA.shortName} vs {tB.shortName}</div>
-                                                    <div className="text-[8px] opacity-70 truncate">{m.roundLabel}</div>
-                                                </div>
-                                                <div className="text-[10px] font-mono font-bold bg-black/30 px-1 rounded">{m.scoreA}-{m.scoreB}</div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-500 relative overflow-hidden">
