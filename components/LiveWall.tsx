@@ -745,7 +745,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
         </div>
 
         {/* TOP BAR */}
-        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-20 pt-4 group shrink-0 animate-slide-in-down">
+        <div className="h-24 bg-gradient-to-b from-slate-900 to-transparent flex items-center justify-between px-8 relative z-30 pt-4 group shrink-0 animate-slide-in-down">
             <div className="flex items-center gap-6">
                 <div className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-2xl p-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] border border-white/20">
                     <img src={config.competitionLogo} className="w-full h-full object-contain drop-shadow-md" />
@@ -793,13 +793,14 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             </div>
         </div>
 
-        {/* MAIN CONTENT AREA */}
-        <div className="flex-1 relative z-10 w-full h-full flex flex-col p-8 pb-4 origin-center transition-transform duration-300 md:pr-4" style={{ transform: `scale(${uiScale})`, width: `${100 / uiScale}%`, height: `${100 / uiScale}%`, marginLeft: `${(100 - (100/uiScale)) / 2}%` }}>
+        {/* MAIN CONTENT WRAPPER */}
+        <div className="flex-1 relative z-10 w-full flex items-center justify-center overflow-hidden">
+            <div className="w-full h-full flex flex-col px-12 py-6 origin-center transition-transform duration-300" style={{ transform: `scale(${uiScale})`, width: `${100 / uiScale}%`, height: `${100 / uiScale}%` }}>
             
             {/* SLIDE 0: MATCH CENTER */}
             {currentSlide === 0 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
-                    <div className="flex items-center gap-4 mb-8 mt-10">
+                    <div className="flex items-center gap-4 mb-6 mt-2">
                         <div className="bg-red-600 p-2 rounded-lg shadow-[0_0_20px_rgba(220,38,38,0.5)]"><Activity className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Center</h2>
                     </div>
@@ -831,7 +832,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 1: STANDINGS */}
             {currentSlide === 1 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
-                    <div className="flex items-center justify-between mb-8 mt-10">
+                    <div className="flex items-center justify-between mb-6 mt-2">
                         <div className="flex items-center gap-4"><div className="bg-indigo-600 p-2 rounded-lg shadow-[0_0_20px_rgba(79,70,229,0.5)]"><Trophy className="w-8 h-8 text-white" /></div><h2 className="text-4xl font-black text-white uppercase tracking-tight">Current Standings</h2></div>
                         {standingsGroups.length > 1 && <div className="flex items-center gap-2">{standingsGroups.map((_, idx) => <div key={idx} className={`h-2 transition-all duration-300 rounded-full ${idx === standingsPage ? 'w-8 bg-white' : 'w-2 bg-white/20'}`}></div>)}</div>}
                     </div>
@@ -853,7 +854,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 2: BRACKET */}
             {currentSlide === 2 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
-                    <div className="flex items-center justify-center mb-8 mt-10">
+                    <div className="flex items-center justify-center mb-6 mt-2">
                         <div className="bg-white/10 p-4 rounded-full border-4 border-white/20 shadow-2xl flex items-center justify-center backdrop-blur-md">
                             <GitMerge className="w-12 h-12 text-white" />
                         </div>
@@ -918,7 +919,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 3: RESULTS */}
             {currentSlide === 3 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
-                    <div className="flex items-center justify-between mb-8 mt-10 px-4">
+                    <div className="flex items-center justify-between mb-6 mt-2 px-4">
                         <div className="flex items-center gap-4">
                             <div className="bg-green-600 p-2 rounded-lg shadow-[0_0_20px_rgba(22,163,74,0.5)]"><Award className="w-8 h-8 text-white" /></div>
                             <h2 className="text-4xl font-black text-white uppercase tracking-tight">Match Results</h2>
@@ -951,7 +952,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 4: TOP SCORERS */}
             {currentSlide === 4 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
-                    <div className="text-center mb-8 mt-10">
+                    <div className="text-center mb-6 mt-2">
                         <h2 className="text-5xl font-black text-yellow-400 uppercase tracking-tighter drop-shadow-lg">Golden Boot</h2>
                         <p className="text-slate-400 font-bold uppercase tracking-widest mt-1">Top Goal Scorers</p>
                     </div>
@@ -968,7 +969,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 5: TOP KEEPERS (Modified for Logo) */}
             {currentSlide === 5 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal">
-                    <div className="flex items-center gap-4 mb-8 mt-10">
+                    <div className="flex items-center gap-4 mb-6 mt-2">
                         <div className="bg-blue-600 p-2 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.5)]"><Hand className="w-8 h-8 text-white" /></div>
                         <h2 className="text-4xl font-black text-white uppercase tracking-tight">Golden Glove</h2>
                     </div>
@@ -998,7 +999,7 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
             {/* SLIDE 6: FAN PREDICTION */}
             {currentSlide === 6 && (
                 <div className="h-full flex flex-col animate-broadcast-reveal relative">
-                    <div className="text-center mb-8 mt-10"><h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2></div>
+                    <div className="text-center mb-6 mt-2"><h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 uppercase tracking-tighter drop-shadow-lg">Fan Zone Leaderboard</h2></div>
                     <div className="flex-1 flex flex-col gap-4 max-w-4xl mx-auto w-full">
                         {fanRankings.length > 0 ? fanRankings.map((fan, idx) => (
                             <div key={idx} className={`bg-white/5 rounded-2xl p-4 flex items-center justify-between border border-white/10 opacity-0 animate-card-enter ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-purple-500/20 border-yellow-500/50' : ''}`} style={{ animationDelay: `${idx * 100}ms` }}>
@@ -1127,10 +1128,11 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                 </div>
             )}
 
+            </div>
         </div>
 
         {/* BOTTOM TICKER & SPONSORS */}
-        <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-20 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
+        <div className="h-24 bg-white/95 backdrop-blur-xl text-slate-900 flex items-center relative z-30 shadow-[0_-10px_50px_rgba(0,0,0,0.5)] border-t border-slate-200 shrink-0">
             <div className="bg-red-600 h-full px-12 flex items-center justify-center shrink-0 skew-x-[-10deg] -ml-6 shadow-xl z-20 relative overflow-hidden">
                 <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500"></div>
                 <span className="text-white font-black uppercase tracking-widest flex items-center gap-2 skew-x-[10deg] text-2xl relative z-10 drop-shadow-md"><Megaphone className="w-8 h-8 animate-bounce" /> UPDATE</span>
