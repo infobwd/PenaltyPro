@@ -12,6 +12,20 @@ dist
 dist-ssr
 *.local
 
+# ค่าเชื่อมต่อฐานข้อมูลและ secret ของ API — ห้าม commit เด็ดขาด
+api/config.php
+api/config.local.php
+
+# ข้อมูลจริงจากการ migrate — มีรหัสผ่าน, เบอร์โทร, เลขผู้เสียภาษี, ที่อยู่ผู้บริจาค
+# สร้างใหม่ได้ทุกเมื่อด้วย tools/etl/
+db/seed/
+
+# cache และไฟล์อัปโหลดที่ระบบสร้างเอง
+storage/cache/*
+storage/uploads/*
+!storage/*/.gitignore
+!storage/*/.htaccess
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

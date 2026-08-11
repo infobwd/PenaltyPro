@@ -2,7 +2,11 @@
 // ... existing imports ...
 import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction, Sponsor, MusicTrack, TickerMessage } from '../types';
 
-const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec";
+import { LEGACY_API, apiGet } from './apiConfig';
+
+// ส่วนที่ยังไม่ได้ย้ายมา PHP/MySQL ยังวิ่งไป Apps Script ตามเดิม
+// รายการที่ย้ายแล้วดูได้ที่ MIGRATED_ACTIONS ใน apiConfig.ts
+const API_URL = LEGACY_API;
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
 const CACHE_KEY_TIMESTAMP = 'penalty_pro_db_timestamp';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes Cache Duration
@@ -274,13 +278,11 @@ export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ te
         }
     }
 
-    // 2. Fetch from Network if expired or forced
-    const response = await fetch(`${API_URL}?action=getData&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-    if (!response.ok) throw new Error(`Network response was not ok`);
-    const text = await response.text();
-    let data; try { data = JSON.parse(text); } catch(e) { throw new Error("Invalid JSON response from server"); }
-    if (data && data.status === 'error') throw new Error(data.message);
-    
+    // 2. ดึงจาก PHP/MySQL (ย้ายมาแล้ว) — ไม่ใช่ Google Sheets อีกต่อไป
+    //    apiGet ตรวจผลลัพธ์จริงและโยน error ถ้าเซิร์ฟเวอร์ล้มเหลว
+    //    ต่างจากของเดิมที่ต่อไม่ติดแล้วยังคืน array ว่างเหมือนไม่มีข้อมูล
+    const data = await apiGet<any>('getData');
+
     const configData = (data && data.config) ? data.config : {};
     const parsedData = {
         teams: (data && data.teams) || [],

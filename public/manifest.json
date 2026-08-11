@@ -1,8 +1,8 @@
 {
   "name": "Penalty Pro Arena",
   "short_name": "PenaltyPro",
-  "start_url": "/PenaltyPro/",
-  "scope": "/PenaltyPro/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#4f46e5",

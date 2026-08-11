@@ -1,0 +1,6 @@
+# ไฟล์อัปโหลดต้องเปิดอ่านได้ แต่ห้ามรันเป็นสคริปต์
+<FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
+    Require all denied
+</FilesMatch>
+Options -ExecCGI
+AddHandler default-handler .php .phtml .phar

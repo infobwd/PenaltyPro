@@ -1,5 +1,7 @@
 
-const CACHE_NAME = 'penalty-pro-v2';
+// bump ทุกครั้งที่ deploy ที่เปลี่ยนโครงไฟล์ — ไม่งั้นเครื่องที่เคยเปิดเว็บแล้ว
+// จะถูกเสิร์ฟ shell เก่าที่ยังชี้ asset ไปที่ /PenaltyPro/ ต่อไป
+const CACHE_NAME = 'penalty-pro-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

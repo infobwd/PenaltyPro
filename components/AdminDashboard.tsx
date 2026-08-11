@@ -665,7 +665,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const confirmResetDraw = () => { 
       const allTeams: Team[] = []; 
-      Object.values(liveGroups).forEach(groupTeams => { allTeams.push(...groupTeams); }); 
+      Object.values(liveGroups).forEach((groupTeams: Team[]) => { allTeams.push(...groupTeams); });
       
       setPoolTeams(prev => { 
           const existingIds = new Set(prev.map(t => t.id)); 

@@ -1,0 +1,296 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * เข้าสู่ระบบ 3 ช่องทาง — ดูเหตุผลของแต่ละอย่างใน lib/Auth.php
+ *
+ * `?action=auth` คงชื่อเดิมที่ frontend เรียกอยู่ แต่พฤติกรรมต่างจากเดิมตรงที่
+ * authType=line **ต้องส่ง idToken มา** ไม่ใช่ lineUserId ดิบ ๆ
+ */
+
+function handle(string $action, array $cfg): void
+{
+    match ($action) {
+        'auth', 'login'    => do_login(),
+        'teamLogin'        => do_team_login($cfg),
+        'logout'           => do_logout(),
+        'me'               => do_me(),
+        'changePassword'   => do_change_password(),
+        default            => Response::fail("ไม่รองรับ action '$action'", 404),
+    };
+}
+
+function do_login(): void
+{
+    $type = strtolower(Input::str('authType', 'login'));
+
+    if ($type === 'line') {
+        line_login();
+        return;
+    }
+    if ($type !== 'login') {
+        // ระบบเดิมมี authType=register ให้สมัครบัญชีเองได้ — ปิดไป เพราะตอนนี้
+        // ผู้ชมใช้ LINE และแอดมินถูกสร้างโดยแอดมินเท่านั้น
+        Response::fail('ช่องทางเข้าสู่ระบบนี้ถูกปิดแล้ว', 400);
+    }
+
+    $username = Input::require_str('username');
+    $password = Input::require_str('password');
+
+    $u = Db::one(
+        'SELECT user_id, username, password_hash, display_name, role, phone,
+                picture_url, line_user_id, must_change_password
+           FROM users WHERE username = :un',
+        [':un' => $username]
+    );
+
+    // ข้อความเดียวกันทั้งกรณีไม่มีบัญชีและรหัสผิด — ไม่ให้เดาว่ามี username ไหน
+    if ($u === null || !Auth::verifyPassword($password, $u)) {
+        usleep(300000);
+        Response::fail('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 401);
+    }
+
+    $session = Auth::issue($u['user_id']);
+    Audit::log('user', $u['user_id'], 'login');
+
+    Response::ok([
+        'userId'      => $u['user_id'],
+        'username'    => $u['username'],
+        'displayName' => $u['display_name'],
+        'pictureUrl'  => $u['picture_url'],
+        'phoneNumber' => $u['phone'],
+        'role'        => $u['role'],
+        'lineUserId'  => $u['line_user_id'],
+        'mustChangePassword' => (bool) $u['must_change_password'],
+        'token'       => $session['token'],
+        'expiresAt'   => $session['expiresAt'],
+    ]);
+}
+
+/**
+ * LINE Login — เชื่อเฉพาะ `sub` จาก ID token ที่ verify กับ LINE แล้ว
+ *
+ * ของเดิมรับ lineUserId จาก client ตรง ๆ ทำให้ปลอมเป็นแอดมินได้
+ * (ดูรายละเอียดใน lib/Auth.php)
+ */
+function line_login(): void
+{
+    $idToken = Input::str('idToken');
+    if ($idToken === '') {
+        Response::fail(
+            'ต้องส่ง idToken จาก liff.getIDToken() — ระบบไม่รับ lineUserId โดยตรงอีกแล้ว',
+            422
+        );
+    }
+
+    $profile = Auth::verifyLineIdToken($idToken);
+    $sub = $profile['sub'];
+
+    $u = Db::one(
+        'SELECT user_id, username, display_name, role, phone, picture_url,
+                line_user_id, must_change_password
+           FROM users WHERE line_user_id = :sub',
+        [':sub' => $sub]
+    );
+
+    if ($u === null) {
+        // ผู้ใช้ใหม่ได้ role 'user' เสมอ — เลื่อนเป็นแอดมินได้จากหน้าแอดมินเท่านั้น
+        $uid = 'U_' . (int) (microtime(true) * 1000);
+        $name = $profile['name'] !== '' ? $profile['name'] : 'ผู้ใช้ LINE';
+        Db::exec(
+            'INSERT INTO users (user_id, line_user_id, display_name, picture_url, role)
+             VALUES (:uid, :sub, :name, :pic, :role)',
+            [
+                ':uid'  => $uid,
+                ':sub'  => $sub,
+                ':name' => $name,
+                ':pic'  => $profile['picture'],
+                ':role' => 'user',
+            ]
+        );
+        $u = [
+            'user_id' => $uid, 'username' => null, 'display_name' => $name,
+            'role' => 'user', 'phone' => '', 'picture_url' => $profile['picture'],
+            'line_user_id' => $sub, 'must_change_password' => 0,
+        ];
+        Audit::log('user', $uid, 'create_via_line');
+    } else {
+        // อัปเดตชื่อ/รูปให้ตรงกับ LINE ปัจจุบัน
+        Db::exec(
+            'UPDATE users SET display_name = :name, picture_url = :pic
+              WHERE user_id = :uid',
+            [
+                ':name' => $profile['name'] !== '' ? $profile['name'] : $u['display_name'],
+                ':pic'  => $profile['picture'] !== '' ? $profile['picture'] : $u['picture_url'],
+                ':uid'  => $u['user_id'],
+            ]
+        );
+    }
+
+    $session = Auth::issue($u['user_id']);
+
+    Response::ok([
+        'userId'      => $u['user_id'],
+        'username'    => $u['username'],
+        'displayName' => $u['display_name'],
+        'pictureUrl'  => $u['picture_url'],
+        'phoneNumber' => $u['phone'],
+        'role'        => $u['role'],
+        'lineUserId'  => $u['line_user_id'],
+        'token'       => $session['token'],
+        'expiresAt'   => $session['expiresAt'],
+    ]);
+}
+
+/**
+ * โรงเรียนเข้าด้วยรหัส 8 ตัว
+ *
+ * รหัสสั้นพอที่จะถูกไล่เดา จึงต้องมี rate limit — ไม่งั้นการมีรหัสเท่ากับไม่มี
+ */
+function do_team_login(array $cfg): void
+{
+    $code = strtoupper(preg_replace('/[^A-Z0-9]/i', '', Input::require_str('accessCode')));
+    $tournamentId = Input::str('tournamentId');
+
+    $limits = $cfg['access_code'] ?? [];
+    $window   = (int) ($limits['window_seconds'] ?? 900);
+    $maxTry   = (int) ($limits['max_attempts_per_ip'] ?? 5);
+    $lockTry  = (int) ($limits['lockout_attempts'] ?? 10);
+    $lockSecs = (int) ($limits['lockout_seconds'] ?? 3600);
+    $ip = Auth::ipHash();
+
+    $recent = (int) Db::value(
+        'SELECT COUNT(*) FROM access_attempts
+          WHERE ip_hash = :ip AND succeeded = 0
+            AND attempted_at > DATE_SUB(NOW(), INTERVAL :win SECOND)',
+        [':ip' => $ip, ':win' => $window]
+    );
+    if ($recent >= $lockTry) {
+        Db::exec('INSERT INTO access_attempts (ip_hash, succeeded) VALUES (:ip2, 0)',
+            [':ip2' => $ip]);
+        Response::fail('ใส่รหัสผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่', 429,
+            ['retryAfterSeconds' => $lockSecs]);
+    }
+    if ($recent >= $maxTry) {
+        usleep(1500000);   // หน่วงให้การไล่เดาช้าลงมาก
+    }
+
+    // รหัสเก็บเป็น hash จึงต้องดึงมาเทียบทีละแถว — โรงเรียนมีหลักสิบ ไม่ใช่ปัญหา
+    $rows = Db::all(
+        'SELECT school_id, school_name, access_code_hash FROM schools
+          WHERE access_code_hash IS NOT NULL AND is_active = 1'
+    );
+    $school = null;
+    foreach ($rows as $r) {
+        if (password_verify($code, (string) $r['access_code_hash'])) {
+            $school = $r;
+            break;
+        }
+    }
+
+    if ($school === null) {
+        Db::exec('INSERT INTO access_attempts (ip_hash, succeeded) VALUES (:ip3, 0)',
+            [':ip3' => $ip]);
+        usleep(300000);
+        Response::fail('รหัสไม่ถูกต้อง', 401);
+    }
+
+    // ไม่ระบุทัวร์นาเมนต์มา -> ใช้รายการที่เปิดใช้งานอยู่
+    if ($tournamentId === '') {
+        $tournamentId = (string) (Db::value(
+            "SELECT tournament_id FROM tournaments
+              WHERE status = 'Active' ORDER BY created_at DESC LIMIT 1") ?? '');
+    }
+    if ($tournamentId === '') {
+        Response::fail('ยังไม่มีรายการแข่งขันที่เปิดใช้งาน', 409);
+    }
+
+    Db::exec('INSERT INTO access_attempts (school_id, ip_hash, succeeded)
+              VALUES (:sid, :ip4, 1)',
+        [':sid' => $school['school_id'], ':ip4' => $ip]);
+    Db::exec('UPDATE schools SET access_code_used_at = NOW() WHERE school_id = :sid2',
+        [':sid2' => $school['school_id']]);
+
+    $session = Auth::issueTeam($school['school_id'], $tournamentId);
+    Audit::log('school', $school['school_id'], 'team_login');
+
+    $teams = Db::all(
+        'SELECT team_id, name, status, group_name,
+                (SELECT COUNT(*) FROM players p WHERE p.team_id = t.team_id) AS player_count
+           FROM teams t
+          WHERE t.school_id = :sid3 AND t.tournament_id = :tid
+          ORDER BY t.name',
+        [':sid3' => $school['school_id'], ':tid' => $tournamentId]
+    );
+
+    Response::ok([
+        'schoolId'     => $school['school_id'],
+        'schoolName'   => $school['school_name'],
+        'tournamentId' => $tournamentId,
+        'teams'        => array_map(static fn(array $t): array => [
+            'id'          => $t['team_id'],
+            'name'        => $t['name'],
+            'status'      => $t['status'],
+            'group'       => (string) $t['group_name'],
+            'playerCount' => (int) $t['player_count'],
+        ], $teams),
+        'token'     => $session['token'],
+        'expiresAt' => $session['expiresAt'],
+    ]);
+}
+
+function do_logout(): void
+{
+    Auth::revokeCurrent();
+    Response::ok();
+}
+
+function do_me(): void
+{
+    if (Auth::schoolId() !== null) {
+        Response::ok([
+            'type'         => 'school',
+            'schoolId'     => Auth::schoolId(),
+            'tournamentId' => Auth::teamTournamentId(),
+        ]);
+    }
+    $u = Auth::requireLogin();
+    Response::ok([
+        'type'        => 'user',
+        'userId'      => $u['user_id'],
+        'displayName' => $u['display_name'],
+        'role'        => $u['role'],
+        'pictureUrl'  => $u['picture_url'],
+        'lineUserId'  => $u['line_user_id'],
+        'mustChangePassword' => (bool) $u['must_change_password'],
+    ]);
+}
+
+function do_change_password(): void
+{
+    $u = Auth::requireLogin();
+    $new = Input::require_str('newPassword');
+    if (strlen($new) < 8) {
+        Response::fail('รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร', 422);
+    }
+
+    // บัญชีที่ถูกบังคับเปลี่ยนรหัส (ย้ายมาจากชีตที่รหัสเป็น plaintext)
+    // ไม่ต้องยืนยันรหัสเดิม เพราะรหัสเดิมถือว่าหลุดแล้ว
+    if (!$u['must_change_password']) {
+        $current = Input::require_str('currentPassword');
+        $full = Db::one('SELECT password_hash FROM users WHERE user_id = :uid',
+            [':uid' => $u['user_id']]);
+        if ($full === null || !Auth::verifyPassword($current, $full)) {
+            Response::fail('รหัสผ่านเดิมไม่ถูกต้อง', 401);
+        }
+    }
+
+    Db::exec(
+        "UPDATE users SET password_hash = :h, password_algo = 'argon2id',
+                          must_change_password = 0
+          WHERE user_id = :uid2",
+        [':h' => Auth::hashPassword($new), ':uid2' => $u['user_id']]
+    );
+    Audit::log('user', $u['user_id'], 'change_password');
+    Response::ok();
+}
