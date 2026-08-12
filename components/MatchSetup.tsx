@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { Trophy, ArrowRight, Users, Settings, ChevronDown, ChevronUp, EyeOff } from 'lucide-react';
+import { Trophy, ArrowRight, Users, ChevronDown, ChevronUp, EyeOff } from 'lucide-react';
 import { Team } from '../types';
 
 interface MatchSetupProps {
   onStart: (teamA: Team, teamB: Team) => void;
   availableTeams: Team[];
-  onOpenSettings: () => void;
   isLoadingData: boolean;
   isAdmin?: boolean;
   onHide?: () => void;
@@ -19,7 +18,7 @@ const createManualTeam = (name: string, id: string, color: string): Team => ({
   logoUrl: ''
 });
 
-const MatchSetup: React.FC<MatchSetupProps> = ({ onStart, availableTeams, onOpenSettings, isLoadingData, isAdmin = false, onHide }) => {
+const MatchSetup: React.FC<MatchSetupProps> = ({ onStart, availableTeams, isLoadingData, isAdmin = false, onHide }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [teamAId, setTeamAId] = useState<string>('');
   const [teamBId, setTeamBId] = useState<string>('');
@@ -73,7 +72,7 @@ const MatchSetup: React.FC<MatchSetupProps> = ({ onStart, availableTeams, onOpen
       {isOpen && (
         <div className="bg-white rounded-b-2xl shadow-xl p-6 border border-t-0 border-slate-200 animate-in slide-in-from-top-2">
             <div className="flex justify-end mb-2">
-                <button onClick={onOpenSettings} className="p-1 text-slate-400 hover:text-indigo-600" title="ตั้งค่า"><Settings className="w-4 h-4" /></button>
+                
             </div>
             <form onSubmit={handleSubmit} className="space-y-6">
             {availableTeams.length > 0 ? (

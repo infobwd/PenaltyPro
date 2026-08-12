@@ -5,7 +5,6 @@ import MatchSetup from './components/MatchSetup';
 import ScoreVisualizer from './components/ScoreVisualizer';
 import PenaltyInterface from './components/PenaltyInterface';
 import RegularMatchInterface from './components/RegularMatchInterface';
-import SettingsDialog from './components/SettingsDialog';
 import RegistrationForm from './components/RegistrationForm';
 import TournamentView from './components/TournamentView';
 import StandingsView from './components/StandingsView';
@@ -154,7 +153,6 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingKick, setEditingKick] = useState<Kick | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false); 
   const [isPinOpen, setIsPinOpen] = useState(false); 
   const [isAdmin, setIsAdmin] = useState(false);
@@ -843,7 +841,6 @@ export default function App() {
     <div className="bg-slate-50 min-h-screen text-slate-900 font-sans pb-24" style={{ fontFamily: "'Kanit', sans-serif" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       <SystemDialogHost onNotify={showNotification} />
-      <SettingsDialog isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSave={() => loadData(true)} currentSettings={appConfig} />
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
       <UserLoginDialog isOpen={isUserLoginOpen} onClose={() => setIsUserLoginOpen(false)} onLoginSuccess={handleUserLoginSuccess} />
@@ -1658,7 +1655,6 @@ export default function App() {
                     <MatchSetup
                         onStart={handleStartMatchRequest}
                         availableTeams={activeTeams}
-                        onOpenSettings={() => setIsSettingsOpen(true)}
                         isLoadingData={isLoadingData}
                         isAdmin={isAdmin}
                         onHide={isAdmin ? () => setPenaltyCardVisibility(false) : undefined}

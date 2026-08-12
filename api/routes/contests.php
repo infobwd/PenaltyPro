@@ -30,25 +30,22 @@ function handle(string $action, array $cfg): void
 // ─────────────────────────────────────────────────────────────────────────
 
 /** ผู้ใช้ LINE ที่ยังไม่มีในระบบต้องสร้างก่อน ไม่งั้น FK ไม่ผ่าน */
-function ensure_user(string $userId): void
+/**
+ * ตัวตนของคนที่กำลังทำรายการ — เอาจาก token เท่านั้น
+ *
+ * ของเดิมอ่าน userId จาก body ตรง ๆ แล้วเชื่อเลย ใครรู้ user id ของคนอื่นก็
+ * ส่งรูปประกวด กดไลก์ คอมเมนต์ หรือลบรูปในนามคนนั้นได้ทันที
+ * แถม ensure_user() ยัง INSERT users ใหม่จากข้อมูลที่ client ส่งมา รวมถึง
+ * line_user_id — จองบัญชีดักไว้ล่วงหน้าได้ พอเจ้าตัวเข้าด้วย LINE จริง
+ * line_login() จะเจอแถวที่ถูกยัดไว้แล้วแล้วออก session ให้กับแถวนั้น
+ *
+ * เป็นช่องโหว่ชนิดเดียวกับที่ปิดไปแล้วในหน้า login (เลิกเชื่อ lineUserId ดิบ)
+ * แต่ตกหล่นไฟล์นี้ ผู้ใช้ LINE ที่เข้าระบบแล้วมี token อยู่แล้วทุกคน
+ * จึงไม่ต้องสร้าง user เองอีก
+ */
+function actor_id(): string
 {
-    if ($userId === '') {
-        Response::fail('ต้องเข้าสู่ระบบด้วย LINE ก่อน', 401);
-    }
-    if (Db::value('SELECT 1 FROM users WHERE user_id = :uid', [':uid' => $userId]) !== null) {
-        return;
-    }
-    Db::exec(
-        'INSERT INTO users (user_id, display_name, picture_url, line_user_id, role)
-         VALUES (:uid2, :name, :pic, :line, :role)',
-        [
-            ':uid2' => $userId,
-            ':name' => Input::str('userDisplayName') ?: 'ผู้ใช้ LINE',
-            ':pic'  => Input::str('userPic'),
-            ':line' => Input::str('lineUserId') ?: $userId,
-            ':role' => 'user',
-        ]
-    );
+    return (string) Auth::requireLogin()['user_id'];
 }
 
 function entry_payload(array $e, array $likedBy): array
@@ -146,8 +143,7 @@ function list_comments(): void
 function submit_entry(array $cfg): void
 {
     $contestId = Input::require_str('contestId');
-    $userId    = Input::str('userId');
-    ensure_user($userId);
+    $userId = actor_id();
 
     $c = Db::one('SELECT * FROM contests WHERE contest_id = :cid', [':cid' => $contestId]);
     if ($c === null) {
@@ -193,7 +189,7 @@ function submit_entry(array $cfg): void
 function delete_entry(): void
 {
     $entryId = Input::require_str('entryId');
-    $userId  = Input::str('userId');
+    $userId  = actor_id();
 
     $e = Db::one('SELECT * FROM contest_entries WHERE entry_id = :eid', [':eid' => $entryId]);
     if ($e === null) {
@@ -223,8 +219,7 @@ function delete_entry(): void
 function toggle_like(): void
 {
     $entryId = Input::require_str('entryId');
-    $userId  = Input::str('userId');
-    ensure_user($userId);
+    $userId = actor_id();
 
     if (Db::value('SELECT 1 FROM contest_entries WHERE entry_id = :eid',
             [':eid' => $entryId]) === null) {
@@ -271,8 +266,7 @@ function toggle_like(): void
 function submit_comment(): void
 {
     $entryId = Input::require_str('entryId');
-    $userId  = Input::str('userId');
-    ensure_user($userId);
+    $userId = actor_id();
 
     $message = trim(Input::str('message'));
     if ($message === '') {

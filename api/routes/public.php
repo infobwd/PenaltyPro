@@ -243,7 +243,10 @@ function submit_donation(array $cfg): void
             ':anon'   => Input::bool('isAnonymous') ? 1 : 0,
             ':slip'   => $slipUrl,
             ':taxf'   => $taxUrl,
-            ':line'   => Input::str('lineUserId'),
+            // ผูกกับบัญชีที่เข้าระบบอยู่จริง ไม่ใช่ค่าที่ client ส่งมา
+            // ผู้บริจาคไม่ต้องเข้าระบบก็บริจาคได้ (เป็นช่องว่างได้) แต่ถ้าเข้าระบบอยู่
+            // ต้องเป็นตัวเขาจริง ไม่งั้นใครก็ยัดยอดบริจาคใส่ชื่อคนอื่นได้
+            ':line'   => (string) (Auth::user()['line_user_id'] ?? ''),
             // รอเจ้าหน้าที่ตรวจสลิปเสมอ — ยอดยังไม่นับรวมจนกว่าจะยืนยัน
             ':status' => 'Pending',
         ]
@@ -264,7 +267,9 @@ function submit_donation(array $cfg): void
 function submit_prediction(): void
 {
     $matchId = Input::require_str('matchId');
-    $userId  = Input::require_str('userId');
+    // ตัวตนจาก token เท่านั้น — เดิมรับ userId จาก body ทำให้ทายผลแทนคนอื่นได้
+    // และสร้างบัญชีใหม่จากข้อมูลที่ client ส่งมาได้ด้วย (เหตุผลเต็มใน contests.php)
+    $userId  = (string) Auth::requireLogin()['user_id'];
     $pick    = strtoupper(Input::str('prediction'));
     if ($pick !== 'A' && $pick !== 'B') {
         Response::fail('ต้องเลือกทีม A หรือ B', 422);
@@ -279,21 +284,6 @@ function submit_prediction(): void
     if ($m['status'] !== 'Scheduled') {
         Response::fail('นัดนี้เริ่มแข่งแล้ว ทายผลไม่ได้', 409,
             ['status' => $m['status']]);
-    }
-
-    // ผู้ใช้ LINE ที่ยังไม่เคยมีในระบบ ต้องสร้างก่อน ไม่งั้น FK ไม่ผ่าน
-    if (Db::value('SELECT 1 FROM users WHERE user_id = :uid', [':uid' => $userId]) === null) {
-        Db::exec(
-            'INSERT INTO users (user_id, display_name, picture_url, line_user_id, role)
-             VALUES (:uid2, :name, :pic, :line, :role)',
-            [
-                ':uid2' => $userId,
-                ':name' => Input::str('userDisplayName') ?: 'ผู้ใช้ LINE',
-                ':pic'  => Input::str('userPic'),
-                ':line' => Input::str('lineUserId') ?: $userId,
-                ':role' => 'user',
-            ]
-        );
     }
 
     // หนึ่งคนหนึ่งเสียงต่อนัด — เปลี่ยนใจได้ก่อนเริ่มแข่ง

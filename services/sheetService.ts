@@ -15,7 +15,8 @@ const CACHE_KEY_TIMESTAMP = 'penalty_pro_db_timestamp';
 const CACHE_DURATION = 60 * 1000;
 
 /** ปลายทาง API ปัจจุบัน — ใช้แสดงในหน้าตั้งค่าเพื่อให้ตรวจได้ว่าชี้ไปที่ไหน */
-export const getStoredScriptUrl = (): string | null => DB_API;
+// getStoredScriptUrl/setStoredScriptUrl ถูกลบแล้ว — ไม่มี Apps Script ให้ตั้งค่าอีกต่อไป
+// ปลายทางคือ /api/ ของโฮสต์เราเอง กำหนดตอน build ไม่ใช่ให้ผู้ใช้พิมพ์เอง
 
 // ... existing functions ...
 
@@ -105,7 +106,6 @@ export const incrementShareCount = async (entryId: string): Promise<boolean> => 
 
 // RE-EXPORT all existing functions to maintain file integrity
 /** ปลายทางถูกกำหนดตอน build แล้ว (path สัมพัทธ์ /api/) แก้จากหน้าเว็บไม่ได้ */
-export const setStoredScriptUrl = (_url: string) => {};
 
 export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[], predictions: Prediction[] } | null> => {
   try {
@@ -312,8 +312,10 @@ export const updateTeamData = async (
     status: team.status,
     groupName: team.groupName ?? team.group,
     schoolId: team.schoolId,
+    // ส่ง id กลับไปด้วยเสมอ — server ใช้จับคู่ว่าใครเป็นคนเดิม
+    // ถ้าไม่ส่ง แถวเดิมจะถูกลบแล้วสร้างใหม่ สถิติยิงจุดโทษและผลรายงานตัวหายตาม
     players: players.map(p => ({
-      name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
+      id: p.id, name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
     })),
   });
   return true;
@@ -404,8 +406,10 @@ export const updateMyTeam = async (team: Partial<Team>, players: Partial<Player>
     coachName: team.coachName, coachPhone: team.coachPhone,
     directorName: team.directorName, logoUrl: team.logoUrl,
     docUrl: team.docUrl, slipUrl: team.slipUrl,
+    // ส่ง id กลับไปด้วยเสมอ — server ใช้จับคู่ว่าใครเป็นคนเดิม
+    // ถ้าไม่ส่ง แถวเดิมจะถูกลบแล้วสร้างใหม่ สถิติยิงจุดโทษและผลรายงานตัวหายตาม
     players: players.map(p => ({
-      name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
+      id: p.id, name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
     })),
   });
   return true;

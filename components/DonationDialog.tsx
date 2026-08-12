@@ -5,6 +5,7 @@ import { notifyUser } from '../services/uiService';
 import { Heart, X, Copy, Check, CreditCard, Upload, FileText, Loader2, ArrowRight, ShieldAlert, CheckCircle2, FileCheck } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
 import { fileToBase64 } from '../services/sheetService';
+import { submitDonation } from '../services/sheetService';
 
 interface DonationDialogProps {
   isOpen: boolean;
@@ -108,27 +109,23 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
               taxFileBase64 = await fileToBase64(taxFile);
           }
           
-          const payload: any = { 
-              action: 'submitDonation',
-              tournamentId: tournamentId || 'default', 
+          // ยิงเข้า MySQL ผ่าน API ของเราเอง
+          //
+          // ของเดิม POST ไป Apps Script ด้วย mode:'no-cors' ซึ่งอ่าน response ไม่ได้เลย
+          // โค้ดจึงขึ้น "สำเร็จ" ทุกครั้งแม้ปลายทางจะพัง เงินไปอยู่ในชีต ส่วนหน้าแอดมิน
+          // อ่านจาก MySQL — ผู้บริจาคโอนแล้วแต่ไม่มีใครเห็นรายการ
+          await submitDonation({
+              tournamentId: tournamentId || '',
               amount: parseFloat(amount),
               donorName,
               donorPhone,
+              phone: donorPhone,          // ฝั่ง server อ่านชื่อ phone
               isEdonation,
               taxId: isEdonation ? taxId : '',
               address: isEdonation ? address : '',
               slipFile: slipBase64,
-              lineUserId: currentUser?.userId || '', 
-              isAnonymous: isAnonymous,
-              taxFile: taxFileBase64 
-          };
-
-          const API_URL = "https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec"; 
-          await fetch(API_URL, {
-              method: 'POST',
-              mode: 'no-cors', 
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify(payload)
+              isAnonymous,
+              taxFile: taxFileBase64,
           });
 
           clearInterval(interval);
@@ -136,7 +133,10 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
           setTimeout(() => setIsSuccess(true), 500);
 
       } catch (error) {
-          notifyUser('ส่งข้อมูลไม่สำเร็จ', 'เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่', 'error');
+          // บอกสาเหตุจริงจาก server ไม่ใช่ข้อความกลาง ๆ
+          // ผู้บริจาคจะได้รู้ว่าต้องแก้อะไร (สลิปใหญ่เกิน จำนวนเงินไม่ถูก ฯลฯ)
+          notifyUser('ส่งข้อมูลไม่สำเร็จ',
+              (error as Error).message || 'เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่', 'error');
           setUploadProgress(0);
       } finally {
           setIsSubmitting(false);

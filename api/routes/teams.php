@@ -416,12 +416,100 @@ function save_team(): void
         if (!$touchPlayers) {
             return;   // แก้เฉพาะข้อมูลทีม ไม่แตะรายชื่อ
         }
-        // แทนที่รายชื่อทั้งชุด — ง่ายและถูกต้องกว่าไล่ diff ทีละคน
-        Db::exec('DELETE FROM players WHERE team_id = :tid2', [':tid2' => $teamId]);
+        // ── แก้รายชื่อแบบคงตัวตนเดิมไว้ ────────────────────────────────
+        //
+        // ของเดิมลบผู้เล่นทั้งทีมแล้ว INSERT ใหม่พร้อม player_id ชุดใหม่ทุกครั้ง
+        // แค่แก้ชื่อคนเดียวก็ทำให้ id ของทุกคนเปลี่ยน ผลคือ:
+        //   - kicks.player_id เป็น ON DELETE SET NULL -> สถิติยิงจุดโทษรายคนขาดจากตัวคน
+        //   - player_checkins เป็น ON DELETE CASCADE -> ผลรายงานตัวหน้างานหายทั้งทีม
+        // และตั้งแต่เปิดให้แก้ทีมที่อนุมัติแล้วได้ เคสนี้จะเกิดใกล้วันแข่งพอดี
+        //
+        // จับคู่ด้วย id ที่ client ส่งกลับมาก่อน ถ้าไม่มีค่อยใช้ชื่อ+เบอร์เสื้อ
+        // (client เก่าบางตัวไม่ส่ง id — ต้องไม่พังและต้องไม่ทิ้งข้อมูล)
+        $existing = Db::all(
+            'SELECT player_id, name, shirt_number FROM players WHERE team_id = :tid2',
+            [':tid2' => $teamId]
+        );
+
+        $natural = static fn(?string $name, ?string $num): string =>
+            mb_strtolower(trim((string) $name)) . '#' . trim((string) $num);
+
+        $byId = [];
+        $byKey = [];
+        foreach ($existing as $e) {
+            $byId[$e['player_id']] = $e;
+            $byKey[$natural($e['name'], $e['shirt_number'])][] = $e['player_id'];
+        }
+
+        $keep = [];        // player_id เดิม -> ข้อมูลชุดใหม่ที่จะเขียนทับ
+        $insert = [];      // แถวใหม่ล้วน
+        $recheck = [];     // คนที่ตัวตนเปลี่ยน ต้องให้เจ้าภาพตรวจใหม่
+
         foreach ($players as $i => $p) {
-            $num = trim((string) ($p['number'] ?? ''));
-            $bd  = trim((string) ($p['birthDate'] ?? ''));
-            $ts  = $bd === '' ? false : strtotime($bd);
+            $name = trim((string) ($p['name'] ?? ''));
+            $num  = trim((string) ($p['number'] ?? ''));
+            $bd   = trim((string) ($p['birthDate'] ?? ''));
+            $ts   = $bd === '' ? false : strtotime($bd);
+            $row = [
+                'name'  => $name,
+                // '' ต้องเป็น NULL ไม่งั้น uq_player_shirt ชนกันเอง
+                'num'   => $num === '' ? null : $num,
+                'pos'   => (string) ($p['position'] ?? 'Player'),
+                'photo' => (string) ($p['photoUrl'] ?? ''),
+                'bd'    => $ts === false ? null : date('Y-m-d', $ts),
+                'ord'   => $i,
+            ];
+
+            $matched = null;
+            $sentId = trim((string) ($p['id'] ?? ''));
+            if ($sentId !== '' && isset($byId[$sentId]) && !isset($keep[$sentId])) {
+                $matched = $sentId;
+            } else {
+                foreach ($byKey[$natural($name, $num)] ?? [] as $cand) {
+                    if (!isset($keep[$cand])) { $matched = $cand; break; }
+                }
+            }
+
+            if ($matched === null) {
+                $insert[] = $row;
+                continue;
+            }
+            // ชื่อเปลี่ยน = คนละคน ผลรายงานตัวที่กรรมการเช็กไว้ใช้ไม่ได้แล้ว
+            if (mb_strtolower(trim((string) $byId[$matched]['name'])) !== mb_strtolower($name)) {
+                $recheck[] = $matched;
+            }
+            $keep[$matched] = $row;
+        }
+
+        // 1. คนที่หายไปจากรายชื่อ ลบทิ้ง (เบอร์เสื้อของเขาจะได้ว่างให้คนอื่นใช้)
+        foreach ($existing as $e) {
+            if (!isset($keep[$e['player_id']])) {
+                Db::exec('DELETE FROM players WHERE player_id = :dpid',
+                    [':dpid' => $e['player_id']]);
+            }
+        }
+
+        // 2. ปลดเบอร์เสื้อของคนที่เก็บไว้ให้ว่างก่อน
+        //    ถ้าเขียนเบอร์ใหม่ทับเลย กรณีสองคนสลับเบอร์กัน (7<->9) จะชน
+        //    uq_player_shirt กลางคัน ทั้งที่ผลลัพธ์สุดท้ายไม่ซ้ำ
+        foreach ($keep as $pid => $row) {
+            Db::exec(
+                'UPDATE players SET name = :name3, shirt_number = NULL, position = :pos2,
+                                    photo_url = :photo2, birth_date = :bd2, display_order = :ord2
+                  WHERE player_id = :upid',
+                [
+                    ':name3' => $row['name'],
+                    ':pos2'  => $row['pos'],
+                    ':photo2' => $row['photo'],
+                    ':bd2'   => $row['bd'],
+                    ':ord2'  => $row['ord'],
+                    ':upid'  => $pid,
+                ]
+            );
+        }
+
+        // 3. คนใหม่ — ตอนนี้เบอร์ว่างหมดแล้ว ใส่เบอร์จริงได้เลย
+        foreach ($insert as $i => $row) {
             Db::exec(
                 'INSERT INTO players
                     (player_id, team_id, name, shirt_number, position,
@@ -431,15 +519,31 @@ function save_team(): void
                     ':pid'   => 'P_' . (int) (microtime(true) * 1000) . '_' . $i
                                 . '_' . random_int(10, 99),
                     ':tid3'  => $teamId,
-                    ':name2' => trim((string) ($p['name'] ?? '')),
-                    // '' ต้องเป็น NULL ไม่งั้น uq_player_shirt ชนกันเอง
-                    ':num'   => $num === '' ? null : $num,
-                    ':pos'   => (string) ($p['position'] ?? 'Player'),
-                    ':photo' => (string) ($p['photoUrl'] ?? ''),
-                    ':bd'    => $ts === false ? null : date('Y-m-d', $ts),
-                    ':ord'   => $i,
+                    ':name2' => $row['name'],
+                    ':num'   => $row['num'],
+                    ':pos'   => $row['pos'],
+                    ':photo' => $row['photo'],
+                    ':bd'    => $row['bd'],
+                    ':ord'   => $row['ord'],
                 ]
             );
+        }
+
+        // 4. คืนเบอร์เสื้อให้คนเดิม
+        foreach ($keep as $pid => $row) {
+            Db::exec('UPDATE players SET shirt_number = :num2 WHERE player_id = :spid',
+                [':num2' => $row['num'], ':spid' => $pid]);
+        }
+
+        // 5. คนที่เปลี่ยนชื่อ ล้างผลรายงานตัวทิ้ง — กรรมการตรวจหน้าคนเดิมไว้
+        //    ตารางนี้อาจยังไม่มีถ้ายังไม่ได้รัน db/10 จึงกลืน error ไว้
+        foreach ($recheck as $pid) {
+            try {
+                Db::exec('DELETE FROM player_checkins WHERE player_id = :cpid',
+                    [':cpid' => $pid]);
+            } catch (Throwable) {
+                // ยังไม่มีตาราง player_checkins — ไม่ใช่เรื่องที่ต้องล้มการบันทึกทีม
+            }
         }
     });
 

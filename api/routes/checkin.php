@@ -24,14 +24,27 @@ function checkin_teams(): void
 {
     Auth::requireStaff();
 
+    // ต้องระบุรายการมาเสมอ ห้ามเดา
+    //
+    // เดิมเผื่อไว้ว่าถ้าไม่ส่งมาให้หยิบ "Active ที่สร้างล่าสุด" ซึ่งใช้ไม่ได้จริง:
+    // ระบบนี้มีรายการสถานะ Active พร้อมกันมากกว่าหนึ่ง และ ETL ตั้ง created_at
+    // ของทุกรายการเป็นเวลาเดียวกัน การเรียงจึงให้ผลที่เดาไม่ได้
+    // เดาผิดตอนรายงานตัวหน้างาน = กรรมการเช็กชื่อผิดรายการโดยไม่รู้ตัว
     $tournamentId = Input::str('tournamentId');
     if ($tournamentId === '') {
-        $tournamentId = (string) (Db::value(
-            "SELECT tournament_id FROM tournaments
-              WHERE status = 'Active' ORDER BY created_at DESC LIMIT 1") ?? '');
-    }
-    if ($tournamentId === '') {
-        Response::ok(['tournamentId' => '', 'teams' => []]);
+        $open = Db::all(
+            "SELECT tournament_id, name FROM tournaments
+              WHERE status = 'Active' ORDER BY name"
+        );
+        if (count($open) === 1) {
+            $tournamentId = (string) $open[0]['tournament_id'];
+        } else {
+            Response::fail('ต้องระบุรายการแข่งขันที่จะรายงานตัว', 422, [
+                'choices' => array_map(static fn(array $t): array => [
+                    'id' => $t['tournament_id'], 'name' => $t['name'],
+                ], $open),
+            ]);
+        }
     }
 
     // นับในคิวรีเดียว — ถ้าวนนับทีละทีมจะยิง query เท่าจำนวนทีม

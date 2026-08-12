@@ -29,6 +29,10 @@ interface Props {
 }
 
 interface PlayerRow {
+  // id ของแถวเดิมในฐานข้อมูล — ต้องส่งกลับไปตอนบันทึก ไม่งั้น server แยกไม่ออก
+  // ว่าเป็นคนเดิมที่แก้ชื่อ หรือคนใหม่ แล้วจะลบแถวเดิมทิ้งพร้อมสถิติและผลรายงานตัว
+  // แถวว่างที่เติมให้กรอกจะไม่มี id (undefined) = คนใหม่
+  id?: string;
   name: string;
   number: string;
   birthDate: string;
@@ -239,7 +243,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
     const players = editing.players
       .filter(p => p.name.trim() !== '')
       .map(p => ({
-        name: p.name.trim(), number: p.number.trim(),
+        id: p.id, name: p.name.trim(), number: p.number.trim(),
         birthDate: p.birthDate, photoUrl: p.photoUrl || '',
       }));
 

@@ -90,6 +90,14 @@ final class Response
 
     private static function send(array $payload, int $code): void
     {
+        // ธงบอกผลที่เชื่อได้เสมอ
+        //
+        // ok()/fail() ใช้ `$payload + [...]` ซึ่งไม่เขียนทับคีย์ที่มีอยู่แล้ว
+        // endpoint ที่คืนสถานะของตัวเองมาในชื่อ status (submitTeam -> 'Submitted',
+        // reviewTeam -> 'Approved') จึงกลืนตัวบอกสำเร็จ/ผิดพลาดหายไปเงียบ ๆ
+        // ฝั่งเว็บรอดมาได้เพราะดู HTTP code เป็นหลัก แต่ client อื่นไม่มีอะไรให้ยึด
+        $payload['ok'] = $code < 400;
+
         if (self::$warnings !== []) {
             $payload['warnings'] = self::$warnings;
         }

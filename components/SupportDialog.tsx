@@ -4,6 +4,7 @@ import { Coffee, GraduationCap, X, Copy, Check, Upload, ArrowRight, Loader2, QrC
 import { AppSettings, UserProfile } from '../types';
 import { fileToBase64, saveSettings } from '../services/sheetService';
 import { notifyUser } from '../services/uiService';
+import { submitDonation } from '../services/sheetService';
 
 interface SupportDialogProps {
   isOpen: boolean;
@@ -67,29 +68,23 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
       const slipBase64 = await fileToBase64(slipFile);
       const tournamentId = activeTab === 'coffee' ? '_SYS_COFFEE' : '_SYS_EDUCATION';
       
-      const payload = {
-        action: 'submitDonation',
-        tournamentId: tournamentId,
+      // เข้า MySQL เหมือนหน้าบริจาคหลัก — ดูเหตุผลใน DonationDialog.tsx
+      await submitDonation({
+        tournamentId: tournamentId || '',
         amount: parseFloat(amount),
-        donorName: donorName,
+        donorName,
         donorPhone: currentUser?.phoneNumber || '',
+        phone: currentUser?.phoneNumber || '',
         isEdonation: false,
         slipFile: slipBase64,
-        lineUserId: currentUser?.userId || '',
-        isAnonymous: false
-      };
-
-      await fetch("https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec", {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
+        isAnonymous: false,
       });
 
       setIsSuccess(true);
       if (onRefresh) onRefresh();
     } catch (e) {
-      notifyUser('ส่งข้อมูลไม่สำเร็จ', 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', 'error');
+      notifyUser('ส่งข้อมูลไม่สำเร็จ',
+        (e as Error).message || 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
       setIsSubmitting(false);
     }

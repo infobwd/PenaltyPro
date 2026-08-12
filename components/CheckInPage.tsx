@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronLeft, Search, Loader2, CheckCircle2, XCircle, AlertTriangle,
-  RefreshCw, UserCheck, Users, Phone, ShieldCheck, X,
+  RefreshCw, UserCheck, Users, Phone, ShieldCheck, X, Printer, CloudOff,
 } from 'lucide-react';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
 import { ToastType } from './Toast';
@@ -55,6 +55,8 @@ const STATUS_UI = {
 
 const ORDER: (keyof typeof STATUS_UI)[] = ['present', 'absent', 'issue'];
 
+const QUEUE_KEY = 'penalty_pro_checkin_queue';
+
 const calcAge = (birth: string | null): string => {
   if (!birth) return '';
   const d = new Date(birth);
@@ -78,6 +80,13 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [zoom, setZoom] = useState<Player | null>(null);
+  // งานที่ยังส่งไม่สำเร็จ — สนามคือที่ที่เน็ตแย่ที่สุด
+  // ถ้ากดแล้วเด้ง error ทิ้งไว้เฉย ๆ กรรมการจะไม่รู้ว่าคนไหนยังไม่ได้บันทึกจริง
+  // เก็บไว้ใน localStorage ด้วย เผื่อเบราว์เซอร์ถูกปิดหรือรีเฟรชกลางคัน
+  const [queue, setQueue] = useState<{ playerId: string; status: string }[]>(() => {
+    try { return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? '[]'); } catch { return []; }
+  });
+  const [flushing, setFlushing] = useState(false);
 
   const loadTeams = async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -124,13 +133,74 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
       setTeams(prev => prev.map(t => t.id === openTeam?.id
         ? recount(t, before, p.id, value)
         : t));
+      dequeue(p.id);
     } catch (e) {
-      setPlayers(before);
-      notify('บันทึกไม่สำเร็จ', (e as ApiError).message, 'error');
+      const err = e as ApiError;
+      // 4xx = server ปฏิเสธจริง (สิทธิ์ไม่พอ ไม่พบคนนี้) ต้องย้อนและบอกทันที
+      // ส่วนเน็ตหลุดจะไม่มี status — เก็บเข้าคิวแล้วส่งใหม่ทีหลัง หน้าจอคงค่าที่กดไว้
+      if (err.status && err.status < 500) {
+        setPlayers(before);
+        notify('บันทึกไม่สำเร็จ', err.message, 'error');
+      } else {
+        enqueue(p.id, value ?? '');
+      }
     } finally {
       setSaving(prev => { const n = new Set(prev); n.delete(p.id); return n; });
     }
   };
+
+  const enqueue = (playerId: string, status: string) => {
+    setQueue(prev => {
+      // เก็บครั้งล่าสุดของแต่ละคนพอ กดเปลี่ยนใจ 3 รอบไม่ต้องส่ง 3 ครั้ง
+      const next = [...prev.filter(q => q.playerId !== playerId), { playerId, status }];
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const dequeue = (playerId: string) => {
+    setQueue(prev => {
+      if (!prev.some(q => q.playerId === playerId)) return prev;
+      const next = prev.filter(q => q.playerId !== playerId);
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  /** ส่งงานที่ค้างอยู่ใหม่ — ทีละชิ้น ไม่ยิงพร้อมกันตอนเน็ตเพิ่งกลับมา */
+  const flushQueue = async () => {
+    if (flushing || queue.length === 0) return;
+    setFlushing(true);
+    let sent = 0;
+    try {
+      for (const job of [...queue]) {
+        try {
+          await apiPost('savePlayerCheckin', { playerId: job.playerId, status: job.status });
+          dequeue(job.playerId);
+          sent++;
+        } catch (e) {
+          const err = e as ApiError;
+          // ปฏิเสธถาวรก็เอาออกจากคิว ไม่งั้นค้างวนไม่จบ
+          if (err.status && err.status < 500) { dequeue(job.playerId); continue; }
+          break;   // ยังหลุดอยู่ — หยุดไว้ก่อน เดี๋ยวลองใหม่
+        }
+      }
+      if (sent > 0) {
+        notify('ส่งข้อมูลที่ค้างแล้ว', `${sent} รายการ`, 'success');
+        await loadTeams(true);
+      }
+    } finally { setFlushing(false); }
+  };
+
+  // เน็ตกลับมาเมื่อไหร่ส่งต่อทันที ไม่ต้องรอให้กรรมการนึกได้เอง
+  useEffect(() => {
+    if (queue.length === 0) return;
+    const onOnline = () => { flushQueue(); };
+    window.addEventListener('online', onOnline);
+    if (navigator.onLine) flushQueue();
+    return () => window.removeEventListener('online', onOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue.length]);
 
   /** อัปเดตตัวเลขสรุปบนการ์ดทีมโดยไม่ต้องโหลดรายการทั้งหมดใหม่ */
   const recount = (t: TeamRow, before: Player[], playerId: string, next: Player['status']): TeamRow => {
@@ -153,6 +223,59 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
     } catch (e) {
       notify('ทำรายการไม่สำเร็จ', (e as ApiError).message, 'error');
     } finally { setBulkBusy(false); }
+  };
+
+  /**
+   * พิมพ์รายชื่อพร้อมผลรายงานตัว
+   *
+   * กรรมการต้องมีหลักฐานกระดาษให้ผู้จัดการทีมเซ็นกำกับ และเผื่อกรณีที่แย่ที่สุด
+   * คือมือถือแบตหมดกลางงาน เขียนหน้าใหม่แล้วสั่งพิมพ์แทนการ print หน้าจอ
+   * เพราะหน้าจอมีปุ่มเต็มไปหมดและตัดหน้ากระดาษไม่สวย
+   */
+  const printRoster = () => {
+    if (!openTeam) return;
+    const esc = (v: string) => v.replace(/[&<>"]/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+    const label = (st: Player['status']) =>
+      st ? STATUS_UI[st].label : 'ยังไม่ได้เช็ก';
+    const rows = players.map((p, i) => `<tr>
+        <td>${i + 1}</td><td>${esc(p.number)}</td><td>${esc(p.name)}</td>
+        <td>${esc(p.position)}</td><td>${esc(calcAge(p.birthDate))}</td>
+        <td>${esc(label(p.status))}</td><td></td></tr>`).join('');
+    const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
+      <title>รายงานตัว ${esc(openTeam.name)}</title><style>
+      *{font-family:'Sarabun','TH Sarabun New',sans-serif}
+      body{margin:16mm}h1{font-size:18pt;margin:0 0 2mm}
+      p.sub{font-size:11pt;color:#444;margin:0 0 6mm}
+      table{width:100%;border-collapse:collapse;font-size:11pt}
+      th,td{border:1px solid #999;padding:4px 6px;text-align:left}
+      th{background:#eee}
+      td:last-child{width:28mm}
+      .sign{margin-top:12mm;font-size:11pt;display:flex;gap:20mm}
+      @media print{@page{size:A4;margin:12mm}}
+      </style></head><body>
+      <h1>ใบรายงานตัวนักกีฬา — ${esc(openTeam.name)}</h1>
+      <p class="sub">${esc([openTeam.schoolName, openTeam.group && 'สาย ' + openTeam.group]
+        .filter(Boolean).join(' · '))}</p>
+      <table><thead><tr>
+        <th>#</th><th>เบอร์</th><th>ชื่อ-สกุล</th><th>ตำแหน่ง</th>
+        <th>อายุ</th><th>ผลรายงานตัว</th><th>หมายเหตุ</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <div class="sign">
+        <div>ลงชื่อ ...................................... ผู้จัดการทีม</div>
+        <div>ลงชื่อ ...................................... กรรมการ</div>
+      </div></body></html>`;
+
+    // เปิดหน้าต่างใหม่แล้วสั่งพิมพ์ ถ้าถูกบล็อกป๊อปอัปให้บอกตรง ๆ
+    const w = window.open('', '_blank');
+    if (!w) {
+      notify('เปิดหน้าพิมพ์ไม่ได้', 'เบราว์เซอร์บล็อกป๊อปอัป กรุณาอนุญาตแล้วลองใหม่', 'warning');
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
   };
 
   const filtered = useMemo(() => {
@@ -193,6 +316,24 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
       </div>
     </div>, document.body) : null;
 
+  const queueBanner = queue.length > 0 ? (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 flex items-center gap-3">
+      <CloudOff className="w-5 h-5 text-amber-600 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-amber-900">ยังส่งไม่ครบ {queue.length} รายการ</p>
+        <p className="text-[11px] text-amber-700">
+          บันทึกไว้ในเครื่องแล้ว จะส่งให้เองเมื่อเน็ตกลับมา — ปิดหน้านี้ได้ ข้อมูลไม่หาย
+        </p>
+      </div>
+      <button onClick={flushQueue} disabled={flushing}
+        className="px-3 py-2 rounded-lg bg-amber-600 text-white text-xs font-bold
+                   disabled:opacity-50 shrink-0 flex items-center gap-1.5">
+        {flushing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        ส่งใหม่
+      </button>
+    </div>
+  ) : null;
+
   // ── รายชื่อนักกีฬาของทีมที่เลือก ───────────────────────────────────────
   if (openTeam) {
     const done = players.filter(p => p.status).length;
@@ -219,10 +360,15 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
             <span className="text-sm font-black text-slate-700 shrink-0 tabular-nums">
               {done}/{players.length}
             </span>
+            <button onClick={printRoster} title="พิมพ์ใบรายงานตัว"
+              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0">
+              <Printer className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
         <div className="max-w-5xl mx-auto p-3 space-y-3">
+          {queueBanner}
           {/* ผู้ติดต่อทีม — กรรมการต้องโทรตามเมื่อคนไม่ครบ */}
           {(openTeam.managerPhone || openTeam.coachPhone) && (
             <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap gap-x-5 gap-y-2">
@@ -363,6 +509,7 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
       </div>
 
       <div className="max-w-5xl mx-auto p-3 space-y-3">
+        {queueBanner}
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: 'นักกีฬาทั้งหมด', value: totals.players, cls: 'text-slate-900' },
