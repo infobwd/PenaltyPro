@@ -85,6 +85,7 @@ $routes = [
     'publicSchools'        => 'schools.php',  // รายชื่อโรงเรียนให้ผู้ใช้เลือกเอง
     'searchUsers'          => 'schools.php',  // ตัวเลือกผู้ดูแลประจำรายการ
     'revealAccessCode'     => 'schools.php',  // ผู้ดูแลเปิดดูรหัสเดิมได้
+    'downloadAccessCodes' => 'schools.php',  // ดาวน์โหลด CSV ผ่าน frontend (ผู้ดูแลเท่านั้น)
 
     // --- ทีม ---------------------------------------------------------------
     'cloneTeams'  => 'teams.php',   // คัดลอกทีมเดิมมาแข่งฤดูใหม่

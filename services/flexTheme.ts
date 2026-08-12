@@ -77,7 +77,6 @@ export const flexHeader = (
       size: 'xxs',
       weight: 'bold',
       color: opts.accent ?? '#C7D2FE',
-      letterSpacing: '2px',
     },
     {
       type: 'text',
@@ -114,32 +113,36 @@ export const flexRow = (
 });
 
 /** โลโก้ทีม + ชื่อ จัดกลางในคอลัมน์เดียว ใช้ทั้งฝั่งซ้ายและขวาของสกอร์ */
-export const flexTeamColumn = (name: string, logoUrl?: string | null) => ({
-  type: 'box',
-  layout: 'vertical',
-  flex: 2,
-  alignItems: 'center',
-  spacing: 'sm',
-  contents: [
-    {
-      type: 'image',
-      url: safeImage(logoUrl),
-      size: '60px',
-      aspectMode: 'fit',
-      aspectRatio: '1:1',
-    },
-    {
-      type: 'text',
-      text: truncate(safeText(name, 'ทีม'), 22),
-      size: 'sm',
-      weight: 'bold',
-      color: FLEX.ink,
-      align: 'center',
-      wrap: true,
-      maxLines: 2,
-    },
-  ],
-});
+export const flexTeamColumn = (name: string, logoUrl?: string | null) => {
+  // Do not inject a third-party fallback image. A URL that LINE cannot fetch can
+  // make an otherwise valid Flex card appear blank in some WebView versions.
+  const logo = safeImage(logoUrl, '');
+  return {
+    type: 'box',
+    layout: 'vertical',
+    flex: 2,
+    alignItems: 'center',
+    spacing: 'sm',
+    contents: [
+      ...(logo ? [{
+        type: 'image',
+        url: logo,
+        size: 'xl',
+        aspectMode: 'fit',
+        aspectRatio: '1:1',
+      }] : []),
+      {
+        type: 'text',
+        text: truncate(safeText(name, 'ทีม'), 22),
+        size: 'sm',
+        weight: 'bold',
+        color: FLEX.ink,
+        align: 'center',
+        wrap: true,
+      },
+    ],
+  };
+};
 
 /** ปุ่มหลักของการ์ด — คืน array เพื่อให้ผู้เรียก spread ได้ และหายไปเองถ้าลิงก์ใช้ไม่ได้ */
 export const flexButton = (label: string, uri: string | null | undefined,
@@ -183,21 +186,18 @@ export const flexBubble = (
 ) => ({
   type: 'bubble',
   size: opts.size ?? 'kilo',
+  // Use LINE's native bubble sections. Keeping the header as a nested box in
+  // body worked in the simulator, but has rendered as an empty card in some
+  // older iOS/LIFF clients.
+  header,
   body: {
     type: 'box',
     layout: 'vertical',
-    paddingAll: '0px',
-    spacing: 'none',
-    contents: [
-      header,
-      {
-        type: 'box',
-        layout: 'vertical',
-        paddingAll: '16px',
-        contents: bodyContents,
-      },
-    ],
+    paddingAll: '16px',
+    spacing: 'md',
+    contents: bodyContents.length > 0
+      ? bodyContents
+      : [{ type: 'text', text: '-', size: 'sm', color: FLEX.muted }],
   },
   footer: flexFooter(opts.note),
-  styles: { footer: { separator: false } },
 });

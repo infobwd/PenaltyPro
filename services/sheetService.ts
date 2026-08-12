@@ -350,6 +350,11 @@ export const listSchools = async (tournamentId?: string) =>
 
 export const searchUsers = async (q: string) => apiGet('searchUsers', { q });
 
+export const downloadSchoolAccessCodes = async (tournamentId: string): Promise<{
+  tournamentName: string;
+  schools: Array<{ schoolId: string; schoolName: string; accessCode: string | null }>;
+}> => apiGet('downloadAccessCodes', { tournamentId });
+
 export const fileToBase64 = (file: File): Promise<string> => { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = () => resolve(reader.result as string); reader.onerror = error => reject(error); }); };
 
 // ── งานหลังบ้าน (ย้ายมา PHP/MySQL แล้ว) ───────────────────────────────────
@@ -410,7 +415,7 @@ export const updateMyTeam = async (team: Partial<Team>, players: Partial<Player>
  *
  * ส่งเป็น multipart ไม่ใช่ base64 — เล็กกว่า 33% และมี progress จริง
  */
-export const uploadFile = async (file: File, kind: 'player' | 'logo' | 'doc' | 'slip' | 'general' = 'general'): Promise<string> => {
+export const uploadFile = async (file: File, kind: 'player' | 'logo' | 'doc' | 'slip' | 'news' | 'general' = 'general'): Promise<string> => {
   const fd = new FormData();
   fd.append('file', file);
   fd.append('kind', kind);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { NewsItem } from '../types';
 import { Calendar, Bell, X, FileText, Download, Share2, Globe, RefreshCw } from 'lucide-react';
 import { shareNews } from '../services/liffService';
@@ -124,7 +125,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ news, isLoading, initialNewsId, cur
           </div>
       )}
 
-      {selectedNews && (
+      {selectedNews && createPortal(
         <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm modal-sheet modal-contained flex items-end xl:items-center justify-center p-0 xl:p-4 overflow-hidden"
           onClick={() => setSelectedNews(null)}>
             {/*
@@ -134,8 +135,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ news, isLoading, initialNewsId, cur
               ตอนนี้กล่องเป็นคอลัมน์ที่มีความสูงจำกัด แล้วให้ "เฉพาะเนื้อข่าว" เลื่อน
               รูปกับปุ่มปิดจึงอยู่กับที่ ไม่หลุดออกนอกจอ
             */}
-            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col animate-in zoom-in duration-200"
-              style={{ maxHeight: 'min(92vh, 52rem)' }}
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-200 max-h-[78dvh] xl:max-h-[85dvh]"
               onClick={e => e.stopPropagation()}>
                 <div className="relative shrink-0">
                     {selectedNews.imageUrl && (
@@ -143,13 +143,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ news, isLoading, initialNewsId, cur
                     )}
                     <button 
                         onClick={() => setSelectedNews(null)}
+                        aria-label="ปิดข่าว"
                         className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full backdrop-blur-md transition"
                     >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
                 
-                <div className="p-6 md:p-8 flex-1 overflow-y-auto modal-scroll-region">
+                <div className="p-5 md:p-8 flex-1 modal-scroll-region pb-[calc(1.5rem+env(safe-area-inset-bottom))] xl:pb-8">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2 text-sm text-slate-500">
                             <Calendar className="w-4 h-4" />
@@ -190,7 +191,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ news, isLoading, initialNewsId, cur
                     )}
                 </div>
             </div>
-        </div>
+        </div>, document.body
       )}
     </>
   );

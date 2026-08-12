@@ -54,6 +54,34 @@ export class ApiError extends Error {
 }
 
 /**
+ * ไม่ปล่อยให้คำขอค้างตาม timeout ของเบราว์เซอร์ซึ่งอาจนานหลายนาที
+ * และแปลง TypeError: Failed to fetch ให้เป็นข้อความที่ผู้ใช้เข้าใจได้
+ */
+const fetchWithTimeout = async (
+  url: string,
+  init: RequestInit,
+  timeoutMs = 30000,
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new ApiError('เซิร์ฟเวอร์ใช้เวลาตอบนานเกินไป กรุณาลองใหม่อีกครั้ง', 0);
+    }
+    throw new ApiError(
+      navigator.onLine
+        ? 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่อีกครั้ง'
+        : 'อุปกรณ์ไม่ได้เชื่อมต่ออินเทอร์เน็ต',
+      0,
+    );
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
+/**
  * เรียก API แล้ว "ตรวจผลลัพธ์จริง"
  *
  * ของเดิมใช้ mode:'no-cors' ทำให้ response เป็น opaque แล้ว return true เสมอ
@@ -71,7 +99,7 @@ export async function apiGet<T = any>(
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), {
     method: 'GET',
     headers: { ...authHeaders() },
   });
@@ -100,7 +128,7 @@ export async function apiPost<T = any>(action: string, body: any = {}): Promise<
   const url = new URL(DB_API, window.location.origin);
   url.searchParams.set('action', action);
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), {
     method: 'POST',
     // text/plain เพื่อเลี่ยง CORS preflight — เหมือนที่ของเดิมทำ
     headers: { 'Content-Type': 'text/plain;charset=utf-8', ...authHeaders() },
@@ -136,11 +164,11 @@ export async function apiUpload<T = any>(action: string, form: FormData): Promis
   const url = new URL(DB_API, window.location.origin);
   url.searchParams.set('action', action);
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), {
     method: 'POST',
     headers: { ...authHeaders() },
     body: form,
-  });
+  }, 120000);
 
   const text = await res.text();
   let data: any;

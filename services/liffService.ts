@@ -23,6 +23,8 @@ declare global {
 type LiffState = 'idle' | 'ready' | 'no-sdk' | 'no-id' | 'failed';
 let liffState: LiffState = 'idle';
 let liffInitError = '';
+let activeLiffId = '';
+let liffInitPromise: Promise<void> | null = null;
 
 export const getLiffState = (): { state: LiffState; error: string } =>
   ({ state: liffState, error: liffInitError });
@@ -34,14 +36,19 @@ export const initializeLiff = async (liffId?: string) => {
     console.warn('ยังไม่ได้ตั้งค่า LIFF ID ในหน้าตั้งค่าระบบ');
     return;
   }
-  try {
-    await window.liff.init({ liffId });
-    liffState = 'ready';
-  } catch (error: any) {
-    liffState = 'failed';
-    liffInitError = error?.message ?? String(error);
-    console.error('LIFF Init Failed', error);
-  }
+  activeLiffId = liffId;
+  liffInitPromise = (async () => {
+    try {
+      await window.liff.init({ liffId });
+      liffState = 'ready';
+      liffInitError = '';
+    } catch (error: any) {
+      liffState = 'failed';
+      liffInitError = error?.message ?? String(error);
+      console.error('LIFF Init Failed', error);
+    }
+  })();
+  await liffInitPromise;
 };
 
 const truncate = (str: string, length: number) => {
@@ -58,12 +65,65 @@ const truncate = (str: string, length: number) => {
  * บางที่ไม่ได้เช็คว่าเครื่องรองรับ shareTargetPicker ไหม ผู้ใช้กดแล้วเงียบ
  * โดยไม่มีอะไรบอกว่าทำไมไม่เกิดอะไรขึ้น
  */
+const compactFlex = (altText: string) => ({
+  type: 'bubble',
+  size: 'kilo',
+  body: {
+    type: 'box', layout: 'vertical', spacing: 'md',
+    contents: [
+      { type: 'text', text: 'PENALTY PRO', size: 'xs', weight: 'bold', color: FLEX.brand },
+      { type: 'text', text: cut(safeText(altText, 'Penalty Pro'), 220), size: 'md', weight: 'bold', color: FLEX.ink, wrap: true },
+      { type: 'text', text: 'แตะเพื่อเปิดดูรายละเอียดในระบบ', size: 'xs', color: FLEX.muted, wrap: true },
+      ...(window.location.origin.startsWith('https://') ? [{
+        type: 'button', style: 'primary', height: 'sm', color: FLEX.brand,
+        action: { type: 'uri', label: 'เปิด Penalty Pro', uri: window.location.origin },
+      }] : []),
+    ],
+  },
+});
+
+const shareWithPicker = async (message: any): Promise<'success' | 'cancelled'> => {
+  const result = await window.liff.shareTargetPicker([message], { isMultiple: true });
+  return result?.status === 'success' ? 'success' : 'cancelled';
+};
+
+/**
+ * ปรับ payload ก่อนส่งจริง เพราะ LINE ปฏิเสธทั้ง Flex หากมี text ว่างเพียงจุดเดียว
+ * หรือมี URI ที่ไม่ใช่ https/line แม้ component อื่นทั้งหมดจะถูกต้อง
+ */
+const normalizeFlexPayload = (value: any): any => {
+  if (Array.isArray(value)) return value.map(normalizeFlexPayload).filter(Boolean);
+  if (!value || typeof value !== 'object') return value;
+
+  const node: any = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (child !== undefined && child !== null) node[key] = normalizeFlexPayload(child);
+  }
+
+  if (node.type === 'text' && typeof node.text === 'string' && node.text.trim() === '' && !node.contents) {
+    node.text = '-';
+  }
+  if (node.action?.type === 'uri' && !safeUri(node.action.uri)) {
+    delete node.action;
+  }
+  if (node.type === 'button' && !node.action) return null;
+  if (Array.isArray(node.contents) && node.contents.length === 0 && node.type === 'box') {
+    node.contents = [{ type: 'text', text: '-', size: 'xs', color: FLEX.faint }];
+  }
+  return node;
+};
+
 const sendFlex = async (altText: string, bubble: any): Promise<boolean> => {
+  const cleanAltText = cut(safeText(altText, 'Penalty Pro'), 400);
   try {
     // ไม่มี SDK ของ LINE เลย (เปิดจากเบราว์เซอร์ปกติ) → ทางสำรอง
     if (!window.liff || typeof window.liff.shareTargetPicker !== 'function') {
-      return shareFallback(altText);
+      return shareFallback(cleanAltText);
     }
+
+    // ผู้ใช้กดแชร์ระหว่างที่หน้าเพิ่งเปิดได้ โดยเฉพาะ LINE iOS WebView
+    // ต้องรอ init ตัวเดียวกับหน้าแอปให้เสร็จ ไม่ยิง shareTargetPicker แข่งกับ init
+    if (liffInitPromise) await liffInitPromise;
 
     // ⚠️ ห้ามใช้ liffState เป็นเงื่อนไขว่าจะแชร์ได้ไหม
     // เคยลองแล้วพัง: initializeLiff() ถูกเรียกเฉพาะตอนที่ตั้ง LIFF ID ไว้ในระบบ
@@ -83,27 +143,53 @@ const sendFlex = async (altText: string, bubble: any): Promise<boolean> => {
     // ของจริงมันคืน false ในหลายกรณีที่แชร์ได้จริง (เช่นเปิดจากห้องแชท
     // หรือ LIFF ที่ตั้ง scope ไม่ครบ) ถ้าเอามาบล็อกไว้ ปุ่มแชร์จะตายทั้งที่ใช้ได้
     // จึงลองยิงเลยแล้วค่อยจัดการตอนล้มเหลว
-    const messages = [
-      { type: 'flex', altText: cut(safeText(altText, 'Penalty Pro'), 380), contents: bubble },
-    ];
-    const result = await window.liff.shareTargetPicker(messages);
+    const message = { type: 'flex', altText: cleanAltText, contents: normalizeFlexPayload(bubble) };
+    const payloadBytes = new Blob([JSON.stringify(message)]).size;
+    if (payloadBytes > 50000) {
+      console.warn('Flex payload ใหญ่เกินค่าปลอดภัย ใช้การ์ดฉบับย่อ', { payloadBytes });
+      message.contents = compactFlex(cleanAltText);
+    }
+
+    let pickerResult: 'success' | 'cancelled';
+    try {
+      pickerResult = await shareWithPicker(message);
+    } catch (flexError) {
+      // Flex ที่ซับซ้อนอาจถูก LINE บางเวอร์ชันปฏิเสธก่อนเปิด target picker
+      // ลองการ์ดมาตรฐานที่ใช้เฉพาะ component พื้นฐานก่อน เพื่อให้ยังแชร์เป็น Flex ได้
+      console.warn('Flex หลักถูกปฏิเสธ กำลังลอง Flex ฉบับย่อ', flexError);
+      try {
+        pickerResult = await shareWithPicker({
+          type: 'flex', altText: cleanAltText, contents: compactFlex(cleanAltText),
+        });
+      } catch (compactError) {
+        console.error('Flex ฉบับย่อถูกปฏิเสธ กำลังลองข้อความ LINE', compactError);
+        try {
+          pickerResult = await shareWithPicker({
+            type: 'text', text: cut(`${cleanAltText}\n${window.location.origin}`, 4900),
+          });
+        } catch (textError) {
+          throw textError;
+        }
+      }
+    }
 
     // ผู้ใช้กดยกเลิกในหน้าเลือกผู้รับ — ไม่ใช่ข้อผิดพลาด ไม่ต้องแจ้งอะไร
-    if (result === undefined || result === null) return false;
+    if (pickerResult === 'cancelled') return false;
     notifyUser('แชร์แล้ว', 'ส่งการ์ดเข้าแชทเรียบร้อย', 'success');
     return true;
   } catch (error: any) {
     const msg = String(error?.message ?? error ?? '');
     console.error('shareTargetPicker ล้มเหลว', error);
 
-    // LINE ปิดสิทธิ์แชร์ของ LIFF ตัวนี้ → บอกให้ชัดว่าต้องแก้ที่ไหน
+    // LINE ปิด share target picker ของ LIFF ตัวนี้ → บอกให้ชัดว่าต้องแก้ที่ Console
     if (/permission|scope|chat_message/i.test(msg)) {
       notifyUser('แชร์ไม่ได้',
-        'LIFF ยังไม่ได้เปิดสิทธิ์ chat_message.write — แจ้งผู้ดูแลระบบ', 'warning');
+        'กรุณาเปิด Share target picker ของ LIFF ใน LINE Developers Console แล้วลองใหม่', 'warning');
       return false;
     }
     // ใช้ระบบแชร์ของ LINE ไม่ได้ในสภาพแวดล้อมนี้ → ใช้ทางสำรอง
-    return shareFallback(altText);
+    notifyUser('แชร์ผ่าน LINE ไม่สำเร็จ', msg || 'กรุณาลองใหม่อีกครั้ง', 'warning');
+    return shareFallback(cleanAltText);
   }
 };
 
@@ -143,7 +229,7 @@ ${url}`;
 
 /** ลิงก์กลับเข้าแอปผ่าน LIFF — ถ้ายังไม่ได้ตั้ง LIFF ID จะคืน null แล้วปุ่มจะไม่ถูกใส่ */
 const liffLink = (query = ''): string | null => {
-  const id = window.liff?.id;
+  const id = activeLiffId;
   return id ? `https://liff.line.me/${id}${query}` : null;
 };
 
@@ -568,7 +654,7 @@ export const shareContestEntry = async (entry: ContestEntry, contestTitle: strin
               size: 'sm', color: FLEX.red, weight: 'bold', flex: 0,
             },
             {
-              type: 'text', text: cut(safeText(entry.userDisplayName, ''), 20),
+              type: 'text', text: cut(safeText(entry.userDisplayName, 'ผู้ส่งภาพ'), 20),
               size: 'xxs', color: FLEX.faint, align: 'end',
             },
           ],

@@ -34,7 +34,7 @@ import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings } from './services/sheetService';
+import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
@@ -523,6 +523,42 @@ export default function App() {
     setEditingTeamData(null);
     setIsUserLoginOpen(false);
     goTo('register');
+  };
+
+  const handleDownloadSchoolCodes = async () => {
+    if (!currentTournamentId) {
+      showNotification('ยังไม่มีรายการแข่งขัน', 'กรุณาเลือกรายการแข่งขันก่อน', 'warning');
+      return;
+    }
+    try {
+      const result = await downloadSchoolAccessCodes(currentTournamentId);
+      const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+      const rows = result.schools.map(s => [
+        csvCell(s.schoolName),
+        csvCell(s.accessCode || 'ยังไม่มีรหัส/ต้องออกรหัสใหม่'),
+      ].join(','));
+      const csv = ['โรงเรียน,รหัสโรงเรียน', ...rows].join('\r\n');
+      const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `รหัสโรงเรียน-${(result.tournamentName || 'การแข่งขัน').replace(/[\\/:*?"<>|]/g, '')}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      const missing = result.schools.filter(s => !s.accessCode).length;
+      showNotification(
+        'ดาวน์โหลดรหัสโรงเรียนแล้ว',
+        missing > 0
+          ? `${result.schools.length} โรงเรียน · ${missing} โรงเรียนยังไม่มีรหัสหรือเป็นรหัสรุ่นเก่า`
+          : `${result.schools.length} โรงเรียน`,
+        missing > 0 ? 'warning' : 'success',
+      );
+    } catch (error: any) {
+      showNotification('ดาวน์โหลดไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+    }
   };
   
   const handleEditMyTeam = (team: Team) => { 
@@ -1357,7 +1393,7 @@ export default function App() {
                           <p className="text-indigo-100 text-sm mt-1">เลือกเมนูที่ต้องการ ระบบจะพาไปยังแบบฟอร์มโดยตรง</p>
                       </div>
                   </div>
-                  <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
+                  <div className="relative grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5">
                       {isRegistrationOpen ? (
                         <button onClick={handleRegisterClick} className="min-h-16 rounded-xl bg-white text-indigo-700 font-black flex items-center justify-center gap-3 px-4 shadow-lg hover:bg-indigo-50 transition">
                             <UserPlus className="w-5 h-5 shrink-0" />
@@ -1379,6 +1415,16 @@ export default function App() {
                             <XCircle className="w-5 h-5 shrink-0 text-amber-200" />
                             <span className="font-black leading-tight">ปิดแก้ไขข้อมูลทีมแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `ตั้งแต่ ${formatDeadline(teamEditDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
                         </div>
+                      )}
+                      <button onClick={() => goTo('programme')} className="min-h-16 rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center justify-center gap-3 px-4 hover:bg-white/20 transition">
+                          <FileText className="w-5 h-5 shrink-0" />
+                          <span className="text-left leading-tight">ดูสูจิบัตร<span className="block text-[11px] font-medium text-indigo-100 mt-1">กำหนดการ ทีม และตารางแข่งขัน</span></span>
+                      </button>
+                      {isAdmin && (
+                        <button onClick={handleDownloadSchoolCodes} className="min-h-16 rounded-xl bg-amber-400 text-amber-950 font-black flex items-center justify-center gap-3 px-4 shadow-lg hover:bg-amber-300 transition">
+                            <Download className="w-5 h-5 shrink-0" />
+                            <span className="text-left leading-tight">โหลดรหัสโรงเรียน<span className="block text-[11px] font-medium text-amber-800 mt-1">ไฟล์ CSV เฉพาะผู้ดูแล</span></span>
+                        </button>
                       )}
                   </div>
               </div>

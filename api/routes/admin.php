@@ -19,7 +19,7 @@ function handle(string $action, array $cfg): void
         'updateUserRole'    => update_user_role(),
         'deleteUser'        => delete_user(),
         // ข่าวและค่าตั้ง
-        'manageNews'        => manage_news(),
+        'manageNews'        => manage_news($cfg),
         'saveSettings'      => save_settings(),
         // เงินบริจาค
         'verifyDonation'        => verify_donation(),
@@ -224,7 +224,7 @@ function delete_user(): void
 
 // ── ข่าว ──────────────────────────────────────────────────────────────────
 
-function manage_news(): void
+function manage_news(array $cfg): void
 {
     Auth::requireStaff();
 
@@ -245,6 +245,15 @@ function manage_news(): void
     $tid = trim((string) ($item['tournamentId'] ?? ''));
     $tid = ($tid === '' || $tid === 'global') ? null : $tid;
 
+    // รองรับ client รุ่นเก่าที่ยังส่ง Base64 มา แต่แปลงเป็นไฟล์ก่อนเขียน DB
+    // client รุ่นใหม่จะส่ง URL สั้น ๆ มาอยู่แล้ว จึงผ่านจุดนี้ได้ทันที
+    try {
+        $imageUrl = store_data_url((string) ($item['imageUrl'] ?? ''), 'news', $cfg);
+        $documentUrl = store_data_url((string) ($item['documentUrl'] ?? ''), 'doc', $cfg);
+    } catch (RuntimeException $e) {
+        Response::fail($e->getMessage(), 422);
+    }
+
     if ($sub === 'add' || $id === '') {
         $id = $id !== '' ? $id : 'N_' . (int) (microtime(true) * 1000);
         Db::exec(
@@ -255,8 +264,8 @@ function manage_news(): void
                 ':id2' => $id, ':tid' => $tid,
                 ':title' => (string) ($item['title'] ?? ''),
                 ':content' => (string) ($item['content'] ?? ''),
-                ':img' => (string) ($item['imageUrl'] ?? ''),
-                ':doc' => (string) ($item['documentUrl'] ?? ''),
+                ':img' => $imageUrl,
+                ':doc' => $documentUrl,
             ]
         );
         Audit::log('news', $id, 'create');
@@ -270,8 +279,8 @@ function manage_news(): void
                 ':tid2' => $tid,
                 ':title2' => (string) ($item['title'] ?? ''),
                 ':content2' => (string) ($item['content'] ?? ''),
-                ':img2' => (string) ($item['imageUrl'] ?? ''),
-                ':doc2' => (string) ($item['documentUrl'] ?? ''),
+                ':img2' => $imageUrl,
+                ':doc2' => $documentUrl,
                 ':id3' => $id,
             ]
         );

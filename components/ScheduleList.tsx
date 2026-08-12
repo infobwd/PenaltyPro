@@ -152,6 +152,22 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   // จอเล็กซ่อนตัวกรองไว้ก่อน — แถบกรองเดิมสูง ~5 แถวและเป็น sticky
   // จึงบังรายการแข่งไปครึ่งจอตลอดเวลา ทั้งที่ส่วนใหญ่เปิดมาเพื่อดูตาราง ไม่ได้มากรอง
   const [showFilters, setShowFilters] = useState(false);
+  const filterBarRef = useRef<HTMLDivElement | null>(null);
+  const [filterBarHeight, setFilterBarHeight] = useState(0);
+
+  useEffect(() => {
+    const element = filterBarRef.current;
+    if (!element) return;
+    const updateHeight = () => setFilterBarHeight(Math.ceil(element.getBoundingClientRect().height));
+    updateHeight();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateHeight);
+      return () => window.removeEventListener('resize', updateHeight);
+    }
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   // AI Summary State
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -668,7 +684,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
         </div>
 
         <div className="mb-8">
-            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-slate-200 mb-4 sm:mb-6 sticky top-0 z-20">
+            <div ref={filterBarRef} className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-slate-200 mb-4 sm:mb-6 sticky top-0 z-20">
                 <div className="flex flex-col lg:flex-row gap-2 sm:gap-3">
                     <div className="flex gap-2 flex-1">
                         <div className="relative flex-1">
@@ -679,6 +695,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                         <button
                             onClick={() => setShowFilters(v => !v)}
                             aria-expanded={showFilters}
+                            aria-label={showFilters ? 'ซ่อนตัวกรองเพิ่มเติม' : 'แสดงตัวกรองเพิ่มเติม'}
                             className={`lg:hidden shrink-0 px-3 rounded-lg border text-sm font-bold flex items-center gap-1.5 transition ${activeFilterCount > 0 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                             <Filter className="w-4 h-4" />
                             {activeFilterCount > 0 ? activeFilterCount : ''}
@@ -734,7 +751,10 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                 <div className="space-y-8">
                     {sortedDates.map(dateKey => (
                         <div key={dateKey}>
-                             <div className="flex items-center gap-2 mb-3 bg-indigo-50 px-3 py-1.5 rounded-lg w-fit border border-indigo-100 shadow-sm sticky top-[4.5rem] lg:top-32 z-10 backdrop-blur-sm">
+                             <div
+                               className="flex items-center gap-2 mb-3 bg-indigo-50/95 px-3 py-1.5 rounded-lg w-fit border border-indigo-100 shadow-sm sticky z-10 backdrop-blur-sm"
+                               style={{ top: `${filterBarHeight + 8}px` }}
+                             >
                                 <Calendar className="w-4 h-4 text-indigo-600" />
                                 <span className="font-bold text-indigo-900 text-sm">
                                     {/* กลุ่ม "ยังไม่กำหนดวัน" ไม่ใช่วันที่ — แปลงเป็นวันที่จะได้ Invalid Date */}

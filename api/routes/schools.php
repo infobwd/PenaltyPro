@@ -22,6 +22,7 @@ function handle(string $action, array $cfg): void
         'listSchools'         => list_schools(),
         'searchUsers'         => search_users(),
         'revealAccessCode'    => reveal_access_code(),
+        'downloadAccessCodes' => download_access_codes(),
         default               => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -318,6 +319,55 @@ function reveal_access_code(): void
         'schoolName' => $s['school_name'],
         'accessCode' => $code,
         'issuedAt'   => $s['access_code_issued_at'],
+    ]);
+}
+
+/**
+ * คืนรหัสโรงเรียนของรายการสำหรับสร้างไฟล์ CSV ในเครื่องผู้ดูแล
+ * ไม่เปิดเป็นไฟล์สาธารณะ เพราะรหัสนี้ใช้แก้ข้อมูลทีมได้โดยตรง
+ */
+function download_access_codes(): void
+{
+    Auth::requireLogin();
+
+    $tournamentId = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tournamentId);
+
+    $tournament = Db::one(
+        'SELECT tournament_id, name FROM tournaments WHERE tournament_id = :tid',
+        [':tid' => $tournamentId]
+    );
+    if ($tournament === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+
+    $rows = Db::all(
+        'SELECT DISTINCT s.school_id, s.school_name, s.access_code_enc,
+                         s.access_code_hash
+           FROM schools s
+           JOIN teams t ON t.school_id = s.school_id
+          WHERE t.tournament_id = :tid2 AND s.is_active = 1
+          ORDER BY s.school_name',
+        [':tid2' => $tournamentId]
+    );
+
+    $schools = array_map(static function (array $s): array {
+        return [
+            'schoolId'   => $s['school_id'],
+            'schoolName' => $s['school_name'],
+            'accessCode' => $s['access_code_hash'] === null
+                ? null
+                : Secret::decrypt($s['access_code_enc']),
+        ];
+    }, $rows);
+
+    Audit::log('tournament', $tournamentId, 'download_access_codes', null,
+        ['schoolCount' => count($schools)]);
+
+    Response::ok([
+        'tournamentId'   => $tournamentId,
+        'tournamentName' => $tournament['name'],
+        'schools'         => $schools,
     ]);
 }
 

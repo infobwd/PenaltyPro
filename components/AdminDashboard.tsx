@@ -6,7 +6,7 @@ import AdminSchedule from './AdminSchedule';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest, Match } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
 import { apiGet, apiPost } from '../services/apiConfig';
-import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
+import { updateTeamStatus, saveSettings, manageNews, fileToBase64, uploadFile, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
 import confetti from 'canvas-confetti';
 import { confirmAction, notifyUser } from '../services/uiService';
 
@@ -991,9 +991,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsNewsModalOpen(false); // Close first for UX
       
       executeWithReload(async () => {
-          // Async file processing first
-          const imageBase64 = newsForm.imageFile ? await fileToBase64(newsForm.imageFile) : undefined; 
-          const docBase64 = newsForm.docFile ? await fileToBase64(newsForm.docFile) : undefined; 
+          // อัปโหลดไฟล์แยกก่อน แล้วส่งเฉพาะ URL เข้า manageNews
+          // การยัด Base64 ทั้งไฟล์ลง JSON ทำให้ request บวมและ proxy timeout
+          const [uploadedImageUrl, uploadedDocumentUrl] = await Promise.all([
+              newsForm.imageFile ? uploadFile(newsForm.imageFile, 'news') : Promise.resolve(undefined),
+              newsForm.docFile ? uploadFile(newsForm.docFile, 'doc') : Promise.resolve(undefined),
+          ]);
           
           const newsData: Partial<NewsItem> = { 
               id: newsForm.id || Date.now().toString(), 
@@ -1001,8 +1004,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
               content: newsForm.content, 
               timestamp: Date.now(), 
               tournamentId: newsForm.tournamentId,
-              imageUrl: imageBase64 || newsForm.imagePreview || undefined,
-              documentUrl: docBase64
+              imageUrl: uploadedImageUrl || newsForm.imagePreview || undefined,
+              documentUrl: uploadedDocumentUrl,
           }; 
           
           const action = isEditing ? 'edit' : 'add'; 
