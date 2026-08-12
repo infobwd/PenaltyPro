@@ -42,6 +42,31 @@ function handle(string $action, array $cfg): void
         'ok' => Db::value("SHOW TABLES LIKE 'notifications'") !== null, 'required' => false,
         'detail' => 'รัน db/07-notifications.sql'];
 
+    // ── คอลัมน์ที่โค้ดใช้จริง ต้องมี ไม่งั้นพังทันทีตอนใช้งาน ──────────────
+    // ลืมรัน migration บนโฮสต์เป็นสิ่งที่เกิดง่ายที่สุดตอนอัปของ
+    // และอาการที่ได้คือ 500 เปล่า ๆ ตอนครูกดเข้าหน้าโรงเรียน หาสาเหตุยาก
+    // จึงให้ health บอกตรง ๆ ว่าต้องรันไฟล์ไหน
+    $hasCol = static function (string $table, string $col): bool {
+        try {
+            return Db::value(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = :t AND COLUMN_NAME = :c',
+                [':t' => $table, ':c' => $col]
+            ) !== null;
+        } catch (Throwable) {
+            return false;
+        }
+    };
+    $add('col_users_school', $hasCol('users', 'school_id'), 'รัน db/06-user-school.sql');
+    $add('col_users_school_verified', $hasCol('users', 'school_verified'),
+        'รัน db/08-school-verified.sql');
+    $add('col_team_sessions_user', $hasCol('team_sessions', 'user_id'),
+        'รัน db/09-team-session-user.sql');
+    $add('table_player_checkins',
+        Db::value("SHOW TABLES LIKE 'player_checkins'") !== null,
+        'รัน db/10-player-checkin.sql');
+
     try {
         $ver = (string) Db::value('SELECT VERSION()');
         $add('database', true, $ver);

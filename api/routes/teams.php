@@ -352,9 +352,19 @@ function save_team(): void
     $newPaymentReviewedBy = ($newSlip === '' || $slipChanged)
         ? null : ($team['payment_reviewed_by'] ?? null);
 
+    // โรงเรียนแก้ทีมที่อนุมัติไปแล้ว = ต้องให้เจ้าภาพตรวจใหม่
+    //
+    // เปลี่ยนตัวผู้เล่นหลังอนุมัติเป็นเรื่องปกติ (เจ็บ ติดสอบ) แต่ถ้าปล่อยให้
+    // สถานะค้างเป็น "อนุมัติแล้ว" เจ้าภาพจะไม่มีทางรู้ว่ารายชื่อเปลี่ยนไปแล้ว
+    // แล้วคนที่ลงสนามจริงก็จะไม่ตรงกับที่ตรวจไว้
+    //
+    // แอดมิน/เจ้าหน้าที่แก้เองไม่ต้องถอน — เขาคือคนตรวจอยู่แล้ว
+    $revokeApproval = $schoolId !== null && $team['status'] === 'Approved';
+
     Db::transaction(static function () use (
         $teamId, $team, $name, $players, $touchPlayers, $newSlip,
-        $newPaymentStatus, $newPaymentNote, $newPaymentReviewedAt, $newPaymentReviewedBy
+        $newPaymentStatus, $newPaymentNote, $newPaymentReviewedAt, $newPaymentReviewedBy,
+        $revokeApproval
     ): void {
         Db::exec(
             'UPDATE teams SET
@@ -366,7 +376,13 @@ function save_team(): void
                 payment_status = :payment_status, payment_note = :payment_note,
                 payment_reviewed_at = :payment_reviewed_at,
                 payment_reviewed_by = :payment_reviewed_by,
-                status = CASE WHEN status = :st_invited THEN :st_draft ELSE status END,
+                status = CASE
+                           WHEN status = :st_invited THEN :st_draft
+                           WHEN :revoke = 1 THEN :st_submitted
+                           ELSE status
+                         END,
+                approved_at = CASE WHEN :revoke2 = 1 THEN NULL ELSE approved_at END,
+                approved_by = CASE WHEN :revoke3 = 1 THEN NULL ELSE approved_by END,
                 confirmed_at = COALESCE(confirmed_at, NOW()),
                 row_version = row_version + 1
               WHERE team_id = :tid',
@@ -389,6 +405,10 @@ function save_team(): void
                 ':payment_reviewed_by' => $newPaymentReviewedBy,
                 ':st_invited' => 'Invited',
                 ':st_draft'   => 'Draft',
+                ':st_submitted' => 'Submitted',
+                ':revoke'  => $revokeApproval ? 1 : 0,
+                ':revoke2' => $revokeApproval ? 1 : 0,
+                ':revoke3' => $revokeApproval ? 1 : 0,
                 ':tid'    => $teamId,
             ]
         );
@@ -422,6 +442,18 @@ function save_team(): void
             );
         }
     });
+
+    if ($revokeApproval) {
+        Audit::log('team', $teamId, 'approval_revoked_by_edit',
+            ['status' => 'Approved'], ['status' => 'Submitted']);
+        // เจ้าภาพต้องรู้ทันที ไม่งั้นจะไปเจอตอนรายงานตัวหน้างานว่าคนไม่ตรงใบ
+        PushNotifier::notifyByRole(
+            ['admin', 'staff'], 'team_reedited',
+            'ทีมที่อนุมัติแล้วถูกแก้ไข',
+            $name . ' แก้ไขข้อมูลหลังอนุมัติ — ต้องตรวจและอนุมัติใหม่',
+            '/admin', ['teamId' => $teamId]
+        );
+    }
 
     // แอดมินแก้สถานะ/สาย/โรงเรียนได้ในการบันทึกครั้งเดียวกัน (โรงเรียนแก้ไม่ได้)
     if ($schoolId === null) {

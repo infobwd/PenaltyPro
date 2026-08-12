@@ -1679,6 +1679,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               เว้นว่าง = ไม่สังกัดโรงเรียนใด · ผู้ใช้ที่เข้าผ่าน LINE จะถูกถามเองตอนเข้าครั้งแรก
                               แต่แอดมินแก้ทับได้ตรงนี้
                           </p>
+                          <p className="text-[11px] text-indigo-600 mt-1 leading-relaxed">
+                              เมื่อคุณเป็นคนกำหนดโรงเรียนให้ = <b>รับรองแล้ว</b> ผู้ใช้คนนี้จะเข้าหน้า
+                              "สำหรับโรงเรียน" เพื่อกรอก/แก้ไขข้อมูลทีมได้ทันที โดยไม่ต้องกรอกรหัส 8 ตัว
+                              (โรงเรียนที่ผู้ใช้เลือกเองจะยังเข้าไม่ได้ เพราะใครก็เลือกได้)
+                          </p>
                       </div>
                       <div>
                           <label className="block text-sm font-bold text-slate-700 mb-1">
@@ -2379,11 +2384,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div className="space-y-4">
-                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">ข้อมูลทั่วไป</h3>
-                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อรายการแข่งขัน</label><input type="text" value={configForm.competitionName} onChange={e => setConfigForm({...configForm, competitionName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ประกาศ (News Ticker)</label><textarea value={configForm.announcement} onChange={e => setConfigForm({...configForm, announcement: e.target.value})} className="w-full p-2 border rounded-lg h-20" placeholder="ใส่ข้อความประกาศ... (ใช้ | คั่นหลายข้อความ)" /></div>
+                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">ค่าเริ่มต้นของระบบ</h3>
+                        {/* ชื่อรายการ ประกาศ และโลโก้ ย้ายไปตั้งที่ "รายการแข่งขัน" แล้ว
+                            ที่เหลือไว้ตรงนี้เป็นค่าสำรอง ใช้ตอนที่ยังไม่มีรายการใดถูกเลือก
+                            (เช่น เปิดเว็บครั้งแรกก่อนสร้างรายการแรก) */}
+                        <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                            <p className="text-xs text-indigo-800 leading-relaxed">
+                                ช่องด้านล่างเป็น <strong>ค่าสำรอง</strong> ใช้เฉพาะตอนที่รายการแข่งขันไม่ได้ตั้งค่าของตัวเองไว้
+                                ปกติให้ตั้งที่แท็บ "รายการแข่งขัน" เพราะแต่ละปีใช้ชื่อ โลโก้ และประกาศคนละชุด
+                            </p>
+                        </div>
+                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อเว็บ (ค่าสำรอง)</label><input type="text" value={configForm.competitionName} onChange={e => setConfigForm({...configForm, competitionName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">โลโก้การแข่งขัน</label>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">โลโก้กลาง (ค่าสำรอง)</label>
                             <div className="flex items-center gap-4">
                                 {settingsLogoPreview ? <img src={settingsLogoPreview} className="w-16 h-16 object-contain border rounded-lg p-1" /> : <div className="w-16 h-16 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">No Logo</div>}
                                 <label className="cursor-pointer bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm hover:bg-slate-100 transition">เปลี่ยนรูป<input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && handleSettingsLogoChange(e.target.files[0])} className="hidden" /></label>
@@ -2407,16 +2420,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </label>
                     </div>
 
-                    <div className="space-y-4">
-                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">การเงินและรับสมัคร</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">ธนาคาร</label><input type="text" value={configForm.bankName} onChange={e => setConfigForm({...configForm, bankName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">เลขบัญชี</label><input type="text" value={configForm.bankAccount} onChange={e => setConfigForm({...configForm, bankAccount: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                        </div>
-                        <div><label className="block text-sm font-bold text-slate-700 mb-1">ชื่อบัญชี</label><input type="text" value={configForm.accountName} onChange={e => setConfigForm({...configForm, accountName: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">ค่าสมัคร (บาท)</label><input type="number" value={configForm.registrationFee || 0} onChange={e => setConfigForm({...configForm, registrationFee: parseInt(e.target.value)})} className="w-full p-2 border rounded-lg" /></div>
-                            <div><label className="block text-sm font-bold text-slate-700 mb-1">เป้าหมายระดมทุน</label><input type="number" value={configForm.fundraisingGoal || 0} onChange={e => setConfigForm({...configForm, fundraisingGoal: parseInt(e.target.value)})} className="w-full p-2 border rounded-lg" /></div>
+                    {/* ค่าสมัคร บัญชีรับเงิน และสนาม ย้ายไปอยู่ที่ "รายการแข่งขัน" ที่เดียว
+                        เพราะเป็นค่าประจำแต่ละรายการ (คนละปีเก็บเงินไม่เท่ากัน คนละบัญชี คนละสนาม)
+                        เดิมมีให้กรอก 2 ที่ แก้ที่นี่แล้วหน้าเว็บไม่เปลี่ยนเพราะค่าของรายการทับอยู่ */}
+                    <div className="space-y-3">
+                        <h3 className="font-bold text-slate-500 text-sm uppercase tracking-wider border-b pb-2">ตั้งค่ารายการแข่งขัน</h3>
+                        <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                            <p className="text-sm text-indigo-900 font-bold flex items-center gap-2">
+                                <Info className="w-4 h-4" /> ย้ายไปที่แท็บ "รายการแข่งขัน" แล้ว
+                            </p>
+                            <p className="text-xs text-indigo-700 mt-1.5 leading-relaxed">
+                                ค่าพวกนี้เป็นของแต่ละรายการ ไม่ใช่ของทั้งระบบ เดิมมีให้กรอก 2 ที่
+                                แก้ที่นี่แล้วหน้าเว็บไม่เปลี่ยน เพราะค่าของรายการทับอยู่
+                            </p>
+                            <ul className="text-xs text-indigo-800 mt-2.5 space-y-1">
+                                <li>ชื่อรายการ โลโก้ และประกาศวิ่งหน้าแรก</li>
+                                <li>ค่าสมัคร ธนาคาร และเลขบัญชี</li>
+                                <li>สนามแข่งขันและลิงก์แผนที่</li>
+                                <li>เงินรางวัลแต่ละอันดับ</li>
+                                <li>โครงการระดมทุน เอกสาร และรูปก่อน/หลัง</li>
+                            </ul>
+                            <button
+                                onClick={() => setActiveTab('tournaments')}
+                                className="mt-3 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 flex items-center gap-2"
+                            >
+                                <Trophy className="w-4 h-4" /> ไปที่รายการแข่งขัน
+                            </button>
                         </div>
                     </div>
                     
@@ -2433,10 +2462,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     placeholder="เช่น 1657xxxxxx-xxxxxxx"
                                 />
                                 <p className="text-[10px] text-slate-400 mt-1">ใช้สำหรับการแชร์ผลบอลและการยืนยันตัวตนผ่าน LINE</p>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-1">Google Maps Link</label>
-                                <input type="text" value={configForm.locationLink} onChange={e => setConfigForm({...configForm, locationLink: e.target.value})} className="w-full p-2 border rounded-lg text-xs" />
                             </div>
                         </div>
                     </div>
@@ -2671,11 +2696,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                             </td>
                                             <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span></td>
                                             <td className="p-4 text-xs">
-                                                {user.schoolName
-                                                    ? <span className="text-slate-700">{user.schoolName}</span>
-                                                    : user.schoolChosen
-                                                        ? <span className="text-slate-400">ไม่สังกัดโรงเรียน</span>
-                                                        : <span className="text-amber-600 font-bold">ยังไม่ได้เลือก</span>}
+                                                {user.schoolName ? (
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="text-slate-700">{user.schoolName}</span>
+                                                        {/* รับรองแล้ว = เข้าจัดการทีมได้โดยไม่ต้องกรอกรหัส 8 ตัว
+                                                            ยังไม่รับรอง = ผู้ใช้เลือกเอง ยังเชื่อไม่ได้ */}
+                                                        {user.schoolVerified ? (
+                                                            <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-0.5">
+                                                                <CheckCircle2 className="w-3 h-3" /> รับรองแล้ว
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-amber-600 font-bold" title="ผู้ใช้เลือกเอง — ยังเข้าจัดการทีมโดยไม่กรอกรหัสไม่ได้">
+                                                                ผู้ใช้เลือกเอง
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : user.schoolChosen
+                                                    ? <span className="text-slate-400">ไม่สังกัดโรงเรียน</span>
+                                                    : <span className="text-amber-600 font-bold">ยังไม่ได้เลือก</span>}
                                             </td>
                                             <td className="p-4 text-slate-500 text-xs">{user.type === 'line' ? 'LINE' : 'Password'}</td>
                                             <td className="p-4 text-slate-400 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : '-'}</td>

@@ -17,6 +17,7 @@ function handle(string $action, array $cfg): void
         'me'               => do_me(),
         'changePassword'   => do_change_password(),
         'setMySchool'      => set_my_school(),
+        'teamLoginByAccount' => team_login_by_account($cfg),
         default            => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -41,7 +42,7 @@ function do_login(): void
     $u = Db::one(
         'SELECT u.user_id, u.username, u.password_hash, u.display_name, u.role, u.phone,
                 u.picture_url, u.line_user_id, u.must_change_password,
-                u.school_id, u.school_set_at, s.school_name
+                u.school_id, u.school_set_at, u.school_verified, s.school_name
            FROM users u
            LEFT JOIN schools s ON s.school_id = u.school_id
           WHERE u.username = :un',
@@ -67,6 +68,7 @@ function do_login(): void
         'lineUserId'  => $u['line_user_id'],
         'schoolId'    => $u['school_id'],
         'schoolName'  => $u['school_name'],
+        'schoolVerified' => (bool) ($u['school_verified'] ?? 0),
         // เจ้าหน้าที่ไม่ต้องถูกถามหาโรงเรียน — แอดมินเป็นคนกำหนดให้
         'needsSchool' => $u['school_set_at'] === null && $u['role'] === 'user',
         'mustChangePassword' => (bool) $u['must_change_password'],
@@ -97,7 +99,7 @@ function line_login(): void
     $u = Db::one(
         'SELECT u.user_id, u.username, u.display_name, u.role, u.phone, u.picture_url,
                 u.line_user_id, u.must_change_password, u.school_id, u.school_set_at,
-                s.school_name
+                u.school_verified, s.school_name
            FROM users u
            LEFT JOIN schools s ON s.school_id = u.school_id
           WHERE u.line_user_id = :sub',
@@ -124,6 +126,7 @@ function line_login(): void
             'role' => 'user', 'phone' => '', 'picture_url' => $profile['picture'],
             'line_user_id' => $sub, 'must_change_password' => 0,
             'school_id' => null, 'school_set_at' => null, 'school_name' => null,
+            'school_verified' => 0,
         ];
         Audit::log('user', $uid, 'create_via_line');
     } else {
@@ -151,6 +154,7 @@ function line_login(): void
         'lineUserId'  => $u['line_user_id'],
         'schoolId'    => $u['school_id'],
         'schoolName'  => $u['school_name'],
+        'schoolVerified' => (bool) ($u['school_verified'] ?? 0),
         // ยังไม่เคยเลือกโรงเรียน -> ฝั่งเว็บถามก่อนเข้าใช้งาน
         // ใช้ school_set_at ไม่ใช่ school_id เพราะคนที่ "เลือกว่าไม่สังกัดโรงเรียนใด"
         // ต้องไม่ถูกถามซ้ำทุกครั้งที่เปิดแอป
@@ -183,8 +187,12 @@ function set_my_school(): void
         }
     }
 
+    // ผู้ใช้เลือกเอง = ยังไม่ได้รับรอง เข้าจัดการทีมโดยไม่กรอกรหัสไม่ได้
+    // (ผู้ดูแลต้องกดรับรองก่อน ดูเหตุผลใน db/08-school-verified.sql)
     Db::exec(
-        'UPDATE users SET school_id = :sid2, school_set_at = NOW() WHERE user_id = :uid',
+        'UPDATE users SET school_id = :sid2, school_set_at = NOW(),
+                          school_verified = 0, school_verified_by = NULL
+          WHERE user_id = :uid',
         [':sid2' => $schoolId !== '' ? $schoolId : null, ':uid' => $u['user_id']]
     );
 
@@ -300,7 +308,9 @@ function do_team_login(array $cfg): void
     Db::exec('UPDATE schools SET access_code_used_at = NOW() WHERE school_id = :sid2',
         [':sid2' => $school['school_id']]);
 
-    $session = Auth::issueTeam($school['school_id'], $tournamentId);
+    // ถ้าครูเข้าระบบอยู่แล้วค่อยกรอกรหัสโรงเรียน ให้ token ใบใหม่พาบัญชีเดิมไปด้วย
+    // ไม่งั้นสิทธิ์ผู้ใช้จะหายไปทันทีที่เข้าหน้าโรงเรียน แล้วเจอ "เซสชันหมดอายุ"
+    $session = Auth::issueTeam($school['school_id'], $tournamentId, Auth::userId());
     Audit::log('school', $school['school_id'], 'team_login');
 
     $teams = Db::all(
@@ -351,7 +361,7 @@ function do_me(): void
         ]);
     }
     $u = Auth::requireLogin();
-    $sc = Db::one('SELECT u.school_id, u.school_set_at, s.school_name
+    $sc = Db::one('SELECT u.school_id, u.school_set_at, u.school_verified, s.school_name
                      FROM users u LEFT JOIN schools s ON s.school_id = u.school_id
                     WHERE u.user_id = :uid', [':uid' => $u['user_id']]) ?? [];
     Response::ok([
@@ -363,6 +373,7 @@ function do_me(): void
         'lineUserId'  => $u['line_user_id'],
         'schoolId'    => $sc['school_id'] ?? null,
         'schoolName'  => $sc['school_name'] ?? null,
+        'schoolVerified' => (bool) ($sc['school_verified'] ?? 0),
         'needsSchool' => ($sc['school_set_at'] ?? null) === null
             && ($u['role'] ?? 'user') === 'user',
         'mustChangePassword' => (bool) $u['must_change_password'],
@@ -396,4 +407,82 @@ function do_change_password(): void
     );
     Audit::log('user', $u['user_id'], 'change_password');
     Response::ok();
+}
+
+/**
+ * เข้าจัดการทีมด้วยบัญชีที่ผู้ดูแลผูกไว้กับโรงเรียนแล้ว — ไม่ต้องกรอกรหัส 8 ตัว
+ *
+ * ⚠️ ต้อง school_verified = 1 เท่านั้น
+ *    users.school_id ตั้งได้เองจากหน้าจอ (setMySchool) ซึ่งเป็นแค่คำบอกเล่า
+ *    ถ้ายอมให้ค่านั้นเปิดสิทธิ์แก้ทีมด้วย ใครก็ตามที่เข้าด้วย LINE แล้วเลือกว่า
+ *    "อยู่โรงเรียน X" จะแก้รายชื่อนักกีฬาของโรงเรียนนั้นได้ทันที
+ *    จึงยอมเฉพาะที่ผู้ดูแลเป็นคนผูกให้ ซึ่งผ่านการตรวจสอบตัวตนมาแล้ว
+ */
+function team_login_by_account(array $cfg): void
+{
+    $u = Auth::requireLogin();
+
+    $row = Db::one(
+        'SELECT u.school_id, u.school_verified, s.school_name
+           FROM users u JOIN schools s ON s.school_id = u.school_id
+          WHERE u.user_id = :uid AND s.is_active = 1',
+        [':uid' => $u['user_id']]
+    );
+    if ($row === null) {
+        Response::fail('บัญชีนี้ยังไม่ได้ผูกกับโรงเรียนใด', 403, ['needsCode' => true]);
+    }
+    if ((int) $row['school_verified'] !== 1) {
+        Response::fail(
+            'โรงเรียนที่คุณเลือกไว้ยังไม่ได้รับการรับรองจากผู้จัดการแข่งขัน '
+            . 'กรุณาใช้รหัสโรงเรียน 8 ตัว หรือแจ้งผู้ดูแลให้รับรองบัญชีของคุณ',
+            403, ['needsCode' => true]
+        );
+    }
+
+    $schoolId = (string) $row['school_id'];
+
+    // รายการที่โรงเรียนนี้มีทีมอยู่ — ใช้ตรรกะเดียวกับการเข้าด้วยรหัส
+    $mine = Db::all(
+        "SELECT t.tournament_id, tr.name, tr.status, COUNT(*) AS team_count
+           FROM teams t
+           JOIN tournaments tr ON tr.tournament_id = t.tournament_id
+          WHERE t.school_id = :sid
+          GROUP BY t.tournament_id
+          ORDER BY FIELD(tr.status,'Active','Upcoming','Archived'), tr.created_at DESC",
+        [':sid' => $schoolId]
+    );
+    if ($mine === []) {
+        Response::fail('โรงเรียนของคุณยังไม่มีทีมในรายการแข่งขันใด', 404);
+    }
+
+    $tournamentId = Input::str('tournamentId');
+    if ($tournamentId !== '') {
+        $ok = false;
+        foreach ($mine as $m) {
+            if ($m['tournament_id'] === $tournamentId) { $ok = true; break; }
+        }
+        if (!$ok) {
+            Response::fail('โรงเรียนของคุณไม่มีทีมในรายการที่เลือก', 404);
+        }
+    } else {
+        $tournamentId = (string) $mine[0]['tournament_id'];
+    }
+
+    $session = Auth::issueTeam($schoolId, $tournamentId, $u['user_id']);
+    Audit::log('school', $schoolId, 'team_login_by_account', null,
+        ['userId' => $u['user_id'], 'tournamentId' => $tournamentId]);
+
+    Response::ok([
+        'token'        => $session['token'],
+        'expiresAt'    => $session['expiresAt'],
+        'schoolId'     => $schoolId,
+        'schoolName'   => $row['school_name'],
+        'tournamentId' => $tournamentId,
+        'availableTournaments' => array_map(static fn(array $m): array => [
+            'id'        => $m['tournament_id'],
+            'name'      => $m['name'],
+            'status'    => $m['status'],
+            'teamCount' => (int) $m['team_count'],
+        ], $mine),
+    ]);
 }

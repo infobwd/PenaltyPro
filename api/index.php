@@ -17,6 +17,7 @@ require __DIR__ . '/lib/Input.php';
 require __DIR__ . '/lib/Audit.php';
 require __DIR__ . '/lib/Perm.php';
 require __DIR__ . '/lib/Media.php';
+require __DIR__ . '/lib/Format.php';
 require __DIR__ . '/lib/Lookup.php';
 require __DIR__ . '/lib/Secret.php';
 require __DIR__ . '/lib/NotificationPrefs.php';
@@ -66,7 +67,8 @@ $routes = [
     'me'                 => 'auth.php',
     'teamLogin'          => 'auth.php',   // โรงเรียนเข้าด้วยรหัส 8 ตัว
     'changePassword'     => 'auth.php',
-    'setMySchool'        => 'auth.php',   // ผู้ใช้เลือกโรงเรียนต้นสังกัดเอง
+    'setMySchool'        => 'auth.php',
+    'teamLoginByAccount' => 'auth.php',   // เข้าจัดการทีมด้วยบัญชีที่ผู้ดูแลรับรอง   // ผู้ใช้เลือกโรงเรียนต้นสังกัดเอง
 
     // --- ทัวร์นาเมนต์ ------------------------------------------------------
     'createTournament'   => 'tournaments.php',
@@ -157,6 +159,12 @@ $routes = [
     'manageMusicTrack'  => 'admin.php',
     'getTickerMessages' => 'admin.php',
     'manageTickerMessage' => 'admin.php',
+
+    // --- รายงานตัวนักกีฬาหน้างาน -------------------------------------------
+    'checkinTeams'      => 'checkin.php',
+    'checkinTeam'       => 'checkin.php',
+    'savePlayerCheckin' => 'checkin.php',
+    'checkinTeamBulk'   => 'checkin.php',
 ];
 
 $action = (string) ($_GET['action'] ?? Input::str('action'));

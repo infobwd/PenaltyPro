@@ -46,7 +46,7 @@ function list_users(): void
     $rows = Db::all(
         'SELECT u.user_id, u.username, u.display_name, u.role, u.phone, u.picture_url,
                 u.line_user_id, u.last_login_at, u.must_change_password,
-                u.school_id, u.school_set_at, s.school_name
+                u.school_id, u.school_set_at, u.school_verified, s.school_name
            FROM users u
            LEFT JOIN schools s ON s.school_id = u.school_id
           ORDER BY FIELD(u.role,\'admin\',\'staff\',\'user\'), u.display_name'
@@ -64,6 +64,8 @@ function list_users(): void
         'schoolName'  => $u['school_name'],
         // แยก "ยังไม่เคยถูกถาม" ออกจาก "เลือกแล้วว่าไม่สังกัดโรงเรียนใด"
         'schoolChosen' => $u['school_set_at'] !== null,
+        // รับรองแล้ว = เข้าจัดการทีมของโรงเรียนได้โดยไม่ต้องกรอกรหัส 8 ตัว
+        'schoolVerified' => (bool) $u['school_verified'],
         'mustChangePassword' => (bool) $u['must_change_password'],
     ], $rows)]);
 }
@@ -96,9 +98,9 @@ function create_user(): void
     Db::exec(
         'INSERT INTO users (user_id, username, password_hash, password_algo,
                             display_name, role, phone, must_change_password,
-                            school_id, school_set_at)
+                            school_id, school_set_at, school_verified, school_verified_by)
          VALUES (:uid, :un2, :pw, :algo, :name, :role, :phone, :must,
-                 :sid2, NOW())',
+                 :sid2, NOW(), :ver, :verby)',
         [
             ':uid'  => $uid,
             ':un2'  => $username,
@@ -109,6 +111,8 @@ function create_user(): void
             ':phone' => Input::str('phone'),
             ':must' => $password !== '' ? 1 : 0,
             ':sid2' => $schoolId !== '' ? $schoolId : null,
+            ':ver'   => $schoolId !== '' ? 1 : 0,
+            ':verby' => $schoolId !== '' ? Auth::userId() : null,
         ]
     );
     Audit::log('user', $uid, 'create', null, ['username' => $username, 'role' => $role]);
@@ -154,6 +158,11 @@ function update_user(): void
             display_name = :name, phone = :phone, role = :role,
             school_id = CASE WHEN :touch = 1 THEN :sid2 ELSE school_id END,
             school_set_at = CASE WHEN :touch2 = 1 THEN NOW() ELSE school_set_at END,
+            -- ผู้ดูแลเป็นคนผูกให้ = รับรองแล้ว เข้าจัดการทีมได้โดยไม่ต้องกรอกรหัส
+            -- (ล้างโรงเรียนทิ้ง = ถอนการรับรองไปด้วย)
+            school_verified = CASE WHEN :touch3 = 1
+                THEN (CASE WHEN :sid3 IS NULL THEN 0 ELSE 1 END) ELSE school_verified END,
+            school_verified_by = CASE WHEN :touch4 = 1 THEN :by ELSE school_verified_by END,
             password_hash = COALESCE(:pw, password_hash),
             must_change_password = CASE WHEN :pw2 IS NULL THEN must_change_password ELSE 1 END
           WHERE user_id = :uid2',
@@ -163,7 +172,11 @@ function update_user(): void
             ':role'  => $role,
             ':touch' => $touchSchool ? 1 : 0,
             ':touch2' => $touchSchool ? 1 : 0,
+            ':touch3' => $touchSchool ? 1 : 0,
+            ':touch4' => $touchSchool ? 1 : 0,
             ':sid2'  => ($schoolId ?? '') !== '' ? $schoolId : null,
+            ':sid3'  => ($schoolId ?? '') !== '' ? $schoolId : null,
+            ':by'    => Auth::userId(),
             ':pw'    => $password !== '' ? Auth::hashPassword($password) : null,
             ':pw2'   => $password !== '' ? '1' : null,
             ':uid2'  => $uid,

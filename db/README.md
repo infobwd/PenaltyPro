@@ -12,6 +12,27 @@
 | `seed/raw/*.csv` | ❌ | snapshot ดิบจาก Google Sheet |
 | `seed/02-seed.sql` | ❌ | ข้อมูลจริงพร้อม import |
 | `seed/etl-report.md` | ❌ | รายงานทุกแถวที่แปลงไม่ได้ |
+| `vapid-keys.local.sql` | ❌ | คีย์ push ของเครื่องนี้ (มี private key) |
+
+### migration — รันตามลำดับหลัง `01-schema.sql`
+
+ไฟล์พวกนี้เพิ่มทีหลังตามฟีเจอร์ที่ทำ **รันให้ครบทุกไฟล์** ก่อนอัปโค้ดขึ้นโฮสต์
+รันซ้ำไม่ได้ (เป็น `ALTER`/`CREATE TABLE` ตรง ๆ) รันแล้วข้ามได้เลย
+
+| ไฟล์ | เพิ่มอะไร |
+|---|---|
+| `02-registration-payment.sql` | หลักฐานโอนเงินค่าสมัคร |
+| `03-tournament-admins.sql` | ผู้ดูแลรายรายการแข่งขัน |
+| `04-access-code-reveal.sql` | log การเปิดดูรหัสโรงเรียน |
+| `05-registration-visibility.sql` | เปิด/ปิดการรับสมัครรายรายการ |
+| `06-user-school.sql` | ผูกบัญชีผู้ใช้กับโรงเรียน |
+| `07-notifications.sql` | ศูนย์แจ้งเตือน + Web Push |
+| `08-school-verified.sql` | แยกโรงเรียนที่ผู้ดูแลรับรอง ออกจากที่ผู้ใช้เลือกเอง |
+| `09-team-session-user.sql` | session โรงเรียนจำบัญชีที่เข้ามา (แก้ "เซสชันหมดอายุ") |
+| `10-player-checkin.sql` | รายงานตัวนักกีฬาหน้างาน |
+
+เช็กว่าครบไหมโดยไม่ต้องเปิดฐานข้อมูล: เรียก `https://kickoff.bwd.ac.th/api/?action=health`
+ถ้ามี `col_*` หรือ `table_*` ตัวไหน `ok: false` แปลว่ายังไม่ได้รันไฟล์ที่มันบอกไว้ใน `detail`
 
 `db/seed/` อยู่ใน `.gitignore` เพราะมี **รหัสผ่าน, เบอร์โทรผู้ปกครอง/ครู,
 เลขผู้เสียภาษีและที่อยู่ผู้บริจาค** — ห้าม commit สร้างใหม่ได้ทุกเมื่อด้วย `tools/etl/`

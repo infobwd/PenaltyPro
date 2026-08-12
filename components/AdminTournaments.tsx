@@ -1,10 +1,30 @@
 import React, { useMemo, useState } from 'react';
 import {
   Trophy, Plus, Save, Trash2, Loader2, X, Calendar, Users, MapPin,
-  Banknote, Target, AlertTriangle, Pencil, Award,
+  Banknote, Target, AlertTriangle, Pencil, Award, Upload, FileText, ImageIcon, X as XIcon,
 } from 'lucide-react';
-import { apiPost } from '../services/apiConfig';
-import { Tournament, TournamentConfig, Team, Match } from '../types';
+import { apiPost, apiUploadProgress } from '../services/apiConfig';
+import { Tournament, TournamentConfig, Team, Match, ProjectImage } from '../types';
+
+/**
+ * กลุ่มรูปโครงการที่หน้าเว็บใช้เรียงลำดับ
+ *
+ * ค่า key ตรงกับ ProjectImage['type'] ห้ามเปลี่ยน — ข้อมูลเก่าที่อัปไว้แล้วอ้างค่านี้อยู่
+ */
+const IMAGE_GROUPS: {
+  key: ProjectImage['type']; label: string; short: string;
+  hint: string; box: string; text: string;
+}[] = [
+  { key: 'before',  label: 'ก่อนดำเนินโครงการ', short: 'ก่อน',
+    hint: 'สภาพเดิมก่อนเริ่ม — ใช้คู่กับรูปหลังเพื่อให้เห็นความต่าง',
+    box: 'border-amber-200 bg-amber-50/60',   text: 'text-amber-700' },
+  { key: 'after',   label: 'หลังดำเนินโครงการ', short: 'หลัง',
+    hint: 'ผลที่เกิดขึ้นจริงหลังใช้เงินบริจาค',
+    box: 'border-emerald-200 bg-emerald-50/60', text: 'text-emerald-700' },
+  { key: 'general', label: 'รูปทั่วไป', short: 'ทั่วไป',
+    hint: 'บรรยากาศ กิจกรรม หรือรูปอื่นที่ไม่ใช่ก่อน/หลัง',
+    box: 'border-slate-200 bg-slate-50',      text: 'text-slate-600' },
+];
 
 /**
  * จัดการรายการแข่งขัน (CRUD) สำหรับแอดมินส่วนกลาง
@@ -62,6 +82,9 @@ const AdminTournaments: React.FC<Props> = ({
   const [newType, setNewType] = useState<'penalty' | '7v7' | '11v11'>('penalty');
   const [delId, setDelId] = useState<string | null>(null);
   const [confirmName, setConfirmName] = useState('');
+  // ความคืบหน้าอัปโหลดแยกตามช่อง — ไฟล์โครงการมักหลายเมกะไบต์
+  // ถ้าไม่มีแถบบอก ผู้ใช้จะนึกว่าค้างแล้วกดซ้ำจนได้ไฟล์ซ้ำหลายอัน
+  const [uploadPct, setUploadPct] = useState<Record<string, number>>({});
 
   const sorted = useMemo(() => {
     const order: Record<string, number> = { Active: 0, Upcoming: 1, Archived: 2 };
@@ -146,6 +169,43 @@ const AdminTournaments: React.FC<Props> = ({
     } catch (e) {
       notify('ลบไม่สำเร็จ', (e as Error).message, 'error');
     } finally { setBusy(null); }
+  };
+
+  /** อัปโหลดไฟล์แล้วคืน URL พร้อมรายงานความคืบหน้าให้ช่องนั้น */
+  const uploadFile = async (file: File, kind: string, slot: string): Promise<string | null> => {
+    // ตรวจขนาดก่อนส่ง — ให้รู้ตั้งแต่ต้นแทนที่จะรอ 8 MB แล้วค่อยโดนปฏิเสธ
+    if (file.size > 8 * 1024 * 1024) {
+      notify('ไฟล์ใหญ่เกินไป', `${file.name} มีขนาด ${(file.size / 1048576).toFixed(1)} MB (จำกัด 8 MB)`, 'warning');
+      return null;
+    }
+    setUploadPct(prev => ({ ...prev, [slot]: 0 }));
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('kind', kind);
+      const r = await apiUploadProgress('uploadFile', fd,
+        pct => setUploadPct(prev => ({ ...prev, [slot]: pct })));
+      return r.url as string;
+    } catch (e) {
+      notify('อัปโหลดไม่สำเร็จ', (e as Error).message, 'error');
+      return null;
+    } finally {
+      // หน่วงนิดให้เห็น 100% ก่อนแถบหาย ไม่งั้นดูเหมือนไม่ได้ทำอะไร
+      setTimeout(() => setUploadPct(prev => {
+        const next = { ...prev }; delete next[slot]; return next;
+      }), 600);
+    }
+  };
+
+  /** แก้รายการรูปโครงการ — ใช้ prev เสมอ เพราะอัปหลายไฟล์ต่อกันเร็วกว่า state จะตามทัน */
+  const setImages = (fn: (prev: ProjectImage[]) => ProjectImage[]) => {
+    setCfg(prev => ({
+      ...prev,
+      objective: {
+        ...(prev.objective ?? { isEnabled: true, title: '', description: '', goal: 0, images: [] }),
+        images: fn((prev.objective?.images ?? []) as ProjectImage[]),
+      },
+    }));
   };
 
   const setPrize = (i: number, field: string, v: string) => {
@@ -305,6 +365,56 @@ const AdminTournaments: React.FC<Props> = ({
                       <option value="Archived">จบแล้ว</option>
                     </select>
                   </div>
+                </div>
+
+                {/* โลโก้และประกาศ ย้ายมาจากแท็บตั้งค่าระบบ
+                    ทุกปีเปลี่ยนโลโก้และประกาศใหม่ ถ้าเก็บระดับระบบ พอเปิดดูรายการเก่า
+                    จะเห็นโลโก้ของปีปัจจุบันติดอยู่ ซึ่งไม่ตรงกับความจริง */}
+                <div>
+                  <label className={lbl}>โลโก้รายการ</label>
+                  <div className="flex items-center gap-3">
+                    {cfg.competitionLogo
+                      ? <img src={cfg.competitionLogo} alt=""
+                          className="w-16 h-16 object-contain border border-slate-200 rounded-xl p-1 bg-white shrink-0" />
+                      : <div className="w-16 h-16 rounded-xl bg-slate-100 border border-slate-200 shrink-0
+                                        flex items-center justify-center text-[10px] text-slate-400">ยังไม่มี</div>}
+                    <div className="flex-1 min-w-0">
+                      <label className="inline-flex cursor-pointer">
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={async e => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!f) return;
+                            const url = await uploadFile(f, 'logo', 'logo');
+                            if (url) setC('competitionLogo', url);
+                          }} />
+                        <span className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50
+                                         text-xs font-bold hover:bg-slate-100">
+                          {cfg.competitionLogo ? 'เปลี่ยนรูป' : 'เลือกรูป'}
+                        </span>
+                      </label>
+                      {cfg.competitionLogo && (
+                        <button onClick={() => setC('competitionLogo', '' as any)}
+                          className="ml-2 text-xs text-rose-600 font-bold hover:underline">เอาออก</button>
+                      )}
+                      {uploadPct.logo !== undefined && (
+                        <div className="mt-2 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                          <div className="h-full bg-indigo-600 transition-all duration-200"
+                            style={{ width: `${uploadPct.logo}%` }} />
+                        </div>
+                      )}
+                      <p className="text-[11px] text-slate-400 mt-1">ไม่ใส่ก็ได้ ระบบจะใช้โลโก้กลางแทน</p>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className={lbl}>ประกาศวิ่งหน้าแรก</label>
+                  <textarea className={`${inp} h-20`} value={cfg.announcement ?? ''}
+                    onChange={e => setC('announcement', e.target.value as any)}
+                    placeholder="เช่น ปิดรับสมัคร 25 ส.ค. นี้|ประชุมผู้จัดการทีม 27 ส.ค." />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    ใส่หลายข้อความได้ คั่นด้วยเครื่องหมาย <code className="font-mono">|</code> ระบบจะสลับแสดงทีละอัน
+                  </p>
                 </div>
               </section>
 
@@ -489,6 +599,145 @@ const AdminTournaments: React.FC<Props> = ({
                 </label>
                 {cfg.objective?.isEnabled && (
                   <div className="space-y-3 pl-6">
+                    {/* เอกสารโครงการ — ไฟล์เดียว เปลี่ยนทับได้ */}
+                    <div>
+                      <label className={lbl}>เอกสารโครงการ (PDF หรือรูป)</label>
+                      {cfg.objective?.docUrl ? (
+                        <div className="flex items-center gap-2 rounded-xl border border-slate-200 p-2">
+                          <FileText className="w-5 h-5 text-indigo-600 shrink-0" />
+                          <a href={cfg.objective.docUrl} target="_blank" rel="noreferrer"
+                            className="text-xs text-indigo-600 underline flex-1 truncate">
+                            เปิดดูเอกสารที่แนบไว้
+                          </a>
+                          <button
+                            onClick={() => setC('objective',
+                              { ...(cfg.objective as any), docUrl: '' } as any)}
+                            title="เอาไฟล์ออก"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
+                            <XIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="block cursor-pointer">
+                          <input type="file" accept="image/*,application/pdf" className="hidden"
+                            onChange={async e => {
+                              const f = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!f) return;
+                              const url = await uploadFile(f, 'doc', 'objdoc');
+                              if (url) setC('objective', { ...(cfg.objective as any), docUrl: url } as any);
+                            }} />
+                          <div className="rounded-xl border-2 border-dashed border-slate-300 p-3
+                                          flex items-center gap-2 text-slate-500 hover:border-indigo-300">
+                            <Upload className="w-4 h-4" />
+                            <span className="text-xs">แตะเพื่อเลือกไฟล์ (ไม่เกิน 8 MB)</span>
+                          </div>
+                        </label>
+                      )}
+                      {uploadPct.objdoc !== undefined && (
+                        <div className="mt-2">
+                          <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                            <div className="h-full bg-indigo-600 transition-all duration-200"
+                              style={{ width: `${uploadPct.objdoc}%` }} />
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            กำลังอัปโหลด {uploadPct.objdoc}%
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* รูปประกอบโครงการ — หลายรูปได้ */}
+                    {/* รูปโครงการแยก 3 กลุ่ม — ก่อน / หลัง / ทั่วไป
+                        โครงการระดมทุนต้องโชว์ให้ผู้บริจาคเห็นว่าเงินไปทำอะไร
+                        รูป "ก่อน" คู่กับ "หลัง" คือหลักฐานที่มีน้ำหนักที่สุด
+                        เดิมอัปได้กองเดียวไม่มีที่ระบุ ทำให้หน้าเว็บเรียงเป็นก่อน/หลังไม่ได้
+                        ชนิดของรูปมีใน ProjectImage อยู่แล้ว แค่ไม่เคยมี UI ให้เลือก */}
+                    <div className="space-y-3">
+                      <label className={lbl}>รูปภาพโครงการ</label>
+                      {IMAGE_GROUPS.map(g => {
+                        const rows = ((cfg.objective?.images ?? []) as ProjectImage[])
+                          .map((im, i) => ({ im, i }))
+                          .filter(r => (r.im.type ?? 'general') === g.key);
+                        return (
+                          <div key={g.key} className={`rounded-xl border p-3 ${g.box}`}>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="min-w-0">
+                                <p className={`text-xs font-black ${g.text}`}>{g.label}</p>
+                                <p className="text-[11px] text-slate-500">{g.hint}</p>
+                              </div>
+                              <span className="text-[11px] text-slate-400 shrink-0">{rows.length} รูป</span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                              {rows.map(({ im, i }) => (
+                                <div key={im.id ?? i} className="space-y-1">
+                                  <div className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-white">
+                                    <img src={im.url} className="w-full h-full object-cover" alt={im.caption ?? ''} />
+                                    <button
+                                      onClick={() => setImages(prev => prev.filter((_, j) => j !== i))}
+                                      title="ลบรูปนี้"
+                                      className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white">
+                                      <XIcon className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                  {/* ย้ายกลุ่มได้ทีหลัง — เลือกผิดตอนอัปเป็นเรื่องปกติ
+                                      ถ้าไม่มีตรงนี้ต้องลบแล้วอัปใหม่ */}
+                                  <select
+                                    value={im.type ?? 'general'}
+                                    onChange={e => setImages(prev => prev.map((x, j) =>
+                                      j === i ? { ...x, type: e.target.value as ProjectImage['type'] } : x))}
+                                    className="w-full text-[10px] border border-slate-200 rounded-md px-1 py-0.5 bg-white">
+                                    {IMAGE_GROUPS.map(o => (
+                                      <option key={o.key} value={o.key}>{o.short}</option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    value={im.caption ?? ''}
+                                    onChange={e => setImages(prev => prev.map((x, j) =>
+                                      j === i ? { ...x, caption: e.target.value } : x))}
+                                    placeholder="คำบรรยาย"
+                                    className="w-full text-[10px] border border-slate-200 rounded-md px-1 py-0.5" />
+                                </div>
+                              ))}
+                              <label className="aspect-square cursor-pointer">
+                                <input type="file" accept="image/*" multiple className="hidden"
+                                  onChange={async e => {
+                                    const files: File[] = Array.from(e.target.files ?? []);
+                                    e.target.value = '';
+                                    // อัปทีละไฟล์ ไม่ยิงพร้อมกัน — shared hosting รับพร้อมกันหลายไฟล์ไม่ไหว
+                                    for (let i = 0; i < files.length; i++) {
+                                      const url = await uploadFile(files[i], 'objective', `objimg_${g.key}`);
+                                      if (!url) continue;
+                                      setImages(prev => [...prev, {
+                                        id: `${g.key}_${prev.length}_${url.slice(-12)}`,
+                                        url, type: g.key, caption: '',
+                                      }]);
+                                    }
+                                  }} />
+                                <div className="w-full h-full rounded-lg border-2 border-dashed border-slate-300
+                                                flex flex-col items-center justify-center gap-1 text-slate-400
+                                                hover:border-indigo-300 bg-white/60">
+                                  <ImageIcon className="w-5 h-5" />
+                                  <span className="text-[10px]">เพิ่มรูป</span>
+                                </div>
+                              </label>
+                            </div>
+                            {uploadPct[`objimg_${g.key}`] !== undefined && (
+                              <div className="mt-2">
+                                <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                                  <div className="h-full bg-indigo-600 transition-all duration-200"
+                                    style={{ width: `${uploadPct[`objimg_${g.key}`]}%` }} />
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                  กำลังอัปโหลด {uploadPct[`objimg_${g.key}`]}%
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
                     <div>
                       <label className={lbl}>ชื่อโครงการ</label>
                       <input className={inp} value={cfg.objective?.title ?? ''}

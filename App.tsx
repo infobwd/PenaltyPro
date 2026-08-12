@@ -30,6 +30,7 @@ import TeamEditModal from './components/TeamEditModal';
 import ContestGallery from './components/ContestGallery';
 import LiveWall from './components/LiveWall';
 import SchoolPortal from './components/SchoolPortal';
+import CheckInPage from './components/CheckInPage';
 import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
@@ -38,7 +39,7 @@ import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToShe
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -126,6 +127,7 @@ export default function App() {
   const [moreOpen, setMoreOpen] = useState(false);
   // ประกาศฉบับเต็มที่กำลังเปิดอ่าน (ประกาศยาวถูกตัดในแถบเลื่อน)
   const [readingAnnouncement, setReadingAnnouncement] = useState<string | null>(null);
+
   // เก็บฟังก์ชันสั่งใช้เวอร์ชันใหม่ไว้ผูกกับปุ่มในแถบแจ้งเตือน
   const [pendingUpdate, setPendingUpdate] = useState<(() => void) | null>(null);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
@@ -186,6 +188,32 @@ export default function App() {
     () => Array.from(new Set(participatingTeams.map(team => team.group?.trim()).filter((group): group is string => Boolean(group)))).sort(),
     [participatingTeams],
   );
+  /**
+   * ข้อมูลที่หน้าสูจิบัตรใช้
+   *
+   * ลิงก์สูจิบัตรต้องเปิดดูได้โดยไม่ต้องล็อกอินและไม่ต้องเลือกรายการก่อน
+   * (ส่งให้ผู้ปกครองหรือแขกดูได้เลย) จึงหารายการเองตามลำดับ:
+   *   1. ?t= ในลิงก์ — คนแชร์ระบุมาว่ารายการไหน
+   *   2. รายการที่กำลังเปิดอยู่ในแอป
+   *   3. รายการที่กำลังแข่ง/กำลังจะแข่ง อันล่าสุด
+   */
+  const programmeScope = useMemo(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('t') || '';
+    const pick = fromUrl
+      || currentTournamentId
+      || tournaments.find(t => t.status === 'Active')?.id
+      || tournaments.find(t => t.status === 'Upcoming')?.id
+      || tournaments[0]?.id
+      || '';
+    return {
+      tournament: tournaments.find(t => t.id === pick) ?? null,
+      teams: availableTeams.filter(t => !t.tournamentId || t.tournamentId === pick),
+      matches: matchesLog.filter(m => !m.tournamentId || m.tournamentId === pick),
+      // ผู้เล่นไม่มี tournamentId ตรง ๆ ในทุกแถว จึงกรองจากทีมที่อยู่ในขอบเขตแทน
+      players: availablePlayers,
+    };
+  }, [currentTournamentId, tournaments, availableTeams, matchesLog, availablePlayers]);
+
   const rosterStats = useMemo(() => {
     const participatingIds = new Set(participatingTeams.map(team => team.id));
     const registeredPlayers = activePlayers.filter(player => participatingIds.has(player.teamId));
@@ -210,6 +238,8 @@ export default function App() {
       locationLink: tConfig.locationLink || appConfig.locationLink,
       locationLat: tConfig.locationLat || appConfig.locationLat,
       locationLng: tConfig.locationLng || appConfig.locationLng,
+      competitionLogo: tConfig.competitionLogo || appConfig.competitionLogo,
+      announcement: tConfig.announcement || appConfig.announcement,
   };
 
   const registrationDeadline = tConfig.registrationDeadline;
@@ -678,7 +708,9 @@ export default function App() {
   // หน้าโรงเรียนมีแถบปุ่ม "บันทึกร่าง / ยืนยันและส่ง" ตรึงอยู่ล่างจอของตัวเอง
   // ถ้าโชว์เมนูหลักด้วย เมนู (z-100) จะทับปุ่มจนกดไม่ได้บนมือถือ
   const showBottomNav = currentView !== 'match' && currentView !== 'live_wall'
-    && currentView !== 'school' && currentView !== 'login';
+    && currentView !== 'school' && currentView !== 'login'
+    // หน้าสูจิบัตรเป็นเอกสารเต็มจอ มีปุ่มย้อนกลับของตัวเอง เมนูล่างจะไปบังเนื้อหา
+    && currentView !== 'programme';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
@@ -720,6 +752,7 @@ export default function App() {
           <SchoolPortal
               onExit={() => goTo('home')}
               notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
+              currentUser={currentUser}
           />
       );
   }
@@ -727,11 +760,11 @@ export default function App() {
   if (!currentTournamentId && currentView === 'programme') {
       return (
           <ProgrammePage
-              tournament={activeTournament}
+              tournament={programmeScope.tournament}
               config={effectiveSettings}
-              teams={activeTeams}
-              players={activePlayers}
-              matches={activeMatches}
+              teams={programmeScope.teams}
+              players={programmeScope.players}
+              matches={programmeScope.matches}
               onBack={() => goTo('home')}
           />
       );
@@ -1091,19 +1124,45 @@ export default function App() {
 
       {currentView === 'programme' && (
         <ProgrammePage
-          tournament={activeTournament}
+          tournament={programmeScope.tournament}
           config={effectiveSettings}
-          teams={activeTeams}
-          players={activePlayers}
-          matches={activeMatches}
+          teams={programmeScope.teams}
+          players={programmeScope.players}
+          matches={programmeScope.matches}
           onBack={() => goTo('schedule')}
         />
+      )}
+
+      {/* รายงานตัวนักกีฬาหน้างาน — เจ้าภาพเท่านั้น
+          กันด้วย isAdmin ฝั่งนี้เพื่อไม่ให้เห็นหน้าเปล่า ๆ ส่วนสิทธิ์จริง
+          บังคับที่ api (Auth::requireStaff) ทุกคำขอ ฝั่งเว็บกันไว้เฉย ๆ ไม่พอ */}
+      {currentView === 'checkin' && (
+        isAdmin ? (
+          <CheckInPage
+            onExit={() => goTo('home')}
+            notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
+            tournamentId={currentTournamentId ?? undefined}
+          />
+        ) : (
+          <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6 text-center">
+            <Lock className="w-10 h-10 text-slate-300 mb-3" />
+            <p className="font-bold text-slate-700">หน้านี้สำหรับเจ้าภาพและกรรมการ</p>
+            <p className="text-sm text-slate-500 mt-1">กรุณาเข้าสู่ระบบด้วยบัญชีผู้ดูแล</p>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setIsLoginOpen(true)}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold">เข้าสู่ระบบ</button>
+              <button onClick={() => goTo('home')}
+                className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold">กลับหน้าหลัก</button>
+            </div>
+          </div>
+        )
       )}
 
       {currentView === 'school' && (
         <SchoolPortal
           onExit={() => goTo('home')}
           notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
+          currentUser={currentUser}
         />
       )}
 
@@ -1393,37 +1452,41 @@ export default function App() {
                           <p className="text-indigo-100 text-sm mt-1">เลือกเมนูที่ต้องการ ระบบจะพาไปยังแบบฟอร์มโดยตรง</p>
                       </div>
                   </div>
-                  <div className="relative grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5">
+                  {/* จอคอมใช้ 2 คอลัมน์ ไม่ใช่ 4
+                      การ์ดกว้างสุด 896px ถ้าแบ่ง 4 ปุ่มจะเหลือปุ่มละ ~210px
+                      ข้อความไทยยาว ๆ อย่าง "ส่งรายชื่อนักกีฬาและแจ้งโอนเงินค่าสมัคร"
+                      จะตัดบรรทัดถี่จนอ่านยากและดูอัดแน่น */}
+                  <div className="relative grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
                       {isRegistrationOpen ? (
-                        <button onClick={handleRegisterClick} className="min-h-16 rounded-xl bg-white text-indigo-700 font-black flex items-center justify-center gap-3 px-4 shadow-lg hover:bg-indigo-50 transition">
+                        <button onClick={handleRegisterClick} className="min-h-[4.5rem] rounded-xl bg-white text-indigo-700 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-indigo-50 transition text-left">
                             <UserPlus className="w-5 h-5 shrink-0" />
-                            <span className="text-left leading-tight">กรอกใบสมัครส่งทีม<span className="block text-[11px] font-medium text-indigo-500 mt-1">{registrationDeadline ? `เปิดถึง ${formatDeadline(registrationDeadline)}` : 'เปิดรับสมัครอยู่'}</span></span>
+                            <span className="text-left leading-snug flex-1 min-w-0">กรอกใบสมัครส่งทีม<span className="block text-[11px] font-medium text-indigo-500 mt-1">{registrationDeadline ? `เปิดถึง ${formatDeadline(registrationDeadline)}` : 'เปิดรับสมัครอยู่'}</span></span>
                         </button>
                       ) : (
-                        <div className="min-h-16 rounded-xl bg-white/10 border border-white/25 text-white px-4 py-3 flex items-center justify-center gap-3" role="status">
+                        <div className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/25 text-white px-4 py-3 flex items-center gap-3 text-left" role="status">
                             <XCircle className="w-5 h-5 shrink-0 text-rose-200" />
-                            <span className="font-black leading-tight">ปิดรับสมัครแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{isRegistrationFull ? 'ทีมครบจำนวนที่กำหนดแล้ว' : registrationDeadline ? `ตั้งแต่ ${formatDeadline(registrationDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
+                            <span className="font-black leading-snug flex-1 min-w-0">ปิดรับสมัครแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{isRegistrationFull ? 'ทีมครบจำนวนที่กำหนดแล้ว' : registrationDeadline ? `ตั้งแต่ ${formatDeadline(registrationDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
                         </div>
                       )}
                       {isTeamEditingOpen ? (
-                        <button onClick={() => goTo('school')} className="min-h-16 rounded-xl bg-indigo-950/35 border border-white/30 text-white font-black flex items-center justify-center gap-3 px-4 hover:bg-indigo-950/55 transition">
+                        <button onClick={() => goTo('school')} className="min-h-[4.5rem] rounded-xl bg-indigo-950/35 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-indigo-950/55 transition text-left">
                             <ClipboardPenLine className="w-5 h-5 shrink-0" />
-                            <span className="text-left leading-tight">กรอก/แก้ไขข้อมูลทีม<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `แก้ไขได้ถึง ${formatDeadline(teamEditDeadline)}` : 'เปิดให้แก้ไขข้อมูลอยู่'}</span></span>
+                            <span className="text-left leading-snug flex-1 min-w-0">ส่งรายชื่อนักกีฬาและแจ้งโอนเงินค่าสมัคร<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `แก้ไขได้ถึง ${formatDeadline(teamEditDeadline)}` : 'เปิดให้แก้ไขข้อมูลอยู่'}</span></span>
                         </button>
                       ) : (
-                        <div className="min-h-16 rounded-xl bg-indigo-950/25 border border-white/20 text-white px-4 py-3 flex items-center justify-center gap-3" role="status">
+                        <div className="min-h-[4.5rem] rounded-xl bg-indigo-950/25 border border-white/20 text-white px-4 py-3 flex items-center gap-3 text-left" role="status">
                             <XCircle className="w-5 h-5 shrink-0 text-amber-200" />
-                            <span className="font-black leading-tight">ปิดแก้ไขข้อมูลทีมแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `ตั้งแต่ ${formatDeadline(teamEditDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
+                            <span className="font-black leading-snug flex-1 min-w-0">ปิดแก้ไขข้อมูลทีมแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `ตั้งแต่ ${formatDeadline(teamEditDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
                         </div>
                       )}
-                      <button onClick={() => goTo('programme')} className="min-h-16 rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center justify-center gap-3 px-4 hover:bg-white/20 transition">
+                      <button onClick={() => goTo('programme')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
                           <FileText className="w-5 h-5 shrink-0" />
-                          <span className="text-left leading-tight">ดูสูจิบัตร<span className="block text-[11px] font-medium text-indigo-100 mt-1">กำหนดการ ทีม และตารางแข่งขัน</span></span>
+                          <span className="text-left leading-snug flex-1 min-w-0">ดูสูจิบัตร<span className="block text-[11px] font-medium text-indigo-100 mt-1">กำหนดการ ทีม และตารางแข่งขัน</span></span>
                       </button>
                       {isAdmin && (
-                        <button onClick={handleDownloadSchoolCodes} className="min-h-16 rounded-xl bg-amber-400 text-amber-950 font-black flex items-center justify-center gap-3 px-4 shadow-lg hover:bg-amber-300 transition">
+                        <button onClick={handleDownloadSchoolCodes} className="min-h-[4.5rem] rounded-xl bg-amber-400 text-amber-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-amber-300 transition text-left">
                             <Download className="w-5 h-5 shrink-0" />
-                            <span className="text-left leading-tight">โหลดรหัสโรงเรียน<span className="block text-[11px] font-medium text-amber-800 mt-1">ไฟล์ CSV เฉพาะผู้ดูแล</span></span>
+                            <span className="text-left leading-snug flex-1 min-w-0">โหลดรหัสโรงเรียน<span className="block text-[11px] font-medium text-amber-800 mt-1">ไฟล์ CSV เฉพาะผู้ดูแล</span></span>
                         </button>
                       )}
                   </div>
@@ -1610,6 +1673,27 @@ export default function App() {
                   className="w-full py-3 px-4 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition"
                 >
                   <Eye className="w-4 h-4" /> แสดงการ์ดโหมดการดวลจุดโทษ
+                </button>
+              )}
+
+              {/* ทางเข้าหน้ารายงานตัว — วางบนหน้าหลักเพราะเจ้าภาพต้องเปิดใช้
+                  ตอนยืนอยู่หน้าสนาม ไม่ใช่ตอนนั่งอยู่หน้าจอแอดมิน */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => goTo('checkin')}
+                  className="w-full rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 text-white
+                             p-4 shadow-lg flex items-center gap-4 hover:from-emerald-700 hover:to-teal-800 transition text-left"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-7 h-7" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-emerald-100 text-xs font-bold tracking-wide">สำหรับเจ้าภาพและกรรมการ</p>
+                    <p className="font-black text-lg leading-tight mt-0.5">รายงานตัวนักกีฬาหน้างาน</p>
+                    <p className="text-emerald-100 text-xs mt-1">เทียบรูปในระบบกับตัวจริงก่อนปล่อยลงแข่ง</p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 shrink-0 opacity-80" />
                 </button>
               )}
 

@@ -22,10 +22,70 @@ export const DB_API =
   ?? (isDev ? 'http://127.0.0.1:8899/' : '/api/');
 
 const TOKEN_KEY = 'penalty_pro_token';
+const TOKEN_KIND_KEY = 'penalty_pro_token_kind';
+const USER_TOKEN_BACKUP = 'penalty_pro_user_token';
+
+/**
+ * ระบบมี session 2 ชนิดที่ใช้ช่องเดียวกัน
+ *
+ *   user — เข้าด้วยชื่อผู้ใช้หรือ LINE
+ *   team — เข้าหน้าโรงเรียนด้วยรหัส 8 ตัว (ผูกกับโรงเรียน ไม่ใช่บัญชีคน)
+ *
+ * ⚠️ ต้องรู้ว่าตอนนี้ถืออันไหนอยู่ ไม่งั้นเกิดอาการนี้:
+ *    ครูล็อกอินด้วย LINE (ได้ user token) → เข้าหน้าโรงเรียน (ทับด้วย team token)
+ *    → ตัวเช็คการแจ้งเตือนที่ยิงทุก 25 วินาทีใช้ team token ไปเรียก endpoint ของผู้ใช้
+ *    → ได้ 401 → ระบบเด้ง "เซสชันหมดอายุ" ทั้งที่เพิ่งเข้ามาเอง
+ *
+ * และเก็บ user token สำรองไว้ เพื่อคืนให้ตอนออกจากหน้าโรงเรียน
+ * ครูจะได้ไม่หลุดจากบัญชีตัวเองเพราะเข้าไปกรอกรายชื่อทีม
+ */
+export type TokenKind = 'user' | 'team';
 
 export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+export const getTokenKind = (): TokenKind | null =>
+  (localStorage.getItem(TOKEN_KIND_KEY) as TokenKind | null);
+
+export const setToken = (t: string, kind: TokenKind = 'user') => {
+  if (kind === 'team') {
+    // เก็บ token ของบัญชีไว้ก่อนถูกทับ
+    const prev = localStorage.getItem(TOKEN_KEY);
+    const prevKind = localStorage.getItem(TOKEN_KIND_KEY);
+    if (prev && prevKind !== 'team') localStorage.setItem(USER_TOKEN_BACKUP, prev);
+  } else {
+    localStorage.removeItem(USER_TOKEN_BACKUP);
+  }
+  localStorage.setItem(TOKEN_KEY, t);
+  localStorage.setItem(TOKEN_KIND_KEY, kind);
+};
+
+export const clearToken = () => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KIND_KEY);
+  localStorage.removeItem(USER_TOKEN_BACKUP);
+};
+
+/** ออกจากหน้าโรงเรียน — คืน session ของบัญชีเดิมถ้ามี */
+export const clearTeamToken = () => {
+  const backup = localStorage.getItem(USER_TOKEN_BACKUP);
+  localStorage.removeItem(USER_TOKEN_BACKUP);
+  if (backup) {
+    localStorage.setItem(TOKEN_KEY, backup);
+    localStorage.setItem(TOKEN_KIND_KEY, 'user');
+  } else {
+    clearToken();
+  }
+};
+
+/**
+ * session หมดอายุ — ล้างเท่าที่หมดจริง
+ *
+ * ถ้าใบที่หมดคือ token ของหน้าโรงเรียน (อายุสั้นกว่าของบัญชี) ให้คืน session
+ * บัญชีเดิมกลับมา ครูจะได้แค่ต้องเข้าหน้าโรงเรียนใหม่ ไม่ใช่หลุดออกจากระบบทั้งหมด
+ */
+const clearExpiredToken = () => {
+  if (getTokenKind() === 'team') clearTeamToken();
+  else clearToken();
+};
 
 const authHeaders = (): Record<string, string> => {
   const t = getToken();
@@ -91,6 +151,7 @@ const fetchWithTimeout = async (
 export async function apiGet<T = any>(
   action: string,
   params: Record<string, string | number | undefined> = {},
+  opts: { background?: boolean } = {},
 ): Promise<T> {
   // ต้องส่ง base เพราะ DB_API เป็น path สัมพัทธ์บน production
   const url = new URL(DB_API, window.location.origin);
@@ -114,8 +175,10 @@ export async function apiGet<T = any>(
   if (!res.ok || data?.status === 'error') {
     const err = new ApiError(
       data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
-    if (res.status === 401) {
-      clearToken();
+    // คำขอเบื้องหลัง (เช่น poll การแจ้งเตือน) ห้ามสั่ง logout ทั้งระบบ
+    // ผู้ใช้ไม่ได้กดอะไรเลย การเด้งออกจึงดูเหมือนระบบพังโดยไม่มีสาเหตุ
+    if (res.status === 401 && !opts.background) {
+      clearExpiredToken();
       onUnauthorized?.(err.message);
     }
     throw err;
@@ -146,7 +209,7 @@ export async function apiPost<T = any>(action: string, body: any = {}): Promise<
     const err = new ApiError(
       data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
     if (res.status === 401) {
-      clearToken();
+      clearExpiredToken();
       onUnauthorized?.(err.message);
     }
     throw err;
@@ -176,8 +239,57 @@ export async function apiUpload<T = any>(action: string, form: FormData): Promis
   catch { throw new ApiError(`เซิร์ฟเวอร์ตอบกลับไม่ใช่ JSON (HTTP ${res.status})`, res.status); }
   if (!res.ok || data?.status === 'error') {
     const err = new ApiError(data?.message ?? `อัปโหลดไม่สำเร็จ (HTTP ${res.status})`, res.status, data);
-    if (res.status === 401) { clearToken(); onUnauthorized?.(err.message); }
+    if (res.status === 401) { clearExpiredToken(); onUnauthorized?.(err.message); }
     throw err;
   }
   return data as T;
+}
+
+/**
+ * อัปโหลดพร้อมรายงานความคืบหน้า
+ *
+ * ต้องใช้ XMLHttpRequest ไม่ใช่ fetch เพราะ fetch ยังบอกความคืบหน้า "ขาส่ง" ไม่ได้
+ * ไฟล์เอกสารโครงการมักหลายเมกะไบต์ ถ้าไม่มีแถบบอก ผู้ใช้จะนึกว่าค้างแล้วกดซ้ำ
+ * จนได้ไฟล์ซ้ำหลายอัน
+ */
+export function apiUploadProgress<T = any>(
+  action: string,
+  form: FormData,
+  onProgress?: (percent: number) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(DB_API, window.location.origin);
+    url.searchParams.set('action', action);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url.toString());
+    const t = getToken();
+    if (t) xhr.setRequestHeader('Authorization', `Bearer ${t}`);
+    // ห้ามตั้ง Content-Type เอง — เบราว์เซอร์ต้องใส่ boundary ให้
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
+    };
+
+    xhr.onload = () => {
+      let data: any;
+      try { data = JSON.parse(xhr.responseText); }
+      catch {
+        reject(new ApiError(`เซิร์ฟเวอร์ตอบกลับไม่ใช่ JSON (HTTP ${xhr.status})`, xhr.status));
+        return;
+      }
+      if (xhr.status >= 400 || data?.status === 'error') {
+        const err = new ApiError(data?.message ?? `อัปโหลดไม่สำเร็จ (HTTP ${xhr.status})`,
+          xhr.status, data);
+        if (xhr.status === 401) { clearExpiredToken(); onUnauthorized?.(err.message); }
+        reject(err);
+        return;
+      }
+      onProgress?.(100);
+      resolve(data as T);
+    };
+    xhr.onerror = () => reject(new ApiError('เชื่อมต่อไม่ได้ระหว่างอัปโหลด', 0));
+    xhr.onabort = () => reject(new ApiError('ยกเลิกการอัปโหลด', 0));
+    xhr.send(form);
+  });
 }

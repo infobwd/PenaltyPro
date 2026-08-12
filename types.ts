@@ -89,6 +89,12 @@ export interface TournamentConfig {
   locationLng?: number;
   registrationFee?: number;
 
+  // ป้ายหน้าร้านของรายการ — ย้ายมาจากแท็บตั้งค่าระบบ
+  // ทุกปีเปลี่ยนโลโก้และประกาศใหม่ ถ้าเก็บไว้ระดับระบบ พอสลับไปดูรายการเก่า
+  // จะเห็นโลโก้ปีปัจจุบันติดอยู่ ซึ่งไม่ตรงกับความจริง
+  competitionLogo?: string;
+  announcement?: string;
+
   objective?: {
     isEnabled: boolean;
     title: string;
@@ -298,6 +304,8 @@ export interface UserProfile {
   needsSchool?: boolean;
   /** เคยตอบเรื่องโรงเรียนแล้ว (ตอบว่า "ไม่สังกัด" ก็นับ) — ใช้แยกจาก "ยังไม่ได้เลือก" */
   schoolChosen?: boolean;
+  /** ผู้ดูแลรับรองการผูกโรงเรียนแล้ว — เข้าจัดการทีมได้โดยไม่ต้องกรอกรหัส 8 ตัว */
+  schoolVerified?: boolean;
   userId: string;
   username?: string;
   displayName: string;

@@ -343,21 +343,8 @@ function handle(string $action, array $cfg): void
 
 // ── helper ────────────────────────────────────────────────────────────────
 
-function snake_to_camel(string $s): string
-{
-    return lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $s))));
-}
-
-
-/** DATETIME ของ MySQL -> ISO ที่ frontend เข้าใจ (เวลาไทย) */
-function iso(?string $dt): string
-{
-    if ($dt === null || $dt === '' || str_starts_with($dt, '0000')) {
-        return '';
-    }
-    $ts = strtotime($dt);
-    return $ts === false ? '' : date('c', $ts);
-}
+// iso() และ snake_to_camel() ย้ายไป lib/Format.php แล้ว
+// เพราะ route อื่น (teams.php) ก็เรียกใช้ แต่ index.php require route ทีละไฟล์
 
 /** @return array<string,array<int,array>> */
 function group_by(array $rows, string $key): array

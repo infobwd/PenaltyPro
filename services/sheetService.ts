@@ -187,6 +187,7 @@ export const authenticateUser = async (data: any): Promise<UserProfile | null> =
     lineUserId: r.lineUserId,
     schoolId: r.schoolId ?? null,
     schoolName: r.schoolName ?? null,
+    schoolVerified: !!r.schoolVerified,
     needsSchool: !!r.needsSchool,
   };
 };

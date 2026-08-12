@@ -91,13 +91,31 @@ final class Auth
 
         // ชื่อ placeholder ห้ามซ้ำในคิวรีเดียว (EMULATE_PREPARES=false) จึงใช้ :h2/:h3
         self::$teamSession = Db::one(
-            'SELECT ts.school_id, ts.tournament_id, s.school_name
+            'SELECT ts.school_id, ts.tournament_id, ts.user_id, s.school_name
                FROM team_sessions ts
                JOIN schools s ON s.school_id = ts.school_id
               WHERE ts.token_hash = :h3 AND ts.expires_at > NOW()
                 AND ts.revoked_at IS NULL',
             [':h3' => $hash]
         );
+
+        // session ทีมที่ออกให้ผู้ใช้ที่เข้าระบบอยู่ ให้ถือสิทธิ์ผู้ใช้ต่อไปด้วย
+        //
+        // ไม่งั้น token ของทีมจะไม่มีตัวตนผู้ใช้เลย คำขอที่ต้อง requireLogin()
+        // (เช่น นับแจ้งเตือน) จะตอบ 401 แล้วเว็บก็เด้ง "เซสชันหมดอายุ"
+        // ทั้งที่ครูเพิ่งเข้าระบบมาเอง
+        //
+        // ไม่ใช่การยกสิทธิ์: user_id นี้ถูกบันทึกตอนออก token จากบัญชีที่
+        // ยืนยันตัวแล้วเท่านั้น เข้าด้วยรหัสโรงเรียนล้วนจะเป็น NULL เหมือนเดิม
+        $tsUser = self::$teamSession['user_id'] ?? null;
+        if ($tsUser !== null && $tsUser !== '') {
+            self::$user = Db::one(
+                'SELECT user_id, display_name, role, line_user_id,
+                        phone, picture_url, username, must_change_password
+                   FROM users WHERE user_id = :uid',
+                [':uid' => $tsUser]
+            );
+        }
     }
 
     // ── สถานะปัจจุบัน ───────────────────────────────────────────────────
@@ -194,18 +212,28 @@ final class Auth
         return ['token' => $token, 'expiresAt' => $exp];
     }
 
-    public static function issueTeam(string $schoolId, string $tournamentId): array
-    {
+    /**
+     * ออก session โรงเรียน
+     *
+     * $userId คือบัญชีที่กำลังเข้าระบบอยู่ตอนกดเข้าหน้าโรงเรียน (ถ้ามี)
+     * เก็บไว้เพื่อให้ token ใบนี้ถือทั้งสิทธิ์โรงเรียนและตัวผู้ใช้ ดู boot()
+     */
+    public static function issueTeam(
+        string $schoolId,
+        string $tournamentId,
+        ?string $userId = null
+    ): array {
         $token = bin2hex(random_bytes(32));
         $exp = date('Y-m-d H:i:s', time() + self::$teamTtl);
         Db::exec(
             'INSERT INTO team_sessions
-                (token_hash, school_id, tournament_id, expires_at, ip_hash, user_agent)
-             VALUES (:h, :sid, :tid, :exp, :ip, :ua)',
+                (token_hash, school_id, tournament_id, user_id, expires_at, ip_hash, user_agent)
+             VALUES (:h, :sid, :tid, :uid, :exp, :ip, :ua)',
             [
                 ':h'   => hash('sha256', $token),
                 ':sid' => $schoolId,
                 ':tid' => $tournamentId,
+                ':uid' => ($userId !== null && $userId !== '') ? $userId : null,
                 ':exp' => $exp,
                 ':ip'  => self::ipHash(),
                 ':ua'  => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),

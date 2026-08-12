@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   KeyRound, Loader2, LogOut, Plus, Trash2, Save, Send, CheckCircle2,
   AlertTriangle, ChevronLeft, Users, ShieldQuestion, Clock, XCircle, Info,
   Camera, Upload, FileText,
 } from 'lucide-react';
-import { apiGet, apiPost, apiUpload, ApiError, setToken, clearToken, getToken } from '../services/apiConfig';
+import { apiGet, apiPost, apiUpload, ApiError, setToken, clearTeamToken, getToken, getTokenKind } from '../services/apiConfig';
 import { confirmAction } from '../services/uiService';
 
 /**
@@ -22,6 +23,9 @@ import { confirmAction } from '../services/uiService';
 interface Props {
   onExit: () => void;
   notify: (title: string, msg?: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  /** บัญชีที่กำลังใช้งาน — ถ้าผู้ดูแลผูกกับโรงเรียนไว้แล้วจะเข้าได้เลยไม่ต้องกรอกรหัส */
+  currentUser?: { displayName?: string; schoolId?: string | null;
+                  schoolName?: string | null; schoolVerified?: boolean } | null;
 }
 
 interface PlayerRow {
@@ -77,7 +81,7 @@ const STATUS_LABEL: Record<string, { text: string; cls: string; icon: React.Reac
   Withdrawn: { text: 'ไม่เข้าร่วมปีนี้', cls: 'bg-slate-200 text-slate-600', icon: <XCircle className="w-3.5 h-3.5" /> },
 };
 
-const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
+const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [schoolName, setSchoolName] = useState('');
@@ -90,6 +94,9 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
   const [uploading, setUploading] = useState<string | null>(null);
   // เก็บรหัสไว้เพื่อสลับรายการแข่งขันได้โดยไม่ต้องพิมพ์ใหม่
   const [lastCode, setLastCode] = useState('');
+  // รูปที่กำลังเปิดดูแบบเต็ม — ครูมักอยากตรวจว่ารูปที่อัปไปชัดพอไหม
+  // ก่อนหน้านี้เห็นแค่กรอบ 44px จะดูว่าใช่คนถูกคนหรือเปล่ายังยาก
+  const [viewPhoto, setViewPhoto] = useState<{ url: string; name: string } | null>(null);
 
   // ── ร่างอัตโนมัติ — เน็ตหลุด/ปิดแท็บแล้วกลับมากรอกต่อได้ ────────────────
   useEffect(() => {
@@ -108,13 +115,48 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
     return r;
   };
 
+  /**
+   * เข้าจัดการทีมด้วยบัญชีที่ผู้ดูแลผูกไว้แล้ว — ไม่ต้องกรอกรหัส 8 ตัว
+   *
+   * ใช้ได้เฉพาะบัญชีที่ "ผู้ดูแลรับรอง" เท่านั้น (schoolVerified) เพราะโรงเรียน
+   * ที่ผู้ใช้เลือกเองตอนเข้าครั้งแรกเป็นแค่คำบอกเล่า ถ้ายอมให้ผ่านด้วย
+   * ใครก็ตามที่เลือกว่า "อยู่โรงเรียนนี้" จะแก้รายชื่อนักกีฬาของโรงเรียนนั้นได้
+   */
+  const loginWithAccount = async (silent = false) => {
+    setBusy('account');
+    try {
+      const r = await apiPost('teamLoginByAccount', {});
+      setToken(r.token, 'team');
+      setSchoolName(r.schoolName);
+      setOptions(r.availableTournaments ?? []);
+      setLastCode('');
+      await loadTeams();
+      notify('เข้าสู่ระบบแล้ว', `${r.schoolName} · เข้าด้วยบัญชีของคุณ`, 'success');
+      return true;
+    } catch (e) {
+      const err = e as ApiError;
+      // เข้าอัตโนมัติไม่ได้ก็แค่ให้กรอกรหัสตามปกติ ไม่ต้องขึ้นข้อความรบกวน
+      if (!silent) notify('เข้าด้วยบัญชีไม่ได้', err.message, 'warning');
+      return false;
+    } finally { setBusy(null); }
+  };
+
+  // ผู้ใช้ที่ผูกและรับรองแล้ว — พาเข้าให้เลยตั้งแต่เปิดหน้า
+  useEffect(() => {
+    if (getTokenKind() === 'team' && teams.length > 0) return;   // เข้าหน้าโรงเรียนอยู่แล้ว
+    if (!currentUser?.schoolId || !currentUser.schoolVerified) return;
+    loginWithAccount(true);
+    // ตั้งใจให้ทำครั้งเดียวตอนเปิดหน้า ไม่ผูกกับ loginWithAccount ที่สร้างใหม่ทุก render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.schoolId, currentUser?.schoolVerified]);
+
   const doLogin = async () => {
     const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (clean.length !== 8) { notify('รหัสไม่ครบ', 'รหัสมี 8 ตัวอักษร', 'warning'); return; }
     setBusy('login');
     try {
       const r = await apiPost('teamLogin', { accessCode: clean });
-      setToken(r.token);
+      setToken(r.token, 'team');
       setSchoolName(r.schoolName);
       setOptions(r.availableTournaments ?? []);
       setLastCode(clean);
@@ -128,11 +170,13 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
 
   /** สลับไปดูทีมในอีกรายการแข่งขัน — session ผูกรายการเดียว จึงต้องออก token ใหม่ */
   const switchTournament = async (tournamentId: string) => {
-    if (!lastCode) { notify('สลับไม่ได้', 'กรุณาเข้าสู่ระบบใหม่', 'warning'); return; }
     setBusy('switch');
     try {
-      const r = await apiPost('teamLogin', { accessCode: lastCode, tournamentId });
-      setToken(r.token);
+      // เข้าด้วยรหัสก็ใช้รหัสเดิม เข้าด้วยบัญชีก็ออก session ใหม่จากบัญชี
+      const r = lastCode
+        ? await apiPost('teamLogin', { accessCode: lastCode, tournamentId })
+        : await apiPost('teamLoginByAccount', { tournamentId });
+      setToken(r.token, 'team');
       setOptions(r.availableTournaments ?? []);
       await loadTeams();
     } catch (e) {
@@ -156,7 +200,8 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
   };
 
   const doLogout = () => {
-    clearToken();
+    // คืน session ของบัญชีเดิม (ถ้าเข้าด้วย LINE/ชื่อผู้ใช้มาก่อน) ไม่ใช่ล้างทิ้งทั้งหมด
+    clearTeamToken();
     localStorage.removeItem(DRAFT_KEY);
     setTeams([]); setEditing(null); setSchoolName(''); setCode('');
   };
@@ -251,6 +296,47 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
 
   const inp = 'w-full px-3 py-2.5 border border-slate-300 rounded-xl text-base focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none';
 
+  /**
+   * ตัวดูรูปนักกีฬาแบบเต็มจอ
+   *
+   * ประกาศไว้ตรงนี้แล้ววางในทุกหน้าย่อย เพราะ component นี้ return หลายจุด
+   * (ยังไม่เข้าระบบ / แก้ไขทีม / รายการทีม) ตอนแรกวาง JSX ไว้ในหน้ารายการทีม
+   * อันเดียว แต่รูปที่กดได้อยู่ในหน้าแก้ไขทีม กดแล้ว state เปลี่ยนจริงแต่ไม่มี
+   * อะไรเรนเดอร์ออกมา
+   *
+   * portal ไป body ด้วย เพื่อไม่ให้ไปชน z-index กับแถบ sticky ด้านบนและปุ่มลอยด้านล่าง
+   */
+  const photoViewer = viewPhoto ? createPortal(
+    <div
+      className="fixed inset-0 z-[2000] bg-black/85 flex items-center justify-center p-4"
+      onClick={() => setViewPhoto(null)}
+      role="dialog" aria-modal="true" aria-label={`รูป ${viewPhoto.name}`}
+    >
+      <button
+        onClick={() => setViewPhoto(null)}
+        aria-label="ปิด"
+        className="absolute top-4 right-4 p-2 rounded-full"
+        style={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#ffffff' }}
+      >
+        <XCircle className="w-6 h-6" />
+      </button>
+      <div className="max-w-lg w-full" onClick={e => e.stopPropagation()}>
+        <img
+          src={viewPhoto.url}
+          alt={viewPhoto.name}
+          className="w-full max-h-[75vh] object-contain rounded-2xl"
+        />
+        <p className="text-center text-sm mt-3" style={{ color: '#ffffff' }}>
+          {viewPhoto.name}
+        </p>
+        <p className="text-center text-xs mt-1" style={{ color: '#cbd5e1' }}>
+          แตะนอกรูปเพื่อปิด
+        </p>
+      </div>
+    </div>,
+    document.body
+  ) : null;
+
   // ── ยังไม่ได้เข้าสู่ระบบ ────────────────────────────────────────────────
   if (!teams.length && !schoolName) {
     return (
@@ -265,6 +351,38 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
               <KeyRound className="w-7 h-7" />
             </div>
             <h1 className="text-xl font-bold text-slate-800">สำหรับโรงเรียน</h1>
+
+            {/* บัญชีที่ผู้ดูแลผูกกับโรงเรียนไว้แล้ว เข้าได้เลยไม่ต้องหารหัส */}
+            {currentUser?.schoolId && currentUser.schoolVerified && (
+              <div className="mt-4 mb-1 rounded-2xl border border-indigo-200 bg-indigo-50 p-3">
+                <p className="text-xs text-indigo-800">
+                  บัญชีของคุณผูกกับ <b>{currentUser.schoolName}</b> แล้ว
+                </p>
+                <button
+                  onClick={() => loginWithAccount(false)}
+                  disabled={busy === 'account'}
+                  className="mt-2 w-full py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm
+                             flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {busy === 'account'
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <CheckCircle2 className="w-4 h-4" />}
+                  เข้าจัดการทีมด้วยบัญชีนี้
+                </button>
+                <p className="text-[11px] text-indigo-500 mt-2 text-center">หรือใช้รหัสโรงเรียนด้านล่าง</p>
+              </div>
+            )}
+
+            {currentUser?.schoolId && !currentUser.schoolVerified && (
+              <div className="mt-4 mb-1 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  บัญชีของคุณเลือกไว้ว่าอยู่ <b>{currentUser.schoolName}</b> แต่ผู้จัดการแข่งขัน
+                  ยังไม่ได้รับรอง จึงต้องใช้รหัสโรงเรียนก่อน — แจ้งผู้ดูแลให้รับรองบัญชีของคุณ
+                  แล้วครั้งต่อไปจะเข้าได้เลย
+                </p>
+              </div>
+            )}
+
             <p className="text-sm text-slate-500 mt-1 leading-relaxed">
               ใส่รหัส 8 ตัวที่ได้รับจากผู้จัดการแข่งขัน เพื่อยืนยันการเข้าร่วมและกรอกรายชื่อนักกีฬา
             </p>
@@ -313,6 +431,20 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
         </div>
 
         <div className="p-4 space-y-4 max-w-lg mx-auto">
+          {editing.status === 'Approved' && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 flex gap-2">
+              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed">
+                <p className="font-bold">ทีมนี้ผ่านการอนุมัติแล้ว</p>
+                <p className="mt-1">
+                  ถ้าบันทึกการแก้ไข สถานะจะกลับไปเป็น "ส่งแล้ว รอตรวจ"
+                  และเจ้าภาพจะต้องตรวจรายชื่อใหม่ก่อนอนุมัติอีกครั้ง
+                  หากไม่ได้ตั้งใจเปลี่ยนอะไร ให้กดย้อนกลับโดยไม่บันทึก
+                </p>
+              </div>
+            </div>
+          )}
+
           {editing.status === 'Rejected' && editing.rejectReason && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -410,22 +542,51 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
               {editing.players.map((p, i) => (
                 <div key={i} className="flex gap-2 items-start">
                   {/* รูปนักกีฬา — แตะกรอบเพื่อถ่าย/เลือกรูป ไม่บังคับ */}
-                  <label className="shrink-0 cursor-pointer" title="แตะเพื่อใส่รูป">
-                    <input type="file" accept="image/*" className="hidden"
-                      onChange={async e => {
-                        const f = e.target.files?.[0];
-                        if (!f) return;
-                        const url = await upload(f, 'player', `p${i}`);
-                        if (url) setPlayer(i, 'photoUrl', url);
-                      }} />
-                    <div className="w-11 h-11 rounded-xl border-2 border-dashed border-slate-300 overflow-hidden flex items-center justify-center bg-slate-50">
-                      {uploading === `p${i}`
-                        ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                        : p.photoUrl
-                          ? <img src={p.photoUrl} className="w-full h-full object-cover" />
-                          : <Camera className="w-4 h-4 text-slate-400" />}
-                    </div>
-                  </label>
+                  <div className="shrink-0 flex flex-col items-center gap-1">
+                    {p.photoUrl ? (
+                      <>
+                        {/* มีรูปแล้ว: แตะที่รูป = ดูใหญ่ ส่วนการเปลี่ยนรูปอยู่ปุ่มด้านล่าง
+                            แยกกันเพราะแตะรูปเพื่อ "ดู" เป็นสิ่งที่คนคาดหวังมากกว่า */}
+                        <button
+                          type="button"
+                          onClick={() => setViewPhoto({ url: p.photoUrl, name: p.name || `นักกีฬาคนที่ ${i + 1}` })}
+                          title="แตะเพื่อดูรูปใหญ่"
+                          className="w-11 h-11 rounded-xl border border-slate-200 overflow-hidden bg-slate-50"
+                        >
+                          {uploading === `p${i}`
+                            ? <Loader2 className="w-4 h-4 animate-spin text-slate-400 mx-auto" />
+                            : <img src={p.photoUrl} className="w-full h-full object-cover" alt="" />}
+                        </button>
+                        <label className="cursor-pointer text-[9px] text-indigo-600 font-bold">
+                          <input type="file" accept="image/*" className="hidden"
+                            onChange={async e => {
+                              const f = e.target.files?.[0];
+                              e.target.value = '';
+                              if (!f) return;
+                              const url = await upload(f, 'player', `p${i}`);
+                              if (url) setPlayer(i, 'photoUrl', url);
+                            }} />
+                          เปลี่ยน
+                        </label>
+                      </>
+                    ) : (
+                      <label className="cursor-pointer" title="แตะเพื่อใส่รูป">
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={async e => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (!f) return;
+                            const url = await upload(f, 'player', `p${i}`);
+                            if (url) setPlayer(i, 'photoUrl', url);
+                          }} />
+                        <div className="w-11 h-11 rounded-xl border-2 border-dashed border-slate-300 overflow-hidden flex items-center justify-center bg-slate-50">
+                          {uploading === `p${i}`
+                            ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                            : <Camera className="w-4 h-4 text-slate-400" />}
+                        </div>
+                      </label>
+                    )}
+                  </div>
                   <span className="w-4 pt-3 text-xs text-slate-400 text-right shrink-0">{i + 1}</span>
                   <div className="flex-1 space-y-2">
                     <input
@@ -482,6 +643,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
             <Send className="w-4 h-4" /> ยืนยันและส่ง
           </button>
         </div>
+        {photoViewer}
       </div>
     );
   }
@@ -557,11 +719,28 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
                 </p>
               )}
 
+              {/* ทีมที่อนุมัติแล้วยังต้องเปลี่ยนตัวได้ ตราบใดที่ยังไม่หมดเขต
+                  (นักกีฬาเจ็บหรือติดสอบเป็นเรื่องที่เกิดหลังอนุมัติเสมอ)
+                  แต่ต้องบอกล่วงหน้าว่าแก้แล้วสถานะจะกลับไปรอตรวจ
+                  ไม่งั้นครูจะตกใจว่าทำไมทีมหลุดจากอนุมัติแล้ว */}
+              {t.status === 'Approved' && !closed && (
+                <div className="mt-2 flex gap-2 rounded-lg bg-amber-50 border border-amber-200 p-2">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    ยังเปลี่ยนตัวนักกีฬาได้จนถึงวันปิดแก้ไข
+                    แต่เมื่อแก้แล้ว <strong>เจ้าภาพต้องตรวจและอนุมัติใหม่</strong>
+                    สถานะจะกลับไปเป็น "ส่งแล้ว รอตรวจ" จนกว่าจะตรวจเสร็จ
+                  </p>
+                </div>
+              )}
+
               {!closed && t.status !== 'Withdrawn' && (
                 <div className="flex gap-2 mt-3">
                   <button onClick={() => openTeam(t)}
                     className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700">
-                    {t.status === 'Invited' ? 'ยืนยันเข้าร่วม + กรอกรายชื่อ' : 'แก้ไขข้อมูล'}
+                    {t.status === 'Invited'
+                      ? 'ยืนยันเข้าร่วม + กรอกรายชื่อ'
+                      : t.status === 'Approved' ? 'ขอเปลี่ยนตัวนักกีฬา' : 'แก้ไขข้อมูล'}
                   </button>
                   {t.status === 'Invited' && (
                     <button onClick={() => withdraw(t.id)} disabled={busy === 'wd'}
@@ -581,6 +760,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
           </p>
         )}
       </div>
+      {photoViewer}
     </div>
   );
 };

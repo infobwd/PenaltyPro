@@ -30,7 +30,7 @@ const ProgrammePage: React.FC<Props> = ({
   const [ready, setReady] = useState(false);
 
   const html = useMemo(
-    () => buildProgrammeHtml({ tournament, config, teams, players, matches }),
+    () => buildProgrammeHtml({ tournament, config, teams, players, matches, embedded: true }),
     [tournament, config, teams, players, matches]);
 
   // เขียนเอกสารลง iframe ตรง ๆ ไม่ผ่าน blob URL
@@ -77,7 +77,7 @@ const ProgrammePage: React.FC<Props> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col">
+    <div className="bg-slate-100 flex flex-col" style={{ height: '100dvh' }}>
       <div className="bg-white border-b border-slate-200 sticky top-0 z-20 px-3 py-2
                       flex items-center gap-2 shadow-sm">
         <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-100 text-slate-600 shrink-0">
@@ -101,7 +101,10 @@ const ProgrammePage: React.FC<Props> = ({
         </button>
       </div>
 
-      <div className="flex-1 relative">
+      {/* iframe ต้องสูงพอดีกับที่เหลือ ไม่ใส่ padding ให้ตัว iframe เอง
+          เพราะ padding อยู่นอกพื้นที่วาดของเอกสาร กลายเป็นแถบขาวเปล่า ๆ
+          ระยะเผื่อด้านล่างไปใส่ใน body ของเอกสารแทน (ดู programmeService) */}
+      <div className="flex-1 relative min-h-0">
         {!ready && (
           <div className="absolute inset-0 flex items-center justify-center">
             <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
@@ -110,8 +113,8 @@ const ProgrammePage: React.FC<Props> = ({
         <iframe
           ref={frameRef}
           title="สูจิบัตรการแข่งขัน"
-          className="w-full h-full border-0"
-          style={{ minHeight: 'calc(100dvh - 3.5rem)', paddingBottom: '5rem' }}
+          className="w-full border-0 block"
+          style={{ height: 'calc(100dvh - 3.25rem)' }}
         />
       </div>
     </div>

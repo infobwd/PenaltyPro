@@ -19,6 +19,8 @@ interface ProgrammeInput {
   teams: Team[];
   players: Player[];
   matches: Match[];
+  /** true = ฝังอยู่ในหน้าสูจิบัตรของแอป (ซ่อนแถบปุ่มในเอกสาร เพราะหน้ามีให้แล้ว) */
+  embedded?: boolean;
 }
 
 const esc = (v: unknown): string =>
@@ -52,7 +54,7 @@ const age = (birthDate?: string | null): string => {
 };
 
 export const buildProgrammeHtml = (input: ProgrammeInput): string => {
-  const { tournament, config, teams, players, matches } = input;
+  const { tournament, config, teams, players, matches, embedded = false } = input;
 
   let cfg: TournamentConfig = {};
   try { cfg = tournament?.config ? JSON.parse(tournament.config) : {}; } catch { cfg = {}; }
@@ -163,7 +165,6 @@ export const buildProgrammeHtml = (input: ProgrammeInput): string => {
   .num { width: 42px; text-align: center; }
   .idx { width: 34px; text-align: center; color: #64748b; }
   .muted { color: #94a3b8; }
-  .paper { padding-bottom: 26mm; }
   .sign { margin-top: 26px; display: flex; justify-content: space-around; text-align: center; font-size: 12px; }
   .sign div { width: 46%; }
   .sign .line { margin-top: 46px; border-top: 1px dotted #475569; padding-top: 5px; }
@@ -181,6 +182,10 @@ export const buildProgrammeHtml = (input: ProgrammeInput): string => {
     border: 0; border-radius: 10px; padding: 10px 18px; background: #4338ca; color: #fff;
   }
   .toolbar .ghost { background: #fff; color: #334155; border: 1px solid #cbd5e1; }
+  /* เผื่อระยะท้ายเอกสารเล็กน้อยตอนดูบนจอ ไม่ให้บรรทัดสุดท้ายชิดขอบเกินไป
+     ตอนพิมพ์ตัดออกเพราะกระดาษมีขอบของตัวเองอยู่แล้ว */
+  body { padding-bottom: 24px; }
+
   @media print {
     body { background: #fff; padding: 0; font-size: 12px; }
     .paper { box-shadow: none; max-width: none; padding: 0; }
@@ -189,10 +194,10 @@ export const buildProgrammeHtml = (input: ProgrammeInput): string => {
 </style>
 </head>
 <body>
-<div class="toolbar">
+${embedded ? '' : `<div class="toolbar">
   <button class="ghost" onclick="window.close()">ปิด</button>
   <button onclick="window.print()">พิมพ์ / บันทึกเป็น PDF</button>
-</div>
+</div>`}
 
 <div class="paper">
   <div class="cover">

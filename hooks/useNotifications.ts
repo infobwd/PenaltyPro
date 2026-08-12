@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiGet, apiPost, getToken } from '../services/apiConfig';
+import { apiGet, apiPost, getToken, getTokenKind } from '../services/apiConfig';
 
 /**
  * กล่องแจ้งเตือนในแอป
@@ -48,12 +48,14 @@ export function useNotifications(enabled: boolean, onNew?: (n: NotificationItem)
   const countRef = useRef(0);
 
   const fetchList = useCallback(async (append = false) => {
-    if (!enabled || !getToken()) return;
+    // ต้องเป็น session ของบัญชีเท่านั้น — ระหว่างอยู่หน้าโรงเรียนจะถือ team token
+    // ซึ่งเรียก endpoint ของผู้ใช้ไม่ได้ ถ้ายิงไปจะได้ 401 แล้วเด้ง "เซสชันหมดอายุ"
+    if (!enabled || !getToken() || getTokenKind() === 'team') return;
     if (!append) setLoading(true);
     setError(null);
     try {
       const offset = append ? offsetRef.current : 0;
-      const r = await apiGet('getNotifications', { limit: PAGE_SIZE, offset });
+      const r = await apiGet('getNotifications', { limit: PAGE_SIZE, offset }, { background: true });
       const list: NotificationItem[] = r.items ?? [];
 
       // มีของใหม่เข้ามาหลังจากที่เคยโหลดไปแล้ว → แจ้งให้เห็นทันที
@@ -80,9 +82,9 @@ export function useNotifications(enabled: boolean, onNew?: (n: NotificationItem)
   }, [enabled]);
 
   const fetchCount = useCallback(async () => {
-    if (!enabled || !getToken()) return;
+    if (!enabled || !getToken() || getTokenKind() === 'team') return;
     try {
-      const r = await apiGet('notificationCount');
+      const r = await apiGet('notificationCount', {}, { background: true });
       const n = r.unreadCount ?? 0;
       // เทียบกับค่าที่เก็บใน ref ไม่ใช่ใน state updater —
       // ตัว updater ถูกเรียกซ้ำได้ใน StrictMode ซึ่งจะทำให้ยิงโหลดรายการสองรอบ
