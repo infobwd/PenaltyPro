@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Copy, KeyRound, CheckCircle2, XCircle, UserCog, RefreshCw,
-  Printer, Loader2, AlertTriangle, ShieldCheck, Search,
+  Printer, Loader2, AlertTriangle, ShieldCheck, Search, ReceiptText,
+  Eye, Clock3, WalletCards, UserMinus, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Tournament, Team } from '../types';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
@@ -24,6 +25,21 @@ interface Props {
 }
 
 type IssuedCode = { schoolId: string; schoolName: string; accessCode: string };
+type PaymentStatus = 'Unpaid' | 'Pending' | 'Verified' | 'Rejected';
+type TournamentManagerInfo = {
+  userId: string;
+  displayName: string;
+  username?: string;
+  role?: string;
+  schoolId?: string | null;
+  schoolName?: string | null;
+  grantedAt?: string;
+};
+type TournamentAssignment = {
+  hostSchoolId?: string | null;
+  hostSchoolName?: string | null;
+  managers: TournamentManagerInfo[];
+};
 
 const Card: React.FC<{ title: string; desc: string; icon: React.ReactNode; children: React.ReactNode }> =
   ({ title, desc, icon, children }) => (
@@ -65,11 +81,103 @@ const AdminTools: React.FC<Props> = ({
   const [schoolList, setSchoolList] = useState<any[] | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [schoolFilter, setSchoolFilter] = useState('');
+  const [assignment, setAssignment] = useState<TournamentAssignment | null>(null);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<'All' | PaymentStatus>('All');
+  const [paymentSearch, setPaymentSearch] = useState('');
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentOverrides, setPaymentOverrides] = useState<Record<string, {
+    status: PaymentStatus;
+    note: string;
+  }>>({});
 
   const targetTournament = tournaments.find(t => t.id === target);
+  const targetTeams = teams.filter(t => t.tournamentId === target);
   const pendingTeams = teams.filter(
     t => t.tournamentId === target && (t.status === 'Submitted' || t.status === 'Draft'),
   );
+
+  const effectivePayment = (team: Team): { status: PaymentStatus; note: string } => {
+    const override = paymentOverrides[team.id];
+    if (override) return override;
+    return {
+      status: team.paymentStatus || (team.slipUrl ? 'Pending' : 'Unpaid'),
+      note: team.paymentNote || '',
+    };
+  };
+
+  const paymentCounts: Record<PaymentStatus, number> = targetTeams.reduce((acc: Record<PaymentStatus, number>, team: Team) => {
+    acc[effectivePayment(team).status] += 1;
+    return acc;
+  }, { Unpaid: 0, Pending: 0, Verified: 0, Rejected: 0 });
+
+  const paymentPageSize = 20;
+  const paymentStatusOrder: Record<PaymentStatus, number> = {
+    Pending: 0, Rejected: 1, Unpaid: 2, Verified: 3,
+  };
+  const normalizedPaymentSearch = paymentSearch.trim().toLocaleLowerCase('th-TH');
+  const filteredPaymentTeams = targetTeams
+    .filter(team => paymentFilter === 'All' || effectivePayment(team).status === paymentFilter)
+    .filter(team => !normalizedPaymentSearch || [team.name, team.schoolName, team.group]
+      .filter(Boolean)
+      .some(value => String(value).toLocaleLowerCase('th-TH').includes(normalizedPaymentSearch)))
+    .sort((a, b) => {
+      const byStatus = paymentStatusOrder[effectivePayment(a).status] - paymentStatusOrder[effectivePayment(b).status];
+      return byStatus || a.name.localeCompare(b.name, 'th');
+    });
+  const paymentPageCount = Math.max(1, Math.ceil(filteredPaymentTeams.length / paymentPageSize));
+  const visiblePaymentTeams = filteredPaymentTeams.slice(
+    (paymentPage - 1) * paymentPageSize,
+    paymentPage * paymentPageSize,
+  );
+
+  useEffect(() => {
+    setPaymentPage(1);
+  }, [target, paymentFilter, paymentSearch]);
+
+  useEffect(() => {
+    if (paymentPage > paymentPageCount) setPaymentPage(paymentPageCount);
+  }, [paymentPage, paymentPageCount]);
+
+  const reloadAssignments = async () => {
+    if (!target) {
+      setAssignment(null);
+      return;
+    }
+    const r = await apiGet('listTournamentManagers', { tournamentId: target });
+    const next: TournamentAssignment = {
+      hostSchoolId: r.hostSchoolId ?? null,
+      hostSchoolName: r.hostSchoolName ?? null,
+      managers: r.managers ?? [],
+    };
+    setAssignment(next);
+    if (next.hostSchoolId) setHostSchoolId(next.hostSchoolId);
+  };
+
+  useEffect(() => {
+    let active = true;
+    setAssignmentLoading(true);
+    setAssignment(null);
+    setHostSchoolId('');
+    apiGet('listTournamentManagers', { tournamentId: target })
+      .then(r => {
+        if (!active) return;
+        const next: TournamentAssignment = {
+          hostSchoolId: r.hostSchoolId ?? null,
+          hostSchoolName: r.hostSchoolName ?? null,
+          managers: r.managers ?? [],
+        };
+        setAssignment(next);
+        if (next.hostSchoolId) setHostSchoolId(next.hostSchoolId);
+      })
+      .catch(() => {
+        if (active) setAssignment({ managers: [] });
+      })
+      .finally(() => {
+        if (active) setAssignmentLoading(false);
+      });
+    return () => { active = false; };
+  }, [target]);
 
   /**
    * เรียก API แล้วแสดงผลจริง — ไม่กลืน error เหมือนโค้ดเดิมที่ใช้ no-cors
@@ -141,16 +249,72 @@ const AdminTools: React.FC<Props> = ({
     });
     notify('มอบสิทธิ์แล้ว', `${r.displayName} ดูแลรายการนี้ได้แล้ว`, 'success');
     setManagerUserId('');
+    await reloadAssignments();
     return r;
-  });
+  }, false);
 
   const doSetHost = () => run('host', async () => {
     const r = await apiPost('setTournamentHost', {
       tournamentId: target, hostSchoolId: hostSchoolId.trim(),
     });
     notify('บันทึกเจ้าภาพแล้ว', '', 'success');
+    await reloadAssignments();
     return r;
-  });
+  }, false);
+
+  const doRemoveManager = async (manager: TournamentManagerInfo) => {
+    const ok = await confirmAction(
+      `ถอนสิทธิ์ดูแลรายการของ “${manager.displayName}” หรือไม่?`,
+      { title: 'ถอนสิทธิ์ผู้ดูแล', dangerous: true, confirmText: 'ถอนสิทธิ์' },
+    );
+    if (!ok) return;
+    await run(`remove_mgr_${manager.userId}`, async () => {
+      const r = await apiPost('assignTournamentManager', {
+        tournamentId: target,
+        userId: manager.userId,
+        remove: true,
+      });
+      notify('ถอนสิทธิ์แล้ว', `${manager.displayName} ไม่สามารถจัดการรายการนี้แล้ว`, 'success');
+      await reloadAssignments();
+      return r;
+    }, false);
+  };
+
+  const doReviewPayment = async (
+    team: Team,
+    decision: 'verify' | 'reject' | 'reset',
+  ) => {
+    let note = '';
+    if (decision === 'reject') {
+      note = await promptAction('ระบุเหตุผล เช่น ยอดเงินไม่ตรง สลิปไม่ชัด หรือไม่พบรายการโอน', {
+        title: `สลิปของ ${team.name} ไม่ผ่าน`,
+        placeholder: 'เหตุผลที่ต้องส่งสลิปใหม่',
+        required: true,
+        confirmText: 'ยืนยันว่าไม่ผ่าน',
+      }) ?? '';
+      if (!note.trim()) return;
+    }
+
+    await run(`pay_${team.id}`, async () => {
+      const r = await apiPost('reviewRegistrationPayment', {
+        teamId: team.id,
+        decision,
+        note,
+      });
+      setPaymentOverrides(prev => ({
+        ...prev,
+        [team.id]: { status: r.paymentStatus, note: r.paymentNote || '' },
+      }));
+      notify(
+        decision === 'verify' ? 'ยืนยันการชำระเงินแล้ว'
+          : decision === 'reject' ? 'บันทึกว่าสลิปไม่ผ่านแล้ว'
+            : 'คืนสถานะเป็นรอตรวจแล้ว',
+        team.name,
+        decision === 'reject' ? 'warning' : 'success',
+      );
+      return r;
+    });
+  };
 
   const loadSchoolList = () => run('list', async () => {
     const r = await apiGet('listSchools', { tournamentId: target, onlyWithTeams: '1' });
@@ -428,6 +592,46 @@ const AdminTools: React.FC<Props> = ({
             {busy === 'mgr' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
             มอบสิทธิ์ดูแลรายการนี้
           </button>
+
+          <div className="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-3 py-2.5 bg-slate-50 border-b border-slate-200">
+              <p className="text-xs font-bold text-slate-700">ผู้ที่ได้รับมอบหมายแล้ว</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                เจ้าภาพ: {assignment?.hostSchoolName || 'ยังไม่ได้กำหนด'}
+              </p>
+            </div>
+            {assignmentLoading ? (
+              <div className="py-5 flex items-center justify-center text-xs text-slate-400">
+                <Loader2 className="w-4 h-4 animate-spin mr-2" /> กำลังโหลดรายชื่อ
+              </div>
+            ) : assignment?.managers.length ? (
+              <div className="divide-y divide-slate-100">
+                {assignment.managers.map(manager => (
+                  <div key={manager.userId} className="px-3 py-2.5 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-800 truncate">{manager.displayName}</p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {[manager.username, manager.schoolName].filter(Boolean).join(' · ') || 'ผู้ดูแลรายการ'}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => doRemoveManager(manager)}
+                      disabled={busy === `remove_mgr_${manager.userId}`}
+                      className="p-2 rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                      title="ถอนสิทธิ์ผู้ดูแล">
+                      {busy === `remove_mgr_${manager.userId}`
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <UserMinus className="w-4 h-4" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="px-3 py-4 text-xs text-slate-500 text-center">ยังไม่มีผู้ดูแลที่ได้รับมอบหมาย</p>
+            )}
+          </div>
         </Card>
 
         {/* ── ล้างแคช ───────────────────────────────────────────── */}
@@ -443,6 +647,144 @@ const AdminTools: React.FC<Props> = ({
           </button>
         </Card>
       </div>
+
+      {/* ── ตรวจสลิปค่าสมัคร ──────────────────────────────────── */}
+      <Card
+        icon={<ReceiptText className="w-5 h-5" />}
+        title="ตรวจสอบสลิปค่าสมัคร"
+        desc={`ตรวจสถานะการชำระเงินแยกจากการอนุมัติใบสมัคร · ${targetTournament?.name || 'เลือกรายการแข่งขัน'}`}
+      >
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
+          {([
+            ['Verified', 'จ่ายแล้ว', paymentCounts.Verified, 'bg-emerald-50 text-emerald-700 border-emerald-200'],
+            ['Pending', 'รอตรวจ', paymentCounts.Pending, 'bg-amber-50 text-amber-700 border-amber-200'],
+            ['Unpaid', 'ยังไม่ส่งสลิป', paymentCounts.Unpaid, 'bg-slate-50 text-slate-700 border-slate-200'],
+            ['Rejected', 'สลิปไม่ผ่าน', paymentCounts.Rejected, 'bg-rose-50 text-rose-700 border-rose-200'],
+          ] as const).map(([status, label, count, color]) => (
+            <button key={status} type="button"
+              onClick={() => setPaymentFilter(paymentFilter === status ? 'All' : status)}
+              className={`rounded-xl border p-3 text-left transition ${color} ${paymentFilter === status ? 'ring-2 ring-indigo-400 ring-offset-1' : ''}`}>
+              <span className="text-2xl font-black block">{count}</span>
+              <span className="text-xs font-bold">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div className="relative w-full sm:max-w-sm">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={paymentSearch} onChange={e => setPaymentSearch(e.target.value)}
+              className={`${inp} pl-9`} placeholder="ค้นหาชื่อทีม โรงเรียน หรือสาย" />
+          </div>
+          {paymentFilter !== 'All' && (
+            <button type="button" onClick={() => setPaymentFilter('All')}
+              className="text-xs font-bold text-indigo-600 hover:underline self-start sm:self-auto">
+              แสดงทุกสถานะ
+            </button>
+          )}
+        </div>
+
+        {targetTeams.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 py-10 text-center text-slate-500">
+            <WalletCards className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+            <p className="text-sm font-semibold">ยังไม่มีทีมในรายการนี้</p>
+          </div>
+        ) : filteredPaymentTeams.length === 0 ? (
+          <div className="rounded-xl bg-slate-50 py-8 text-center text-sm text-slate-500">ไม่มีทีมในสถานะนี้</div>
+        ) : (
+          <div className="space-y-2">
+            {visiblePaymentTeams.map(team => {
+              const payment = effectivePayment(team);
+              const statusStyle: Record<PaymentStatus, string> = {
+                Verified: 'bg-emerald-100 text-emerald-700',
+                Pending: 'bg-amber-100 text-amber-700',
+                Unpaid: 'bg-slate-100 text-slate-600',
+                Rejected: 'bg-rose-100 text-rose-700',
+              };
+              const statusLabel: Record<PaymentStatus, string> = {
+                Verified: 'จ่ายแล้ว', Pending: 'รอตรวจ',
+                Unpaid: 'ยังไม่ส่งสลิป', Rejected: 'สลิปไม่ผ่าน',
+              };
+              return (
+                <div key={team.id} className="rounded-xl border border-slate-200 p-3 sm:p-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-bold text-slate-800 truncate">{team.name}</p>
+                        <span className={`px-2 py-1 rounded-full text-[11px] font-bold ${statusStyle[payment.status]}`}>
+                          {statusLabel[payment.status]}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {[team.schoolName, team.group ? `สาย ${team.group}` : ''].filter(Boolean).join(' · ') || 'ไม่ระบุโรงเรียน/สาย'}
+                      </p>
+                      {payment.note && <p className="text-xs text-rose-600 mt-1">หมายเหตุ: {payment.note}</p>}
+                      {team.paymentReviewedAt && payment.status === 'Verified' && (
+                        <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                          <Clock3 className="w-3 h-3" /> ตรวจเมื่อ {new Date(team.paymentReviewedAt).toLocaleString('th-TH')}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:flex gap-2 shrink-0">
+                      {team.slipUrl ? (
+                        <a href={team.slipUrl} target="_blank" rel="noreferrer"
+                          className={`${btn} border border-indigo-200 text-indigo-700 hover:bg-indigo-50 flex items-center justify-center gap-1.5`}>
+                          <Eye className="w-4 h-4" /> ดูสลิป
+                        </a>
+                      ) : (
+                        <span className={`${btn} border border-slate-200 text-slate-400 flex items-center justify-center gap-1.5 cursor-default`}>ไม่มีสลิป</span>
+                      )}
+                      {team.slipUrl && payment.status !== 'Verified' && (
+                        <button type="button" onClick={() => doReviewPayment(team, 'verify')}
+                          disabled={busy === `pay_${team.id}`}
+                          className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-1.5`}>
+                          <CheckCircle2 className="w-4 h-4" /> ยืนยันจ่ายแล้ว
+                        </button>
+                      )}
+                      {team.slipUrl && payment.status !== 'Rejected' && (
+                        <button type="button" onClick={() => doReviewPayment(team, 'reject')}
+                          disabled={busy === `pay_${team.id}`}
+                          className={`${btn} border border-rose-200 text-rose-700 hover:bg-rose-50 flex items-center justify-center gap-1.5`}>
+                          <XCircle className="w-4 h-4" /> สลิปไม่ผ่าน
+                        </button>
+                      )}
+                      {(payment.status === 'Verified' || payment.status === 'Rejected') && (
+                        <button type="button" onClick={() => doReviewPayment(team, 'reset')}
+                          disabled={busy === `pay_${team.id}`}
+                          className={`${btn} border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-1.5`}>
+                          <RefreshCw className="w-4 h-4" /> ตรวจใหม่
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {filteredPaymentTeams.length > 0 && (
+          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <p className="text-xs text-slate-500">
+              แสดง {(paymentPage - 1) * paymentPageSize + 1}–{Math.min(paymentPage * paymentPageSize, filteredPaymentTeams.length)} จาก {filteredPaymentTeams.length} ทีม
+            </p>
+            {paymentPageCount > 1 && (
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setPaymentPage(page => Math.max(1, page - 1))}
+                  disabled={paymentPage === 1}
+                  className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  aria-label="หน้าก่อนหน้า"><ChevronLeft className="w-4 h-4" /></button>
+                <span className="text-xs font-bold text-slate-600 min-w-20 text-center">หน้า {paymentPage} / {paymentPageCount}</span>
+                <button type="button" onClick={() => setPaymentPage(page => Math.min(paymentPageCount, page + 1))}
+                  disabled={paymentPage === paymentPageCount}
+                  className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  aria-label="หน้าถัดไป"><ChevronRight className="w-4 h-4" /></button>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
 
       {/* ── อนุมัติทีม ─────────────────────────────────────────── */}
       <Card

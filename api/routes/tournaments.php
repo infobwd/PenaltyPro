@@ -77,6 +77,9 @@ function update_tournament(): void
             'UPDATE tournaments SET
                 name = :name, type = :type, status = :status,
                 registration_deadline = :deadline,
+                registration_enabled = :regon,
+                team_editing_enabled = :editon,
+                team_edit_deadline = :editdeadline,
                 max_teams = :maxteams, max_teams_per_school = :maxper,
                 players_per_team = :ppt, max_subs = :subs,
                 half_time_duration = :half, extra_time = :extra,
@@ -95,6 +98,9 @@ function update_tournament(): void
                 ':status'   => in_array($t['status'] ?? '', ['Upcoming', 'Active', 'Archived'], true)
                     ? $t['status'] : 'Upcoming',
                 ':deadline' => to_dt($cfg['registrationDeadline'] ?? null),
+                ':regon'    => !array_key_exists('registrationEnabled', $cfg) || !empty($cfg['registrationEnabled']) ? 1 : 0,
+                ':editon'   => !array_key_exists('teamEditingEnabled', $cfg) || !empty($cfg['teamEditingEnabled']) ? 1 : 0,
+                ':editdeadline' => to_dt($cfg['teamEditDeadline'] ?? null),
                 ':maxteams' => nn($cfg['maxTeams'] ?? null),
                 ':maxper'   => max(1, (int) ($cfg['maxTeamsPerSchool'] ?? 1)),
                 ':ppt'      => max(1, (int) ($cfg['playersPerTeam'] ?? 7)),

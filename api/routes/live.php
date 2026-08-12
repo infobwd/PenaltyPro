@@ -171,6 +171,12 @@ function save_match_result(): void
     Audit::log('match', $matchId, 'save_result', null,
         ['score' => "$scoreA-$scoreB", 'status' => $status, 'winner' => $winner]);
 
+    // แจ้งผลเฉพาะตอนจบเกมจริง ไม่ใช่ทุกครั้งที่บันทึกระหว่างแข่ง
+    // (ยิงจุดโทษบันทึกทีละลูก ถ้าแจ้งทุกครั้งจะเด้ง 10 ครั้งต่อนัด)
+    if ($status === 'Finished' || $status === 'Walkover') {
+        notify_match_result($matchId, $tournamentId, $scoreA, $scoreB);
+    }
+
     Response::ok([
         'matchId' => $matchId,
         'scoreA'  => $scoreA,
@@ -272,5 +278,40 @@ function write_events(string $matchId, array $events): void
                 ':rel'    => mb_substr((string) ($e['relatedPlayer'] ?? ''), 0, 150),
             ]
         );
+    }
+}
+
+/**
+ * แจ้งผลการแข่งขันให้สองโรงเรียนที่ลงแข่ง
+ *
+ * แจ้งเฉพาะโรงเรียนคู่นั้น ไม่ broadcast ทั้งระบบ — ในหนึ่งวันมี 57 นัด
+ * ถ้าแจ้งทุกคนทุกนัด มือถือจะเด้งทั้งวันจนคนปิดการแจ้งเตือนทิ้ง
+ */
+function notify_match_result(string $matchId, string $tournamentId, int $a, int $b): void
+{
+    $m = Db::one(
+        'SELECT m.team_a_name, m.team_b_name, m.round_label,
+                ta.school_id AS school_a, tb.school_id AS school_b,
+                ta.name AS name_a, tb.name AS name_b
+           FROM matches m
+           LEFT JOIN teams ta ON ta.team_id = m.team_a_id
+           LEFT JOIN teams tb ON tb.team_id = m.team_b_id
+          WHERE m.match_id = :mid',
+        [':mid' => $matchId]
+    );
+    if ($m === null) {
+        return;
+    }
+    $nameA = (string) ($m['name_a'] ?? $m['team_a_name']);
+    $nameB = (string) ($m['name_b'] ?? $m['team_b_name']);
+    $title = 'ผลการแข่งขันออกแล้ว';
+    $body  = "$nameA $a - $b $nameB"
+        . (($m['round_label'] ?? '') !== '' ? ' · ' . $m['round_label'] : '');
+    $meta  = ['matchId' => $matchId, 'tournamentId' => $tournamentId];
+
+    foreach ([$m['school_a'], $m['school_b']] as $sid) {
+        if ($sid) {
+            PushNotifier::notifySchool((string) $sid, 'match_result', $title, $body, '/schedule', $meta);
+        }
     }
 }

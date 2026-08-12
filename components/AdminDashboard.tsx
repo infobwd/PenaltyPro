@@ -106,7 +106,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [userForm, setUserForm] = useState({ username: '', password: '', displayName: '', phone: '', role: 'user' });
+  const [userForm, setUserForm] = useState({ username: '', password: '', displayName: '', phone: '', role: 'user', schoolId: '' });
 
   // Donation Management State
   const [donationList, setDonationList] = useState<Donation[]>(donations);
@@ -328,16 +328,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleOpenUserModal = (user: UserProfile | null) => {
       setEditingUser(user);
       if (user) {
-          setUserForm({ username: user.username || '', password: '', displayName: user.displayName || '', phone: user.phoneNumber || '', role: user.role || 'user' });
+          setUserForm({ username: user.username || '', password: '', displayName: user.displayName || '', phone: user.phoneNumber || '', role: user.role || 'user', schoolId: user.schoolId || '' });
       } else {
-          setUserForm({ username: '', password: '', displayName: '', phone: '', role: 'user' });
+          setUserForm({ username: '', password: '', displayName: '', phone: '', role: 'user', schoolId: '' });
       }
       setIsUserModalOpen(true);
   };
 
   const handleSaveUser = async () => {
-      if (!userForm.username || !userForm.displayName) {
-          notify("ข้อมูลไม่ครบ", "กรุณากรอก Username และ Display Name", "warning");
+      // บัญชีที่เข้าผ่าน LINE ไม่มี username และแก้ไม่ได้ด้วย จึงบังคับเฉพาะ
+      // ตอนสร้างใหม่ ไม่งั้นแอดมินจะผูกโรงเรียนให้ผู้ใช้ LINE ไม่ได้เลย
+      if (!editingUser && !userForm.username) {
+          notify("ข้อมูลไม่ครบ", "กรุณากรอก Username", "warning");
+          return;
+      }
+      if (!userForm.displayName) {
+          notify("ข้อมูลไม่ครบ", "กรุณากรอกชื่อที่แสดง", "warning");
           return;
       }
       
@@ -1658,6 +1664,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </select>
                       </div>
                       <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">โรงเรียนต้นสังกัด</label>
+                          <SearchPicker
+                              value={userForm.schoolId}
+                              onChange={id => setUserForm({...userForm, schoolId: id})}
+                              load={loadSchoolOptions}
+                              placeholder="พิมพ์ชื่อโรงเรียนเพื่อค้นหา..."
+                              emptyText="ไม่พบโรงเรียนนี้ในระบบ"
+                          />
+                          <p className="text-[11px] text-slate-400 mt-1">
+                              เว้นว่าง = ไม่สังกัดโรงเรียนใด · ผู้ใช้ที่เข้าผ่าน LINE จะถูกถามเองตอนเข้าครั้งแรก
+                              แต่แอดมินแก้ทับได้ตรงนี้
+                          </p>
+                      </div>
+                      <div>
                           <label className="block text-sm font-bold text-slate-700 mb-1">
                               {editingUser ? 'รหัสผ่านใหม่ (เว้นว่างหากไม่ต้องการเปลี่ยน)' : 'รหัสผ่าน'}
                           </label>
@@ -2367,6 +2387,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </div>
                         </div>
                         <div><label className="block text-sm font-bold text-slate-700 mb-1">รหัส Admin PIN</label><input type="text" value={configForm.adminPin || ''} onChange={e => setConfigForm({...configForm, adminPin: e.target.value})} className="w-full p-2 border rounded-lg font-mono tracking-widest" /></div>
+                        <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 cursor-pointer hover:border-indigo-200 transition">
+                            <div>
+                                <p className="font-bold text-sm text-slate-800">แสดงปุ่ม Support Us</p>
+                                <p className="text-xs text-slate-500 mt-0.5">ปิดเพื่อซ่อนปุ่มสนับสนุนจากหน้าหลักของผู้ใช้ทุกคน</p>
+                            </div>
+                            <span className="relative inline-flex items-center shrink-0">
+                                <input
+                                  type="checkbox"
+                                  className="sr-only peer"
+                                  checked={configForm.showSupportButton === undefined || configForm.showSupportButton === true || ['1', 'true', 'on', 'yes'].includes(String(configForm.showSupportButton).toLowerCase())}
+                                  onChange={e => setConfigForm({...configForm, showSupportButton: e.target.checked})}
+                                />
+                                <span className="w-11 h-6 bg-slate-300 rounded-full peer peer-checked:bg-indigo-600 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:w-5 after:h-5 after:bg-white after:rounded-full after:shadow after:transition-transform peer-checked:after:translate-x-5" />
+                            </span>
+                        </label>
                     </div>
 
                     <div className="space-y-4">
@@ -2611,6 +2646,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     <tr>
                                         <th className="p-4">User</th>
                                         <th className="p-4">Role</th>
+                                        <th className="p-4">โรงเรียน</th>
                                         <th className="p-4">Login Type</th>
                                         <th className="p-4">Last Login</th>
                                         <th className="p-4 text-right">Actions</th>
@@ -2618,7 +2654,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {isLoadingUsers ? (
-                                        <tr><td colSpan={5} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500"/></td></tr>
+                                        <tr><td colSpan={6} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500"/></td></tr>
                                     ) : filteredUsers.map(user => (
                                         <tr key={user.userId} className="hover:bg-slate-50 transition">
                                             <td className="p-4">
@@ -2631,6 +2667,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                                 </div>
                                             </td>
                                             <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span></td>
+                                            <td className="p-4 text-xs">
+                                                {user.schoolName
+                                                    ? <span className="text-slate-700">{user.schoolName}</span>
+                                                    : user.schoolChosen
+                                                        ? <span className="text-slate-400">ไม่สังกัดโรงเรียน</span>
+                                                        : <span className="text-amber-600 font-bold">ยังไม่ได้เลือก</span>}
+                                            </td>
                                             <td className="p-4 text-slate-500 text-xs">{user.type === 'line' ? 'LINE' : 'Password'}</td>
                                             <td className="p-4 text-slate-400 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : '-'}</td>
                                             <td className="p-4 text-right flex justify-end gap-2">
@@ -2639,7 +2682,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                             </td>
                                         </tr>
                                     ))}
-                                    {!isLoadingUsers && filteredUsers.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">ไม่พบผู้ใช้งาน</td></tr>}
+                                    {!isLoadingUsers && filteredUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-400">ไม่พบผู้ใช้งาน</td></tr>}
                                 </tbody>
                             </table>
                         </div>

@@ -18,6 +18,7 @@ function handle(string $action, array $cfg): void
     match ($action) {
         'issueAccessCodes'    => issue_access_codes(),
         'regenerateAccessCode' => regenerate_access_code(),
+        'publicSchools'       => public_schools(),
         'listSchools'         => list_schools(),
         'searchUsers'         => search_users(),
         'revealAccessCode'    => reveal_access_code(),
@@ -318,4 +319,26 @@ function reveal_access_code(): void
         'accessCode' => $code,
         'issuedAt'   => $s['access_code_issued_at'],
     ]);
+}
+
+/**
+ * รายชื่อโรงเรียนแบบเปิด — ใช้ให้ผู้ใช้เลือกต้นสังกัดของตัวเองตอนเข้าผ่าน LINE
+ *
+ * แยกจาก listSchools ที่ต้องเป็นเจ้าหน้าที่ เพราะอันนั้นบอกด้วยว่าโรงเรียนไหน
+ * มีรหัสเข้าใช้งานแล้วและออกรหัสเมื่อไหร่ ซึ่งเป็นข้อมูลที่ช่วยคนเดารหัสได้
+ * อันนี้ให้แค่ชื่อกับที่ตั้ง ซึ่งเป็นข้อมูลสาธารณะอยู่แล้ว
+ */
+function public_schools(): void
+{
+    $payload = Cache::remember('public_schools', static fn(): array => [
+        'schools' => array_map(static fn(array $s): array => [
+            'schoolId'   => $s['school_id'],
+            'schoolName' => $s['school_name'],
+            'district'   => $s['district'],
+            'province'   => $s['province'],
+        ], Db::all('SELECT school_id, school_name, district, province
+                      FROM schools WHERE is_active = 1 ORDER BY school_name')),
+    ]);
+
+    Response::ok($payload);
 }

@@ -53,6 +53,7 @@ interface TournamentInfo {
   id: string;
   name: string;
   registrationDeadline: string | null;
+  teamEditDeadline?: string | null;
   isOpen: boolean;
   playersPerTeam: number;
   maxSubs: number;
@@ -525,7 +526,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
           <div className="bg-slate-100 border border-slate-300 rounded-xl p-3 flex gap-2">
             <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
             <p className="text-xs text-slate-600">
-              ปิดรับสมัครแล้ว ({tournament?.registrationDeadline}) — แก้ไขข้อมูลไม่ได้
+              ปิดแก้ไขข้อมูลทีมแล้ว{tournament?.teamEditDeadline ? ` (ตั้งแต่ ${new Date(tournament.teamEditDeadline).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })})` : ''} — แก้ไขข้อมูลไม่ได้
               หากจำเป็นต้องแก้ กรุณาติดต่อผู้จัดการแข่งขัน
             </p>
           </div>

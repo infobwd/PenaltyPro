@@ -76,6 +76,9 @@ function handle(string $action, array $cfg): void
                 // frontend อ่าน config เป็น "JSON string" — ประกอบกลับจากคอลัมน์จริง
                 $config = [
                     'registrationDeadline' => iso($t['registration_deadline']),
+                    'registrationEnabled' => (bool) $t['registration_enabled'],
+                    'teamEditingEnabled' => (bool) $t['team_editing_enabled'],
+                    'teamEditDeadline' => iso($t['team_edit_deadline']),
                     'maxTeams'         => $t['max_teams'] === null ? null : (int) $t['max_teams'],
                     'maxTeamsPerSchool' => (int) $t['max_teams_per_school'],
                     'playersPerTeam'   => (int) $t['players_per_team'],
@@ -160,6 +163,16 @@ function handle(string $action, array $cfg): void
                         'coachPhone'   => $mine ? $t['coach_phone'] : '',
                         'docUrl'     => $mine ? drive_img($t['doc_url']) : '',
                         'slipUrl'    => $mine ? drive_img($t['slip_url']) : '',
+                        'paymentStatus' => $mine
+                            ? ($t['payment_status'] ?? ((string) $t['slip_url'] !== '' ? 'Pending' : 'Unpaid'))
+                            : '',
+                        // "จ่ายค่าสมัครแล้วหรือยัง" เปิดให้ทุกคนเห็นได้ เป็นสถานะการ
+                        // เข้าร่วมแข่งขัน ไม่ใช่ข้อมูลส่วนบุคคล — ต่างจากสลิป/หมายเหตุ
+                        // ที่บอกเลขบัญชีและความเห็นของเจ้าหน้าที่ ซึ่งยังปิดไว้ตามเดิม
+                        'isPaid' => ($t['payment_status'] ?? '') === 'Verified',
+                        'paymentNote' => $mine ? ($t['payment_note'] ?? '') : '',
+                        'paymentReviewedAt' => $mine && isset($t['payment_reviewed_at'])
+                            ? iso($t['payment_reviewed_at']) : null,
                         'rejectReason' => $t['reject_reason'],
                         'registrationTime' => iso($t['created_at']),
                         'tournamentId' => $t['tournament_id'],

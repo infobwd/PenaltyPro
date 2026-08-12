@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Lock, ArrowRight, X } from 'lucide-react';
 
 interface PinDialogProps {
@@ -34,9 +35,9 @@ const PinDialog: React.FC<PinDialogProps> = ({ isOpen, onClose, onSuccess, corre
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4" onClick={onClose}>
-      <div className="bg-white w-full max-w-xs rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+  return createPortal(
+    <div className="fixed inset-0 bg-black/65 backdrop-blur-sm modal-sheet modal-center flex items-center justify-center p-4" style={{ zIndex: 2147483646 }} onClick={onClose}>
+      <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
         <div className="p-6 text-center">
           <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Lock className="w-6 h-6 text-indigo-600" />
@@ -48,6 +49,7 @@ const PinDialog: React.FC<PinDialogProps> = ({ isOpen, onClose, onSuccess, corre
             <input 
               type="password" 
               inputMode="numeric"
+              enterKeyHint="done"
               pattern="[0-9]*"
               value={pin}
               onChange={(e) => { setPin(e.target.value); setError(false); }}
@@ -70,7 +72,8 @@ const PinDialog: React.FC<PinDialogProps> = ({ isOpen, onClose, onSuccess, corre
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xs font-medium">ยกเลิก</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

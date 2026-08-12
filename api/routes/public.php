@@ -42,6 +42,9 @@ function do_register(array $cfg): void
     }
 
     // ── กฎที่ต้องบังคับฝั่ง server ────────────────────────────────────────
+    if ((int) $t['registration_enabled'] !== 1) {
+        Response::fail('ผู้ดูแลระบบปิดรับสมัครแล้ว', 409);
+    }
     if ($t['registration_deadline'] !== null
         && strtotime((string) $t['registration_deadline']) < time()) {
         Response::fail('เลยกำหนดปิดรับสมัครแล้ว', 409,
@@ -119,10 +122,10 @@ function do_register(array $cfg): void
         Db::exec(
             'INSERT INTO teams
                 (team_id, tournament_id, school_id, name, short_name,
-                 color_primary, color_secondary, logo_url, doc_url, slip_url,
+                 color_primary, color_secondary, logo_url, doc_url, slip_url, payment_status,
                  status, manager_name, manager_phone, coach_name, coach_phone,
                  director_name)
-             VALUES (:id, :tid, :sid, :name, :short, :c1, :c2, :logo, :doc, :slip,
+             VALUES (:id, :tid, :sid, :name, :short, :c1, :c2, :logo, :doc, :slip, :payment_status,
                      :status, :mgr, :mgrp, :coach, :coachp, :dir)',
             [
                 ':id'     => $teamId,
@@ -135,6 +138,7 @@ function do_register(array $cfg): void
                 ':logo'   => $logoUrl,
                 ':doc'    => $docUrl,
                 ':slip'   => $slipUrl,
+                ':payment_status' => $slipUrl === '' ? 'Unpaid' : 'Pending',
                 // สมัครจากหน้าเว็บ = ส่งแล้วรอตรวจ ไม่ใช่อนุมัติทันที
                 ':status' => 'Submitted',
                 ':mgr'    => Input::str('managerName'),

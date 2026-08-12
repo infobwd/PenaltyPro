@@ -1,0 +1,159 @@
+/*
+ * สไตล์ของแอป
+ *
+ * ไฟล์นี้ถูกคอมไพล์ตอน build แล้วรวมเป็น CSS ไฟล์เดียวใน dist/assets/
+ * เดิม Tailwind โหลดจาก cdn.tailwindcss.com ซึ่งคอมไพล์ในเบราว์เซอร์ผู้ใช้
+ * แล้วพบว่าเปิดผ่านแอป LINE (LIFF) มันไม่ทำงาน ทั้งหน้าเลยไม่มี CSS เลย
+ *
+ * ลำดับสำคัญ: base ของ Tailwind (ที่รีเซ็ตสไตล์เริ่มต้นของเบราว์เซอร์)
+ * ต้องมาก่อนสไตล์ของเราเสมอ ไม่งั้น preflight จะไปลบสไตล์ที่เราเขียนทับทิ้ง
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Kanit', sans-serif;
+  background-color: #f8fafc;
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
+}
+.font-sarabun {
+  font-family: 'Sarabun', sans-serif;
+}
+/* Custom scrollbar for cleaner look */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9; 
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; 
+}
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* มีโมดัลเปิดอยู่ = ล็อกไม่ให้พื้นหลังเลื่อน
+   ไม่งั้นเวลาปัดในโมดัลจนสุด นิ้วจะไปพาหน้าเบื้องหลังเลื่อนแทน (scroll chaining)
+   ซึ่งบนมือถือทำให้ตำแหน่งที่กรอกค้างไว้หายไปเลย */
+body.modal-open {
+  overflow: hidden !important;
+  touch-action: none;
+  overscroll-behavior: none;
+  width: 100%;
+}
+/* ตรึงเฉพาะแอปด้านหลัง ไม่ตรึง body เพราะ modal แบบ portal เป็นลูกของ body
+   โดยตรง การขยับ body ด้วย top:-scrollY ทำให้ modal หลุด viewport บน iOS/LIFF */
+body.modal-open > #root {
+  position: fixed;
+  top: var(--modal-lock-top, 0px);
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+.modal-sheet { overscroll-behavior: contain; }
+.modal-scroll-region {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* โมดัลบนมือถือ/แท็บเล็ต = bottom sheet
+   กล่องกลางจอบนมือถือทำให้เนื้อหายาว ๆ (ฟอร์มแก้ทีม รายชื่อนักกีฬา)
+   ถูกบีบจนต้องเลื่อนสองชั้น และปุ่มล่างมักตกไปใต้แป้นพิมพ์
+   เลื่อนขึ้นมาจากขอบล่างแทน จะกดด้วยนิ้วโป้งได้และเห็นเนื้อหาเต็มความสูง */
+@media (max-width: 1279px) {
+  .modal-sheet { align-items: flex-end !important; padding: 0 !important; }
+  .modal-sheet > div:not([class*="max-w-none"]) {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 92dvh !important;
+    margin: 0 !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-top-left-radius: 1.5rem !important;
+    border-top-right-radius: 1.5rem !important;
+    animation: sheet-up .22s cubic-bezier(.32,.72,0,1);
+  }
+  @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+  /* ช่องกรอกใน WebView ของ LINE/iOS ต้องมีตัวอักษรอย่างน้อย 16px
+     ไม่เช่นนั้น Safari จะซูมหน้าอัตโนมัติแล้วทำให้ modal ดูล้น/เบี้ยว */
+  .modal-field {
+    min-height: 3rem;
+    font-size: 16px !important;
+    line-height: 1.35;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .modal-primary { min-height: 3rem; font-size: 16px; }
+
+  /* PIN ใช้กล่องกลางจอโดยตั้งใจ เพื่อให้ visual viewport ที่หดเมื่อคีย์บอร์ด
+     เปิดยังคงจัดกล่องให้อยู่เหนือแป้นพิมพ์ ไม่ถูกบังคับเป็น bottom sheet */
+  .modal-sheet.modal-center {
+    align-items: center !important;
+    justify-content: center !important;
+    padding: max(1rem, env(safe-area-inset-top)) 1rem max(1rem, env(safe-area-inset-bottom)) !important;
+  }
+  .modal-sheet.modal-center > div {
+    width: calc(100% - 1rem) !important;
+    max-width: 20rem !important;
+    max-height: min(28rem, calc(100dvh - 2rem)) !important;
+    margin: auto !important;
+    border-radius: 1.5rem !important;
+    overflow-y: auto !important;
+    animation: center-pop .18s ease-out;
+  }
+  @keyframes center-pop { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* รายละเอียดทีมมีข้อมูลยาว แต่ควรเห็นขอบของกล่องชัดเจน ไม่ติดขอบจอ
+     และต้องให้เฉพาะส่วนรายชื่อด้านในเลื่อน ไม่ใช่ทั้ง header กับ body */
+  .modal-sheet.modal-inset-mobile {
+    padding: 0 1rem max(1rem, env(safe-area-inset-bottom)) !important;
+  }
+  .modal-sheet.modal-inset-mobile > div {
+    width: 100% !important;
+    max-width: 30rem !important;
+    max-height: 88dvh !important;
+    margin: 0 auto !important;
+    border-radius: 1.5rem !important;
+    overflow: hidden !important;
+  }
+  /* flex modal มี header คงที่และ body ที่เลื่อนเอง ป้องกันการเลื่อนซ้อนกันบน iOS/LIFF */
+  .modal-sheet.modal-contained > div {
+    overflow: hidden !important;
+    touch-action: pan-y;
+  }
+  @media (min-width: 768px) {
+    .modal-sheet.modal-inset-mobile {
+      padding-left: 1.25rem !important;
+      padding-right: 1.25rem !important;
+    }
+  }
+}
+
+/* ── utility ที่โค้ดเรียกใช้แต่ไม่ใช่ของ Tailwind ────────────────────────
+   สมัยใช้ CDN คลาสพวกนี้ไม่เคยมีจริง (เขียนไว้แต่ไม่มีผล) พอคอมไพล์เองแล้ว
+   จึงนิยามให้ตรงกับที่ตั้งใจ ไม่งั้นจะเป็นคลาสตายที่หลอกคนอ่านโค้ดต่อไปเรื่อย ๆ */
+
+/* แถบเลื่อนบางในกล่องรายการยาว ๆ */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+/* ซ่อนแถบเลื่อนแต่ยังเลื่อนได้ — ใช้กับแถวที่ปัดข้างได้ */
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+.font-kanit { font-family: 'Kanit', sans-serif; }
+.perspective-1000 { perspective: 1000px; }

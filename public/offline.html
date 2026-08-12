@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ออฟไลน์ — Penalty Pro Arena</title>
+<style>
+  /* ไฟล์นี้ต้องยืนได้ด้วยตัวเอง 100% — ตอนที่มันถูกแสดงคือตอนที่ต่อเน็ตไม่ได้
+     จึงห้ามอ้างอิง CSS/ฟอนต์/ไอคอนจากภายนอกแม้แต่ไฟล์เดียว */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    font-family: 'Kanit', 'Tahoma', -apple-system, sans-serif;
+    background: linear-gradient(160deg, #4338ca, #312e81); color: #fff; padding: 24px;
+    text-align: center;
+  }
+  .box { max-width: 22rem; }
+  .ball {
+    width: 84px; height: 84px; border-radius: 50%; background: #fff; margin: 0 auto 20px;
+    position: relative; box-shadow: 0 12px 30px rgba(0,0,0,.3);
+  }
+  .ball::before {
+    content: ''; position: absolute; inset: 26px; background: #0f172a;
+    clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { font-size: 14px; line-height: 1.6; color: #c7d2fe; margin: 0 0 20px; }
+  button {
+    font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: 12px 26px;
+    background: #fff; color: #3730a3; cursor: pointer;
+  }
+  .hint { font-size: 12px; color: #a5b4fc; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="ball"></div>
+    <h1>ยังต่ออินเทอร์เน็ตไม่ได้</h1>
+    <p>
+      ตอนนี้เครื่องไม่ได้เชื่อมต่ออินเทอร์เน็ต<br>
+      ข้อมูลที่เคยเปิดไว้ยังดูได้ แต่ผลการแข่งขันล่าสุดจะยังไม่อัปเดต
+    </p>
+    <button onclick="location.reload()">ลองใหม่อีกครั้ง</button>
+    <p class="hint">สัญญาณในสนามมักไม่ดี — ลองขยับออกมาที่โล่ง แล้วกดลองใหม่</p>
+  </div>
+  <script>
+    // กลับเข้าแอปเองทันทีที่เน็ตกลับมา ผู้ใช้จะได้ไม่ต้องกดเอง
+    window.addEventListener('online', function () { location.replace('/'); });
+  </script>
+</body>
+</html>

@@ -1,6 +1,10 @@
 
 import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation, TournamentPrize, ContestEntry } from '../types';
 import { notifyUser } from './uiService';
+import {
+  FLEX, flexBubble, flexHeader, flexRow, flexTeamColumn, flexButton,
+  truncate as cut, safeText, safeImage, safeUri,
+} from './flexTheme';
 
 declare global {
   interface Window {
@@ -8,15 +12,34 @@ declare global {
   }
 }
 
+/**
+ * สถานะการเริ่มระบบ LINE
+ *
+ * ต้องเก็บไว้เพราะ `window.liff` มีอยู่ทันทีที่สคริปต์ของ LINE โหลดเสร็จ
+ * แต่เรียกอะไรไม่ได้เลยจนกว่า init() จะสำเร็จ — ถ้าเผลอเรียก isLoggedIn()
+ * ก่อนหน้านั้น SDK จะ throw แล้วฟังก์ชัน async จะ reject เงียบ ๆ
+ * ผู้ใช้กดปุ่มแชร์แล้วไม่มีอะไรเกิดขึ้นและไม่มีข้อความบอกสาเหตุ
+ */
+type LiffState = 'idle' | 'ready' | 'no-sdk' | 'no-id' | 'failed';
+let liffState: LiffState = 'idle';
+let liffInitError = '';
+
+export const getLiffState = (): { state: LiffState; error: string } =>
+  ({ state: liffState, error: liffInitError });
+
 export const initializeLiff = async (liffId?: string) => {
+  if (!window.liff) { liffState = 'no-sdk'; return; }
+  if (!liffId) {
+    liffState = 'no-id';
+    console.warn('ยังไม่ได้ตั้งค่า LIFF ID ในหน้าตั้งค่าระบบ');
+    return;
+  }
   try {
-    if (!window.liff) return;
-    if (!liffId) {
-        console.warn("LIFF ID not provided in config");
-        return;
-    }
     await window.liff.init({ liffId });
-  } catch (error) {
+    liffState = 'ready';
+  } catch (error: any) {
+    liffState = 'failed';
+    liffInitError = error?.message ?? String(error);
     console.error('LIFF Init Failed', error);
   }
 };
@@ -27,366 +50,541 @@ const truncate = (str: string, length: number) => {
   return str.substring(0, length - 3) + "...";
 };
 
-// ... existing share functions ...
 
-export const shareMatchSummary = async (match: Match, summary: string, teamAName: string, teamBName: string, competitionName: string = "Penalty Pro Recorder") => {
-    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-    const safeSummary = truncate(summary || "สรุปผลการแข่งขัน", 500);
-    const safeAltText = truncate(`ผลบอล: ${teamAName} vs ${teamBName}`, 100);
-    
-    // Simplified Match Summary
-    const flexMessage = { 
-      type: "flex", 
-      altText: safeAltText, 
-      contents: { 
-        "type": "bubble", 
-        "body": { 
-          "type": "box", 
-          "layout": "vertical", 
-          "contents": [ 
-            { "type": "text", "text": "MATCH REPORT", "weight": "bold", "color": "#1e3a8a", "size": "xxs", "align": "center" }, 
-            { "type": "text", "text": `${match.scoreA} - ${match.scoreB}`, "weight": "bold", "size": "4xl", "color": "#1e3a8a", "align": "center", "margin": "md" }, 
-            { "type": "text", "text": `${truncate(teamAName, 15)} vs ${truncate(teamBName, 15)}`, "size": "sm", "color": "#64748b", "align": "center", "margin": "sm" },
-            { "type": "separator", "margin": "lg" },
-            { "type": "text", "text": safeSummary, "wrap": true, "size": "sm", "color": "#334155", "margin": "lg" } 
-          ], 
-          "paddingAll": "xl" 
-        }
-      } 
-    };
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'ไม่สามารถแชร์ได้', 'error'); }
-};
+/**
+ * ส่งการ์ดเข้ากล่องแชร์ของ LINE
+ *
+ * รวมไว้ที่เดียวเพราะเดิมแต่ละฟังก์ชัน try/catch เองแล้วเช็คไม่ครบ —
+ * บางที่ไม่ได้เช็คว่าเครื่องรองรับ shareTargetPicker ไหม ผู้ใช้กดแล้วเงียบ
+ * โดยไม่มีอะไรบอกว่าทำไมไม่เกิดอะไรขึ้น
+ */
+const sendFlex = async (altText: string, bubble: any): Promise<boolean> => {
+  try {
+    // ไม่มี SDK ของ LINE เลย (เปิดจากเบราว์เซอร์ปกติ) → ทางสำรอง
+    if (!window.liff || typeof window.liff.shareTargetPicker !== 'function') {
+      return shareFallback(altText);
+    }
 
-export const sharePlayerCardFlex = async (player: Player, team: Team, stats: any) => {
-    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-    const createStatRow = (l1: string, v1: number, l2: string, v2: number) => ({ "type": "box", "layout": "horizontal", "contents": [ { "type": "text", "text": `${v1}`, "weight": "bold", "color": "#fbbf24", "flex": 1, "align": "end", "size": "sm" }, { "type": "text", "text": l1, "size": "xxs", "color": "#94a3b8", "flex": 1, "margin": "sm", "align": "start", "gravity": "center" }, { "type": "text", "text": `${v2}`, "weight": "bold", "color": "#fbbf24", "flex": 1, "align": "end", "size": "sm" }, { "type": "text", "text": l2, "size": "xxs", "color": "#94a3b8", "flex": 1, "margin": "sm", "align": "start", "gravity": "center" } ], "margin": "sm" });
-    const flexMessage = { type: "flex", altText: `Player Card: ${player.name}`, contents: { "type": "bubble", "styles": { "body": { "backgroundColor": "#1e293b" }, "footer": { "backgroundColor": "#0f172a" } }, "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "box", "layout": "horizontal", "contents": [ { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": `${stats.ovr}`, "size": "3xl", "weight": "bold", "color": "#fbbf24", "lineHeight": "30px" }, { "type": "text", "text": player.position ? player.position.substring(0,3).toUpperCase() : "PLY", "size": "xs", "weight": "bold", "color": "#ffffff" } ], "flex": 1 }, { "type": "image", "url": team.logoUrl || "https://via.placeholder.com/100?text=Logo", "align": "end", "size": "xs", "aspectMode": "fit", "flex": 1 } ] }, { "type": "image", "url": player.photoUrl || "https://img.icons8.com/ios-filled/200/ffffff/user-male-circle.png", "size": "xl", "aspectMode": "cover", "margin": "md" }, { "type": "text", "text": truncate(player.name, 25), "weight": "bold", "size": "xl", "color": "#ffffff", "align": "center", "margin": "md", "wrap": true }, { "type": "text", "text": truncate(team.name, 30), "size": "xs", "color": "#94a3b8", "align": "center", "margin": "xs", "wrap": true }, { "type": "separator", "margin": "md", "color": "#334155" }, { "type": "box", "layout": "vertical", "contents": [ createStatRow("PAC", stats.pac, "DRI", stats.dri), createStatRow("SHO", stats.sho, "DEF", stats.def), createStatRow("PAS", stats.pas, "PHY", stats.phy) ], "margin": "md" } ] }, "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "Penalty Pro Official Card", "size": "xxs", "color": "#64748b", "align": "center" } ] } } };
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'ไม่สามารถแชร์ได้', 'error'); }
-};
+    // ⚠️ ห้ามใช้ liffState เป็นเงื่อนไขว่าจะแชร์ได้ไหม
+    // เคยลองแล้วพัง: initializeLiff() ถูกเรียกเฉพาะตอนที่ตั้ง LIFF ID ไว้ในระบบ
+    // ถ้ายังไม่ได้ตั้ง (หรือ init ยังไม่เสร็จตอนผู้ใช้กด) สถานะจะไม่เป็น 'ready'
+    // แล้วปุ่มแชร์จะตกไปทางสำรองทุกครั้ง — แผงแชร์ของ LINE ไม่เคยเปิดเลย
+    // ทั้งที่ SDK ใช้งานได้จริง จึงลองเรียกของจริงก่อนเสมอ แล้วค่อยสำรองตอนล้มเหลว
 
-export const shareRegistration = async (data: RegistrationData, teamId: string) => {
-  const liffId = window.liff?.id; 
-  if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  
-  const baseUrl = `https://liff.line.me/${liffId}`;
-  const adminLink = `${baseUrl}?view=admin&teamId=${teamId}`;
-  
-  const flexMessage = { type: "flex", altText: `ใบสมัคร: ${truncate(data.schoolName, 20)}`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "ใบสมัครแข่งขัน", "weight": "bold", "color": "#166534", "size": "xs" }, { "type": "text", "text": truncate(data.schoolName, 40), "weight": "bold", "size": "xl", "color": "#1F2937", "wrap": true, "margin": "sm" }, { "type": "text", "text": `ผู้ติดต่อ: ${data.phone}`, "size": "xs", "color": "#4B5563", "margin": "md", "wrap": true }, { "type": "separator", "margin": "lg" }, { "type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ตรวจสอบ/อนุมัติ", "uri": adminLink }, "color": "#2563EB" } ] } ], "paddingAll": "xl" } } };
-  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
-};
-
-export const shareNews = async (news: NewsItem) => {
-  const liffId = window.liff?.id;
-  if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  const liffUrl = `https://liff.line.me/${liffId}?view=news&id=${news.id}`;
-  const flexMessage = { type: "flex", altText: truncate(`ข่าวสาร: ${news.title}`, 100), contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "NEWS UPDATE", "size": "xxs", "color": "#1e40af", "weight": "bold" }, { "type": "text", "text": truncate(news.title, 60), "weight": "bold", "size": "lg", "wrap": true, "margin": "sm" }, { "type": "text", "text": truncate(news.content, 100), "size": "xs", "color": "#666666", "wrap": true, "margin": "md", "maxLines": 3 }, { "type": "button", "action": { "type": "uri", "label": "อ่านต่อ", "uri": liffUrl }, "style": "link", "margin": "md" } ], "paddingAll": "xl" } } };
-  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
-};
-
-export const shareMatch = async (match: Match, teamAName: string, teamBName: string, teamALogo: string, teamBLogo: string) => {
-  const liffId = window.liff?.id;
-  if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  const liffUrl = `https://liff.line.me/${liffId}?view=match_detail&id=${match.id}`;
-  const isFinished = !!match.winner;
-  const title = isFinished ? "ผลการแข่งขัน" : "โปรแกรมแข่ง";
-  const color = isFinished ? "#166534" : "#1e40af"; 
-  
-  const flexMessage = { 
-      type: "flex", 
-      altText: truncate(`${title}: ${teamAName} vs ${teamBName}`, 100), 
-      contents: { 
-          "type": "bubble", 
-          "body": { 
-              "type": "box", 
-              "layout": "vertical", 
-              "contents": [ 
-                  { "type": "text", "text": title, "color": color, "weight": "bold", "size": "xs", "align": "center" }, 
-                  { "type": "box", "layout": "horizontal", "contents": [ 
-                      { "type": "text", "text": truncate(teamAName, 12), "align": "center", "size": "xs", "wrap": true, "weight": "bold", "flex": 1 }, 
-                      { "type": "text", "text": isFinished ? `${match.scoreA}-${match.scoreB}` : "VS", "weight": "bold", "size": "xl", "align": "center", "color": "#000000", "flex": 0, "margin": "md" }, 
-                      { "type": "text", "text": truncate(teamBName, 12), "align": "center", "size": "xs", "wrap": true, "weight": "bold", "flex": 1 } 
-                  ], "margin": "md", "alignItems": "center" },
-                  { "type": "button", "action": { "type": "uri", "label": "ดูรายละเอียด", "uri": liffUrl }, "style": "secondary", "margin": "lg", "height": "sm" } 
-              ], 
-              "paddingAll": "xl" 
-          } 
-      } 
-  };
-  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
-};
-
-export const shareTournament = async (tournament: Tournament, teamCount: number = 0, maxTeams: number = 0) => {
-    const liffId = window.liff?.id;
-    if (!window.liff) { notifyUser('ไม่พบระบบ LINE LIFF', 'กรุณาเปิดหน้านี้ใหม่ผ่าน LINE', 'warning'); return; }
-    if (!window.liff.isLoggedIn()) { window.liff.login(); return; }
-    
-    const liffUrl = `https://liff.line.me/${liffId}?tournamentId=${tournament.id}`;
-    const altText = `เชิญสมัคร: ${truncate(tournament.name, 50)}`;
-
-    const flexMessage = {
-      type: "flex",
-      altText: altText,
-      contents: {
-        type: "bubble",
-        body: {
-          type: "box",
-          layout: "vertical",
-          contents: [
-            { type: "text", text: "เปิดรับสมัครแข่งขัน", weight: "bold", color: "#2563EB", size: "xs" },
-            { type: "text", text: truncate(tournament.name, 60), weight: "bold", size: "lg", wrap: true, margin: "sm" },
-            { type: "text", text: `สมัครแล้ว: ${teamCount}${maxTeams > 0 ? '/' + maxTeams : ''} ทีม`, size: "xs", color: "#666666", margin: "md" },
-            { type: "button", style: "primary", action: { type: "uri", label: "สมัครเลย", uri: liffUrl }, margin: "lg" }
-          ],
-          paddingAll: "xl"
-        }
-      }
-    };
-
+    // isLoggedIn() throw ได้ถ้า init ไม่สำเร็จ — จับไว้แล้วไปต่อ ไม่ปิดทางแชร์
     try {
-        if (window.liff.isApiAvailable('shareTargetPicker')) {
-            await window.liff.shareTargetPicker([flexMessage]);
-        } else {
-            notifyUser('อุปกรณ์ไม่รองรับการแชร์', 'กรุณาเปิดผ่านแอป LINE หรือใช้ปุ่มบันทึกแทน', 'info');
-        }
-    } catch (error: any) { 
-        console.error("Share Error", error);
-        notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error');
-    }
-};
-
-export const shareDonation = async (donation: Donation, tournamentName: string) => {
-  if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-  
-  const amount = donation.amount.toLocaleString();
-  const safeDonorName = truncate(donation.donorName, 40);
-  const safeTournamentName = truncate(tournamentName, 50);
-  
-  // Minimalist Flex Message Structure
-  const flexMessage = {
-    type: "flex",
-    altText: `อนุโมทนา: ${safeDonorName}`,
-    contents: {
-      type: "bubble",
-      size: "kilo",
-      body: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          { type: "text", text: "ใบอนุโมทนาบัตร", weight: "bold", color: "#B45309", size: "xs", align: "center", letterSpacing: "1px" },
-          { type: "text", text: safeDonorName, weight: "bold", size: "xl", margin: "md", align: "center", wrap: true, color: "#1e293b" },
-          { type: "text", text: `${amount} บาท`, weight: "bold", size: "xxl", color: "#16a34a", margin: "sm", align: "center" },
-          { type: "separator", margin: "lg" },
-          { type: "text", text: safeTournamentName, size: "xs", color: "#9ca3af", margin: "md", align: "center", wrap: true }
-        ],
-        paddingAll: "xl",
-        backgroundColor: "#ffffff"
+      if (window.liff.isLoggedIn && !window.liff.isLoggedIn()) {
+        window.liff.login();
+        return false;
       }
+    } catch { /* เช็คสถานะล็อกอินไม่ได้ ก็ลองแชร์ไปเลย */ }
+
+    // ⚠️ ไม่ใช้ isApiAvailable เป็นตัวตัดสินว่าจะแชร์ได้ไหม
+    // ของจริงมันคืน false ในหลายกรณีที่แชร์ได้จริง (เช่นเปิดจากห้องแชท
+    // หรือ LIFF ที่ตั้ง scope ไม่ครบ) ถ้าเอามาบล็อกไว้ ปุ่มแชร์จะตายทั้งที่ใช้ได้
+    // จึงลองยิงเลยแล้วค่อยจัดการตอนล้มเหลว
+    const messages = [
+      { type: 'flex', altText: cut(safeText(altText, 'Penalty Pro'), 380), contents: bubble },
+    ];
+    const result = await window.liff.shareTargetPicker(messages);
+
+    // ผู้ใช้กดยกเลิกในหน้าเลือกผู้รับ — ไม่ใช่ข้อผิดพลาด ไม่ต้องแจ้งอะไร
+    if (result === undefined || result === null) return false;
+    notifyUser('แชร์แล้ว', 'ส่งการ์ดเข้าแชทเรียบร้อย', 'success');
+    return true;
+  } catch (error: any) {
+    const msg = String(error?.message ?? error ?? '');
+    console.error('shareTargetPicker ล้มเหลว', error);
+
+    // LINE ปิดสิทธิ์แชร์ของ LIFF ตัวนี้ → บอกให้ชัดว่าต้องแก้ที่ไหน
+    if (/permission|scope|chat_message/i.test(msg)) {
+      notifyUser('แชร์ไม่ได้',
+        'LIFF ยังไม่ได้เปิดสิทธิ์ chat_message.write — แจ้งผู้ดูแลระบบ', 'warning');
+      return false;
     }
-  };
-  
-  try { 
-      await window.liff.shareTargetPicker([flexMessage]); 
-  } catch (error: any) { 
-      notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error');
+    // ใช้ระบบแชร์ของ LINE ไม่ได้ในสภาพแวดล้อมนี้ → ใช้ทางสำรอง
+    return shareFallback(altText);
   }
 };
 
-export const sharePrizeSummary = async (tournamentName: string, prizes: TournamentPrize[], teams: Team[]) => {
-    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
+/**
+ * ทางสำรองเมื่อแชร์ผ่าน LINE ไม่ได้ (เปิดจากเบราว์เซอร์ปกติ / LIFF ยังไม่พร้อม)
+ *
+ * เดิมกรณีนี้คือ "กดแล้วไม่เกิดอะไรขึ้น" ซึ่งผู้ใช้แยกไม่ออกจากระบบพัง
+ * ตอนนี้ใช้ปุ่มแชร์ของเครื่อง (Android/iOS มีให้อยู่แล้ว) ถ้าไม่มีก็คัดลอกลิงก์ให้
+ */
+const shareFallback = async (text: string): Promise<boolean> => {
+  const url = window.location.origin;
+  const payload = `${text}
+${url}`;
 
-    const prizeRows = prizes.map(p => {
-        let winnerName = "-";
-        if (p.winnerTeamId) {
-            const team = teams.find(t => t.id === p.winnerTeamId);
-            if (team) winnerName = team.name;
-        }
-        
-        return {
-            "type": "box",
-            "layout": "horizontal",
-            "contents": [
-                { "type": "text", "text": truncate(p.rankLabel, 15), "size": "xs", "color": "#334155", "flex": 2, "weight": "bold" },
-                { "type": "text", "text": truncate(winnerName, 20), "size": "xs", "color": "#16a34a", "flex": 3, "align": "end", "weight": "bold" },
-                { "type": "text", "text": p.amount ? `${parseInt(p.amount.replace(/,/g, '')).toLocaleString()}` : "", "size": "xxs", "color": "#94a3b8", "flex": 2, "align": "end" }
-            ],
-            "margin": "sm"
-        };
-    });
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Penalty Pro Arena', text, url });
+      return true;
+    }
+  } catch (e: any) {
+    // ผู้ใช้กดยกเลิกแผงแชร์ของเครื่อง — เงียบไว้ ไม่ใช่ข้อผิดพลาด
+    if (e?.name === 'AbortError') return false;
+  }
 
-    const flexMessage = {
-        type: "flex",
-        altText: `สรุปผลการแข่งขัน: ${truncate(tournamentName, 30)}`,
-        contents: {
-            "type": "bubble",
-            "size": "mega",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    { "type": "text", "text": "OFFICIAL RESULTS", "weight": "bold", "color": "#ca8a04", "size": "xxs", "align": "center", "letterSpacing": "1px" },
-                    { "type": "text", "text": truncate(tournamentName, 40), "weight": "bold", "size": "lg", "align": "center", "wrap": true, "margin": "sm", "color": "#1e293b" },
-                    { "type": "separator", "margin": "lg" },
-                    { 
-                        "type": "box", 
-                        "layout": "vertical", 
-                        "margin": "lg", 
-                        "contents": prizeRows.length > 0 ? prizeRows : [{ "type": "text", "text": "ยังไม่มีการประกาศผล", "size": "sm", "color": "#94a3b8", "align": "center" }]
-                    },
-                    { "type": "separator", "margin": "lg" },
-                    { "type": "text", "text": "Penalty Pro Arena", "size": "xxs", "color": "#cbd5e1", "align": "center", "margin": "md" }
-                ],
-                "paddingAll": "xl"
-            }
-        }
-    };
-
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
+  try {
+    await navigator.clipboard.writeText(payload);
+    notifyUser('คัดลอกแล้ว', 'วางลงแชทที่ต้องการได้เลย', 'success');
+    return true;
+  } catch {
+    notifyUser('แชร์ไม่ได้',
+      liffState === 'no-id'
+        ? 'ยังไม่ได้ตั้งค่า LIFF ID ในหน้าตั้งค่าระบบ'
+        : 'เปิดหน้านี้ผ่านแอป LINE เพื่อแชร์การ์ดเข้าแชท', 'warning');
+    return false;
+  }
 };
 
-export const shareGroupStandings = async (groupName: string, standings: any[], tournamentName: string = "Official Standings") => {
-    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
+/** ลิงก์กลับเข้าแอปผ่าน LIFF — ถ้ายังไม่ได้ตั้ง LIFF ID จะคืน null แล้วปุ่มจะไม่ถูกใส่ */
+const liffLink = (query = ''): string | null => {
+  const id = window.liff?.id;
+  return id ? `https://liff.line.me/${id}${query}` : null;
+};
 
-    const tableRows = standings.map((team, index) => ({
-        "type": "box",
-        "layout": "horizontal",
-        "contents": [
-            { "type": "text", "text": `${index + 1}`, "size": "xs", "color": "#64748b", "flex": 1, "align": "center", "weight": "bold" },
-            { "type": "text", "text": truncate(team.teamName, 15), "size": "xs", "color": "#1e293b", "flex": 4, "weight": "bold", "wrap": true },
-            { "type": "text", "text": `${team.played}`, "size": "xs", "color": "#64748b", "flex": 1, "align": "center" },
-            { "type": "text", "text": `${team.points}`, "size": "xs", "color": "#1e3a8a", "flex": 1, "align": "center", "weight": "bold" }
+
+export const shareMatchSummary = async (
+  match: Match, summary: string, teamAName: string, teamBName: string,
+  competitionName: string = 'Penalty Pro Arena',
+) => {
+  const win = match.scoreA === match.scoreB ? 'draw' : (match.scoreA > match.scoreB ? 'A' : 'B');
+  const bubble = flexBubble(
+    flexHeader('MATCH REPORT · ผลการแข่งขัน', competitionName),
+    [
+      // สกอร์เป็นพระเอกของการ์ด — โลโก้สองข้าง ตัวเลขตรงกลาง
+      {
+        type: 'box', layout: 'horizontal', alignItems: 'center',
+        contents: [
+          flexTeamColumn(teamAName, (match as any).teamALogo),
+          {
+            type: 'box', layout: 'vertical', flex: 3, alignItems: 'center',
+            contents: [
+              {
+                type: 'text', text: `${match.scoreA} - ${match.scoreB}`,
+                size: 'xxl', weight: 'bold', align: 'center',
+                color: FLEX.ink,
+              },
+              {
+                type: 'text',
+                text: win === 'draw' ? 'เสมอ' : `${cut(safeText(win === 'A' ? teamAName : teamBName), 14)} ชนะ`,
+                size: 'xxs', align: 'center', color: FLEX.green, weight: 'bold', margin: 'sm',
+              },
+            ],
+          },
+          flexTeamColumn(teamBName, (match as any).teamBLogo),
         ],
-        "margin": "sm",
-        "spacing": "sm"
-    }));
+      },
+      { type: 'separator', margin: 'xl', color: FLEX.line },
+      ...(safeText(match.roundLabel, '') !== '-' && match.roundLabel
+        ? [flexRow('รอบ', match.roundLabel)] : []),
+      ...(match.venue ? [flexRow('สนาม', match.venue)] : []),
+      ...(summary && summary.trim() !== '' ? [{
+        type: 'text', text: cut(summary, 220), wrap: true, size: 'sm',
+        color: FLEX.muted, margin: 'lg',
+      }] : []),
+      ...flexButton('ดูรายละเอียดนัดนี้', liffLink(`?view=match_detail&id=${match.id}`)),
+    ],
+    { size: 'mega' },
+  );
+  return sendFlex(`ผลการแข่งขัน ${teamAName} ${match.scoreA}-${match.scoreB} ${teamBName}`, bubble);
+};
 
-    const flexMessage = {
-        type: "flex",
-        altText: `ตารางคะแนน Group ${groupName}`,
-        contents: {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    { "type": "text", "text": tournamentName, "weight": "bold", "color": "#1e3a8a", "size": "xxs", "align": "center" },
-                    { "type": "text", "text": `GROUP ${groupName}`, "weight": "bold", "size": "xl", "margin": "xs", "align": "center", "color": "#ca8a04" },
-                    { "type": "separator", "margin": "md" },
-                    {
-                        "type": "box",
-                        "layout": "horizontal",
-                        "contents": [
-                            { "type": "text", "text": "#", "size": "xxs", "color": "#94a3b8", "flex": 1, "align": "center" },
-                            { "type": "text", "text": "TEAM", "size": "xxs", "color": "#94a3b8", "flex": 4 },
-                            { "type": "text", "text": "P", "size": "xxs", "color": "#94a3b8", "flex": 1, "align": "center" },
-                            { "type": "text", "text": "PTS", "size": "xxs", "color": "#94a3b8", "flex": 1, "align": "center", "weight": "bold" }
-                        ],
-                        "margin": "md"
-                    },
-                    { "type": "separator", "margin": "sm" },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "margin": "sm",
-                        "contents": tableRows.length > 0 ? tableRows : [{ "type": "text", "text": "No Data", "size": "xs", "align": "center", "color": "#cbd5e1" }]
-                    }
-                ],
-                "paddingAll": "xl"
-            }
-        }
+export const sharePlayerCardFlex = async (player: Player, team: Team, stats: any) => {
+  const statCell = (label: string, value: number) => ({
+    type: 'box', layout: 'vertical', flex: 1, alignItems: 'center',
+    contents: [
+      { type: 'text', text: `${value ?? 0}`, size: 'lg', weight: 'bold', color: FLEX.gold, align: 'center' },
+      { type: 'text', text: label, size: 'xxs', color: '#94A3B8', align: 'center' },
+    ],
+  });
+
+  // การ์ดนักกีฬาใช้พื้นเข้มทั้งใบ ต่างจากการ์ดอื่นโดยตั้งใจ — เป็นของสะสม
+  // ที่ผู้เล่นเอาไปอวด ไม่ใช่ประกาศทางการ จึงประกอบ bubble เองไม่ผ่าน flexBubble
+  const bubble = {
+    type: 'bubble',
+    size: 'kilo',
+    body: {
+      type: 'box', layout: 'vertical', backgroundColor: '#0F172A', paddingAll: '18px',
+      contents: [
+        {
+          type: 'box', layout: 'horizontal', alignItems: 'center',
+          contents: [
+            {
+              type: 'box', layout: 'vertical', flex: 2,
+              contents: [
+                { type: 'text', text: `${stats?.ovr ?? 0}`, size: 'xxl', weight: 'bold', color: FLEX.gold },
+                {
+                  type: 'text',
+                  text: cut(safeText(player.position, 'PLAYER').toUpperCase(), 10),
+                  size: 'xxs', weight: 'bold', color: '#E2E8F0', letterSpacing: '1px',
+                },
+              ],
+            },
+            {
+              type: 'image', url: safeImage(team.logoUrl), flex: 1,
+              size: '44px', aspectMode: 'fit', align: 'end',
+            },
+          ],
+        },
+        {
+          type: 'image', url: safeImage(player.photoUrl,
+            'https://cdn-icons-png.flaticon.com/128/1077/1077114.png'),
+          size: 'full', aspectMode: 'cover', aspectRatio: '1:1', margin: 'lg',
+        },
+        {
+          type: 'text', text: cut(safeText(player.name, 'นักกีฬา'), 26),
+          size: 'lg', weight: 'bold', color: FLEX.white, align: 'center',
+          wrap: true, margin: 'lg',
+        },
+        {
+          type: 'text',
+          text: `${player.number ? `#${player.number} · ` : ''}${cut(safeText(team.name, ''), 24)}`,
+          size: 'xs', color: '#94A3B8', align: 'center', margin: 'xs', wrap: true,
+        },
+        { type: 'separator', margin: 'lg', color: '#1E293B' },
+        {
+          type: 'box', layout: 'horizontal', margin: 'lg',
+          contents: [statCell('PAC', stats?.pac), statCell('SHO', stats?.sho), statCell('PAS', stats?.pas)],
+        },
+        {
+          type: 'box', layout: 'horizontal', margin: 'md',
+          contents: [statCell('DRI', stats?.dri), statCell('DEF', stats?.def), statCell('PHY', stats?.phy)],
+        },
+        {
+          type: 'text', text: 'PENALTY PRO OFFICIAL CARD',
+          size: 'xxs', color: '#475569', align: 'center', margin: 'xl', letterSpacing: '2px',
+        },
+      ],
+    },
+  };
+  return sendFlex(`การ์ดนักกีฬา: ${player.name} (${team.name})`, bubble);
+};
+
+export const shareRegistration = async (data: RegistrationData, teamId: string) => {
+  const bubble = flexBubble(
+    flexHeader('NEW ENTRY · ใบสมัครใหม่', data.schoolName, { color: FLEX.green, accent: '#A7F3D0' }),
+    [
+      flexRow('ผู้จัดการทีม', safeText(data.managerName, '-')),
+      flexRow('เบอร์ติดต่อ', safeText(data.managerPhone || data.phone, '-'), { bold: true }),
+      ...(data.coachName ? [flexRow('ผู้ฝึกสอน', data.coachName)] : []),
+      flexRow('จำนวนนักกีฬา', `${(data.players ?? []).filter(pl => pl.name?.trim()).length} คน`),
+      ...(data.district || data.province
+        ? [flexRow('พื้นที่', [data.district, data.province].filter(Boolean).join(' · '))] : []),
+      ...flexButton('ตรวจสอบและอนุมัติ', liffLink(`?view=admin&teamId=${teamId}`), FLEX.green),
+    ],
+  );
+  return sendFlex(`ใบสมัครใหม่: ${data.schoolName}`, bubble);
+};
+
+export const shareNews = async (news: NewsItem) => {
+  const bubble = flexBubble(
+    flexHeader('NEWS · ข่าวประชาสัมพันธ์', news.title),
+    [
+      {
+        type: 'text', text: cut(safeText(news.content, 'อ่านรายละเอียดในระบบ'), 260),
+        wrap: true, size: 'sm', color: FLEX.muted,
+      },
+      ...(news.timestamp ? [flexRow('ประกาศเมื่อ',
+        new Date(news.timestamp).toLocaleDateString('th-TH',
+          { day: 'numeric', month: 'long', year: 'numeric' }))] : []),
+      ...flexButton('อ่านข่าวฉบับเต็ม', liffLink('?view=news')),
+    ],
+    { size: 'mega' },
+  );
+  return sendFlex(`ข่าวสาร: ${news.title}`, bubble);
+};
+
+export const shareMatch = async (
+  match: Match, teamAName: string, teamBName: string,
+  teamALogo: string, teamBLogo: string,
+) => {
+  const isFinished = !!match.winner;
+  const kickoff = match.scheduledTime || match.date;
+  const when = kickoff
+    ? new Date(kickoff).toLocaleString('th-TH',
+        { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  const bubble = flexBubble(
+    flexHeader(
+      isFinished ? 'FULL TIME · จบการแข่งขัน' : 'FIXTURE · โปรแกรมแข่ง',
+      safeText(match.roundLabel, 'นัดการแข่งขัน'),
+      isFinished ? { color: FLEX.brandDark } : {},
+    ),
+    [
+      {
+        type: 'box', layout: 'horizontal', alignItems: 'center',
+        contents: [
+          flexTeamColumn(teamAName, teamALogo),
+          {
+            type: 'box', layout: 'vertical', flex: 3, alignItems: 'center', justifyContent: 'center',
+            contents: [{
+              type: 'text',
+              text: isFinished ? `${match.scoreA} - ${match.scoreB}` : 'VS',
+              size: isFinished ? 'xxl' : 'xl',
+              weight: 'bold', align: 'center',
+              color: isFinished ? FLEX.ink : FLEX.faint,
+            }],
+          },
+          flexTeamColumn(teamBName, teamBLogo),
+        ],
+      },
+      { type: 'separator', margin: 'xl', color: FLEX.line },
+      ...(when ? [flexRow('วัน-เวลา', when, { bold: true })] : []),
+      ...(match.venue ? [flexRow('สนาม', match.venue)] : []),
+      ...flexButton(isFinished ? 'ดูผลการแข่งขัน' : 'ดูรายละเอียด',
+        liffLink(`?view=match_detail&id=${match.id}`)),
+    ],
+    { size: 'mega' },
+  );
+  return sendFlex(
+    isFinished
+      ? `ผลบอล ${teamAName} ${match.scoreA}-${match.scoreB} ${teamBName}`
+      : `โปรแกรมแข่ง ${teamAName} พบ ${teamBName}${when ? ` ${when}` : ''}`,
+    bubble);
+};
+
+export const shareTournament = async (
+  tournament: Tournament, teamCount: number = 0, maxTeams: number = 0,
+) => {
+  let cfg: any = {};
+  try { cfg = tournament.config ? JSON.parse(tournament.config) : {}; } catch { cfg = {}; }
+
+  const deadline = cfg.registrationDeadline
+    ? new Date(cfg.registrationDeadline).toLocaleDateString('th-TH',
+        { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+  const isOpen = !cfg.registrationDeadline
+    || new Date(cfg.registrationDeadline).getTime() > Date.now();
+  const slots = maxTeams > 0 ? `${teamCount}/${maxTeams} ทีม` : `${teamCount} ทีม`;
+
+  const bubble = flexBubble(
+    flexHeader(isOpen ? 'OPEN · เปิดรับสมัคร' : 'CLOSED · ปิดรับสมัครแล้ว',
+      tournament.name,
+      isOpen ? {} : { color: '#475569', accent: '#CBD5E1' }),
+    [
+      flexRow('สมัครแล้ว', slots, { bold: true,
+        valueColor: maxTeams > 0 && teamCount >= maxTeams ? FLEX.red : FLEX.green }),
+      ...(deadline ? [flexRow(isOpen ? 'ปิดรับสมัคร' : 'ปิดเมื่อ', deadline)] : []),
+      ...(cfg.registrationFee ? [flexRow('ค่าสมัคร',
+        `${Number(cfg.registrationFee).toLocaleString()} บาท`)] : []),
+      ...(cfg.locationName ? [flexRow('สนาม', cfg.locationName)] : []),
+      ...(cfg.playersPerTeam ? [flexRow('ผู้เล่นต่อทีม',
+        `${cfg.playersPerTeam} คน${cfg.maxSubs ? ` + สำรอง ${cfg.maxSubs}` : ''}`)] : []),
+      ...(isOpen
+        ? flexButton('สมัครเข้าแข่งขัน', liffLink(`?tournamentId=${tournament.id}`))
+        : flexButton('ดูรายละเอียดรายการ', liffLink(`?tournamentId=${tournament.id}`), '#475569')),
+    ],
+    { size: 'mega' },
+  );
+  return sendFlex(`${isOpen ? 'เชิญสมัคร' : 'รายการแข่งขัน'}: ${tournament.name}`, bubble);
+};
+
+export const shareDonation = async (donation: Donation, tournamentName: string) => {
+  const bubble = flexBubble(
+    flexHeader('THANK YOU · อนุโมทนาบัตร', tournamentName,
+      { color: FLEX.goldDark, accent: '#FDE68A' }),
+    [
+      {
+        type: 'text', text: 'ขออนุโมทนาบุญกับ', size: 'xs',
+        color: FLEX.muted, align: 'center',
+      },
+      {
+        type: 'text', text: cut(safeText(donation.donorName, 'ผู้ไม่ประสงค์ออกนาม'), 40),
+        size: 'lg', weight: 'bold', align: 'center', wrap: true,
+        color: FLEX.ink, margin: 'sm',
+      },
+      {
+        type: 'text', text: `${Number(donation.amount || 0).toLocaleString()} บาท`,
+        size: 'xxl', weight: 'bold', align: 'center', color: FLEX.gold, margin: 'md',
+      },
+      { type: 'separator', margin: 'xl', color: FLEX.line },
+      {
+        type: 'text',
+        text: 'ที่ร่วมสนับสนุนการแข่งขันกีฬาของนักเรียน',
+        size: 'xxs', color: FLEX.faint, align: 'center', wrap: true, margin: 'lg',
+      },
+      ...flexButton('ร่วมสนับสนุนด้วย', liffLink('?view=donate'), FLEX.gold),
+    ],
+  );
+  return sendFlex(`อนุโมทนาบัตร: ${donation.donorName} ${Number(donation.amount || 0).toLocaleString()} บาท`, bubble);
+};
+
+export const sharePrizeSummary = async (
+  tournamentName: string, prizes: TournamentPrize[], teams: Team[],
+) => {
+  const rows = (prizes ?? []).slice(0, 8).map((pz, i) => {
+    const winner = pz.winnerTeamId
+      ? (teams.find(t => t.id === pz.winnerTeamId)?.name ?? '')
+      : '';
+    const medal = ['🥇', '🥈', '🥉'][i] ?? '🏅';
+    return {
+      type: 'box', layout: 'horizontal', margin: 'md', alignItems: 'center',
+      contents: [
+        { type: 'text', text: medal, size: 'sm', flex: 0 },
+        {
+          type: 'box', layout: 'vertical', flex: 5, margin: 'sm',
+          contents: [
+            {
+              type: 'text', text: cut(safeText(pz.rankLabel, 'รางวัล'), 18),
+              size: 'xs', color: FLEX.muted,
+            },
+            {
+              type: 'text', text: cut(safeText(winner, 'ยังไม่ประกาศ'), 24),
+              size: 'sm', weight: 'bold',
+              color: winner ? FLEX.ink : FLEX.faint, wrap: true,
+            },
+          ],
+        },
+        // เงินรางวัลที่ยังไม่กำหนดต้อง "ไม่ใส่ node" ไม่ใช่ใส่ข้อความว่าง
+        // เพราะ text ว่างแม้ช่องเดียวทำให้ LINE ไม่ส่งการ์ดทั้งใบโดยไม่แจ้งอะไรเลย
+        ...(pz.amount && String(pz.amount).trim() !== '' ? [{
+          type: 'text',
+          text: `${Number(String(pz.amount).replace(/[^0-9.]/g, '') || 0).toLocaleString()} ฿`,
+          size: 'xs', color: FLEX.gold, weight: 'bold', flex: 2, align: 'end', gravity: 'center',
+        }] : []),
+      ],
     };
+  });
 
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
+  const bubble = flexBubble(
+    flexHeader('OFFICIAL RESULTS · ผลรางวัล', tournamentName,
+      { color: FLEX.goldDark, accent: '#FDE68A' }),
+    rows.length > 0
+      ? [...rows, ...flexButton('ดูผลการแข่งขันทั้งหมด', liffLink('?view=standings'), FLEX.goldDark)]
+      : [{
+          type: 'text', text: 'ยังไม่มีการประกาศผลรางวัล',
+          size: 'sm', color: FLEX.faint, align: 'center', margin: 'lg',
+        }],
+    { size: 'mega' },
+  );
+  return sendFlex(`ผลรางวัล: ${tournamentName}`, bubble);
+};
+
+export const shareGroupStandings = async (
+  groupName: string, standings: any[], tournamentName: string = 'ตารางคะแนน',
+) => {
+  const head = {
+    type: 'box', layout: 'horizontal', margin: 'md',
+    contents: [
+      { type: 'text', text: '#', size: 'xxs', color: FLEX.faint, flex: 1, weight: 'bold' },
+      { type: 'text', text: 'ทีม', size: 'xxs', color: FLEX.faint, flex: 6, weight: 'bold' },
+      { type: 'text', text: 'แข่ง', size: 'xxs', color: FLEX.faint, flex: 2, align: 'center', weight: 'bold' },
+      { type: 'text', text: 'ได้-เสีย', size: 'xxs', color: FLEX.faint, flex: 3, align: 'center', weight: 'bold' },
+      { type: 'text', text: 'คะแนน', size: 'xxs', color: FLEX.faint, flex: 3, align: 'end', weight: 'bold' },
+    ],
+  };
+
+  const rows = (standings ?? []).slice(0, 10).map((t: any, i: number) => {
+    // สองอันดับแรกเข้ารอบ — เน้นให้เห็นทันทีว่าใครอยู่ในโซนผ่าน
+    const qualified = i < 2;
+    return {
+      type: 'box', layout: 'horizontal', margin: 'md', alignItems: 'center',
+      contents: [
+        {
+          type: 'text', text: `${i + 1}`, size: 'xs', flex: 1, weight: 'bold',
+          color: qualified ? FLEX.green : FLEX.faint,
+        },
+        {
+          type: 'text', text: cut(safeText(t.teamName ?? t.name, 'ทีม'), 20),
+          size: 'xs', flex: 6, weight: qualified ? 'bold' : 'regular',
+          color: FLEX.ink, wrap: false,
+        },
+        { type: 'text', text: `${t.played ?? 0}`, size: 'xs', flex: 2, align: 'center', color: FLEX.muted },
+        {
+          type: 'text', text: `${t.goalsFor ?? 0}-${t.goalsAgainst ?? 0}`,
+          size: 'xs', flex: 3, align: 'center', color: FLEX.muted,
+        },
+        {
+          type: 'text', text: `${t.points ?? 0}`, size: 'sm', flex: 3, align: 'end',
+          weight: 'bold', color: qualified ? FLEX.green : FLEX.ink,
+        },
+      ],
+    };
+  });
+
+  const bubble = flexBubble(
+    flexHeader(`STANDINGS · สาย ${safeText(groupName, '-')}`, tournamentName),
+    rows.length > 0
+      ? [
+          head,
+          { type: 'separator', margin: 'sm', color: FLEX.line },
+          ...rows,
+          {
+            type: 'text', text: '● สองอันดับแรกเข้ารอบต่อไป',
+            size: 'xxs', color: FLEX.green, margin: 'lg',
+          },
+          ...flexButton('ดูตารางคะแนนเต็ม', liffLink('?view=standings')),
+        ]
+      : [{
+          type: 'text', text: 'ยังไม่มีผลการแข่งขันในสายนี้',
+          size: 'sm', color: FLEX.faint, align: 'center', margin: 'lg',
+        }],
+    { size: 'giga' },
+  );
+  return sendFlex(`ตารางคะแนน สาย ${groupName} · ${tournamentName}`, bubble);
 };
 
 export const shareContestEntry = async (entry: ContestEntry, contestTitle: string) => {
-    const liffId = window.liff?.id;
-    if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
-    
-    // Fallback to basic contest link if ID not specific
-    const liffUrl = `https://liff.line.me/${liffId}?view=contest`; 
-    
-    const flexMessage = {
-      type: "flex",
-      altText: `โหวตให้ฉันด้วย: ${truncate(entry.caption, 20)}`,
-      contents: {
-        "type": "bubble",
-        "hero": {
-          "type": "image",
-          "url": entry.photoUrl,
-          "size": "full",
-          "aspectRatio": "1:1",
-          "aspectMode": "cover",
-          "action": {
-            "type": "uri",
-            "uri": liffUrl
-          }
-        },
-        "body": {
-          "type": "box",
-          "layout": "vertical",
-          "contents": [
-            {
-              "type": "text",
-              "text": contestTitle,
-              "weight": "bold",
-              "size": "xs",
-              "color": "#1e40af"
-            },
-            {
-              "type": "text",
-              "text": entry.caption || "มาโหวตให้ภาพถ่ายของฉันกันเถอะ!",
-              "weight": "bold",
-              "size": "md",
-              "margin": "md",
-              "wrap": true
-            },
-            {
-              "type": "box",
-              "layout": "baseline",
-              "margin": "md",
-              "contents": [
-                {
-                  "type": "text",
-                  "text": "By",
-                  "size": "xs",
-                  "color": "#999999",
-                  "flex": 0
-                },
-                {
-                  "type": "text",
-                  "text": entry.userDisplayName,
-                  "size": "xs",
-                  "color": "#999999",
-                  "margin": "sm",
-                  "flex": 0
-                }
-              ]
-            }
-          ]
-        },
-        "footer": {
-          "type": "box",
-          "layout": "vertical",
-          "spacing": "sm",
-          "contents": [
-            {
-              "type": "button",
-              "style": "primary",
-              "height": "sm",
-              "action": {
-                "type": "uri",
-                "label": "Vote for me!",
-                "uri": liffUrl
-              },
-              "color": "#ec4899"
-            }
-          ],
-          "flex": 0
-        }
-      }
-    };
+  const link = liffLink('?view=contest');
+  const photo = safeImage(entry.photoUrl, '');
+  // ไม่มีรูปที่ใช้ได้ = ไม่ต้องแชร์ เพราะการ์ดประกวดภาพที่ไม่มีภาพก็ไม่มีความหมาย
+  // (และถ้าใส่ URL เสียลงไป Flex จะไม่ส่งการ์ดเลยโดยไม่บอกสาเหตุ)
+  if (photo === '') {
+    notifyUser('แชร์ไม่ได้', 'ภาพนี้ยังอัปโหลดไม่สมบูรณ์', 'warning');
+    return false;
+  }
 
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
+  const bubble = {
+    type: 'bubble',
+    size: 'mega',
+    hero: {
+      type: 'image', url: photo, size: 'full',
+      aspectRatio: '1:1', aspectMode: 'cover',
+      ...(link ? { action: { type: 'uri', uri: link } } : {}),
+    },
+    body: {
+      type: 'box', layout: 'vertical', paddingAll: '16px',
+      contents: [
+        {
+          type: 'text', text: cut(safeText(contestTitle, 'ประกวดภาพถ่าย'), 30),
+          size: 'xxs', weight: 'bold', color: FLEX.brand, letterSpacing: '1px',
+        },
+        {
+          type: 'text',
+          text: cut(safeText(entry.caption, 'ร่วมโหวตให้ภาพนี้กันครับ'), 60),
+          size: 'md', weight: 'bold', color: FLEX.ink, wrap: true, margin: 'sm',
+        },
+        {
+          type: 'box', layout: 'horizontal', margin: 'lg', alignItems: 'center',
+          contents: [
+            {
+              type: 'text', text: `♥ ${entry.likeCount ?? 0} โหวต`,
+              size: 'sm', color: FLEX.red, weight: 'bold', flex: 0,
+            },
+            {
+              type: 'text', text: cut(safeText(entry.userDisplayName, ''), 20),
+              size: 'xxs', color: FLEX.faint, align: 'end',
+            },
+          ],
+        },
+        ...flexButton('กดโหวตให้ภาพนี้', link, FLEX.brand),
+      ],
+    },
+    footer: {
+      type: 'box', layout: 'vertical', paddingAll: '12px', paddingTop: '0px',
+      contents: [{
+        type: 'text', text: 'Penalty Pro Arena · kickoff.bwd.ac.th',
+        size: 'xxs', color: FLEX.faint, align: 'center',
+      }],
+    },
+  };
+  return sendFlex(`ร่วมโหวตภาพถ่าย: ${cut(safeText(entry.caption, contestTitle), 40)}`, bubble);
 };
 
 /**

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, MatchState, MatchEvent, KickResult } from '../types';
-import { Play, Pause, Square, Plus, Flag, User, Clock, ArrowRight, RotateCcw, Save, Check } from 'lucide-react';
+import { Play, Pause, Plus, Flag, Clock, RotateCcw, Check, ArrowLeft } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { confirmAction } from '../services/uiService';
 
@@ -12,9 +12,10 @@ interface RegularMatchInterfaceProps {
   roster: Player[];
   onFinishMatch: (finalState: MatchState) => void;
   onUpdateState: (currentState: MatchState) => void;
+  onBack: () => void;
 }
 
-const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, teamB, matchId, tournamentId, roster, onFinishMatch, onUpdateState }) => {
+const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, teamB, matchId, tournamentId, roster, onFinishMatch, onUpdateState, onBack }) => {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [scoreA, setScoreA] = useState(0);
@@ -124,7 +125,14 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
 
   return (
     <div className="w-full max-w-4xl mx-auto p-4 space-y-6">
-       
+       <div className="grid grid-cols-[2.5rem_1fr_2.5rem] items-center text-white">
+           <button onClick={onBack} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition" aria-label="ออกโดยไม่บันทึก">
+               <ArrowLeft className="w-5 h-5" />
+           </button>
+           <h1 className="font-bold text-lg text-center">บันทึกผลการแข่งขัน</h1>
+           <div aria-hidden="true" />
+       </div>
+
        {/* Scoreboard */}
        <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-2xl relative overflow-hidden">
            {/* Background Accents */}

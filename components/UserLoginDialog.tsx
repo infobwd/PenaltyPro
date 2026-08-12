@@ -8,9 +8,11 @@ interface UserLoginDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (user: UserProfile) => void;
+  variant?: 'modal' | 'page';
+  title?: string;
 }
 
-const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLoginSuccess }) => {
+const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLoginSuccess, variant = 'modal', title }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   
   // Login State
@@ -36,7 +38,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
           });
           if (user) {
               onLoginSuccess(user);
-              onClose();
+              if (variant === 'modal') onClose();
           }
       } catch (err: any) {
           setError(err.message || "เข้าสู่ระบบไม่สำเร็จ");
@@ -63,7 +65,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
           });
           if (user) {
               onLoginSuccess(user);
-              onClose();
+              if (variant === 'modal') onClose();
           }
       } catch (err: any) {
           setError(err.message || "สมัครสมาชิกไม่สำเร็จ");
@@ -73,13 +75,12 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
   };
 
   const handleLineLogin = () => {
-      onClose(); // Close dialog first
+      if (variant === 'modal') onClose();
       loginWithLine(); // Redirects to LINE login
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center z-[1300] p-0 xl:p-4" onClick={onClose}>
-      <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 relative" onClick={e => e.stopPropagation()}>
+  const card = (
+      <div className={`bg-white w-full max-w-md shadow-2xl overflow-hidden relative ${variant === 'page' ? 'rounded-3xl border border-slate-100' : 'rounded-t-3xl xl:rounded-2xl'}`} onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-3 right-3 p-1 rounded-full hover:bg-slate-100 text-slate-400 z-10">
             <X className="w-5 h-5" />
         </button>
@@ -100,7 +101,8 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
             </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-5 sm:p-6 max-h-[calc(100dvh-7rem)] overflow-y-auto safe-area-bottom">
+            {title && <div className="mb-5 text-center"><h2 className="font-black text-xl text-slate-900">{title}</h2><p className="text-sm text-slate-500 mt-1">เข้าสู่ระบบหรือสมัครสมาชิกก่อนกรอกใบสมัคร</p></div>}
             {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs font-bold text-center">
                     {error}
@@ -129,7 +131,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                 placeholder="ชื่อผู้ใช้ (Username)" 
                                 value={loginData.username}
                                 onChange={e => setLoginData({...loginData, username: e.target.value})}
-                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="modal-field w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                 required
                             />
                         </div>
@@ -139,14 +141,14 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                 placeholder="รหัสผ่าน (Password)" 
                                 value={loginData.password}
                                 onChange={e => setLoginData({...loginData, password: e.target.value})}
-                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="modal-field w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                 required
                             />
                         </div>
                         <button 
                             type="submit" 
                             disabled={isLoading}
-                            className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                            className="modal-primary w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
                         >
                             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>เข้าสู่ระบบ <ArrowRight className="w-4 h-4" /></>}
                         </button>
@@ -163,7 +165,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                 placeholder="ชื่อที่ใช้แสดง (Display Name)" 
                                 value={regData.displayName}
                                 onChange={e => setRegData({...regData, displayName: e.target.value})}
-                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    className="modal-field w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                 required
                             />
                         </div>
@@ -175,7 +177,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                     placeholder="เบอร์โทรศัพท์ (ถ้ามี)" 
                                     value={regData.phone}
                                     onChange={e => setRegData({...regData, phone: e.target.value})}
-                                    className="w-full p-3 pl-10 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    className="modal-field w-full p-3 pl-10 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                 />
                             </div>
                         </div>
@@ -187,12 +189,12 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                     placeholder="ชื่อผู้ใช้ (Username)" 
                                     value={regData.username}
                                     onChange={e => setRegData({...regData, username: e.target.value})}
-                                    className="w-full p-3 pl-10 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    className="modal-field w-full p-3 pl-10 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                     required
                                 />
                             </div>
                         </div>
-                        <div>
+                        <div className="col-span-2 sm:col-span-1">
                             <div className="relative">
                                 <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                                 <input 
@@ -200,12 +202,12 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                     placeholder="รหัสผ่าน" 
                                     value={regData.password}
                                     onChange={e => setRegData({...regData, password: e.target.value})}
-                                    className="w-full p-3 pl-10 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    className="modal-field w-full p-3 pl-10 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                     required
                                 />
                             </div>
                         </div>
-                        <div>
+                        <div className="col-span-2 sm:col-span-1">
                             <div className="relative">
                                 <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                                 <input 
@@ -213,7 +215,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                                     placeholder="ยืนยันรหัส" 
                                     value={regData.confirmPassword}
                                     onChange={e => setRegData({...regData, confirmPassword: e.target.value})}
-                                    className="w-full p-3 pl-10 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    className="modal-field w-full p-3 pl-10 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 outline-none bg-white"
                                     required
                                 />
                             </div>
@@ -222,7 +224,7 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
                     <button 
                         type="submit" 
                         disabled={isLoading}
-                        className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 mt-4"
+                        className="modal-primary w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 mt-4 shadow-lg shadow-indigo-100"
                     >
                         {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'สมัครสมาชิก'}
                     </button>
@@ -230,6 +232,15 @@ const UserLoginDialog: React.FC<UserLoginDialogProps> = ({ isOpen, onClose, onLo
             )}
         </div>
       </div>
+  );
+
+  if (variant === 'page') {
+    return <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-slate-100 px-4 py-8 flex items-center justify-center">{card}</div>;
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center z-[1300] p-0 xl:p-4" onClick={onClose}>
+      {card}
     </div>
   );
 };

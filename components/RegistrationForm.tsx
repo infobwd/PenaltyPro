@@ -16,6 +16,7 @@ interface RegistrationFormProps {
   user?: UserProfile | null;
   initialData?: { team: Team, players: Player[] } | null;
   registrationDeadline?: string;
+  registrationEnabled?: boolean;
 }
 
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -59,7 +60,7 @@ const compressImage = async (file: File): Promise<File> => {
     });
 };
 
-const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBack, schools, config, showNotification, user, initialData, registrationDeadline }) => {
+const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBack, schools, config, showNotification, user, initialData, registrationDeadline, registrationEnabled = true }) => {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -109,15 +110,21 @@ const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBack, schools, co
   
   // Check Deadline
   useEffect(() => {
-      if (registrationDeadline) {
+      if (!registrationEnabled) {
+          setIsDeadlinePassed(true);
+      } else if (registrationDeadline) {
           const deadline = new Date(registrationDeadline);
           const now = new Date();
           // Reset time part to compare just dates if needed, or exact time
           if (now > deadline) {
               setIsDeadlinePassed(true);
+          } else {
+              setIsDeadlinePassed(false);
           }
+      } else {
+          setIsDeadlinePassed(false);
       }
-  }, [registrationDeadline]);
+  }, [registrationDeadline, registrationEnabled]);
 
   // Load Initial Data (Editing Mode)
   useEffect(() => {

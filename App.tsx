@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation, Prediction } from './types';
 import MatchSetup from './components/MatchSetup';
 import ScoreVisualizer from './components/ScoreVisualizer';
@@ -12,6 +12,14 @@ import StandingsView from './components/StandingsView';
 import AdminDashboard from './components/AdminDashboard';
 import LoginDialog from './components/LoginDialog';
 import UserLoginDialog from './components/UserLoginDialog';
+import SchoolChooserDialog from './components/SchoolChooserDialog';
+import TeamListDialog, { TeamListKind } from './components/TeamListDialog';
+import ProgrammePage from './components/ProgrammePage';
+import InstallPrompt from './components/InstallPrompt';
+import NotificationBell from './components/NotificationBell';
+import NotificationCenter from './components/NotificationCenter';
+import { useNotifications } from './hooks/useNotifications';
+import { useSWUpdate, usePWABadge, clearPWABadge, canInstallApp, promptInstall } from './hooks/usePWA';
 import PinDialog from './components/PinDialog'; 
 import ScheduleList from './components/ScheduleList'; 
 import NewsFeed from './components/NewsFeed'; 
@@ -24,12 +32,13 @@ import LiveWall from './components/LiveWall';
 import SchoolPortal from './components/SchoolPortal';
 import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
+import TeamOverviewDialog from './components/TeamOverviewDialog';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -49,6 +58,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   objectiveImageUrl: "",
   liffId: "",
   showPenaltyModeCard: true,
+  showSupportButton: true,
 };
 
 const settingEnabled = (value: boolean | string | undefined, fallback = true): boolean => {
@@ -107,6 +117,17 @@ export default function App() {
   const [viewKey, setViewKey] = useState<number>(0); 
   const [authReason, setAuthReason] = useState<string>('');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  // ถามโรงเรียนต้นสังกัดครั้งแรกที่เข้าระบบ (ส่วนใหญ่คือคนที่เปิดผ่าน LINE)
+  const [askSchool, setAskSchool] = useState(false);
+  // เจาะดูรายชื่อทีมจากตัวเลขบนการ์ดภาพรวม (ชำระค่าสมัครแล้ว / ส่งรายชื่อแล้ว)
+  const [teamListKind, setTeamListKind] = useState<TeamListKind | null>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
+  // เมนูรวมปุ่มบนแถบหัวสำหรับจอเล็ก
+  const [moreOpen, setMoreOpen] = useState(false);
+  // ประกาศฉบับเต็มที่กำลังเปิดอ่าน (ประกาศยาวถูกตัดในแถบเลื่อน)
+  const [readingAnnouncement, setReadingAnnouncement] = useState<string | null>(null);
+  // เก็บฟังก์ชันสั่งใช้เวอร์ชันใหม่ไว้ผูกกับปุ่มในแถบแจ้งเตือน
+  const [pendingUpdate, setPendingUpdate] = useState<(() => void) | null>(null);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
   const [initialMatchId, setInitialMatchId] = useState<string | null>(null);
   const [initialNewsId, setInitialNewsId] = useState<string | null>(null);
@@ -136,7 +157,7 @@ export default function App() {
   const [isPinOpen, setIsPinOpen] = useState(false); 
   const [isAdmin, setIsAdmin] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous?: boolean; } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous?: boolean; confirmText?: string; } | null>(null);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const [distanceToVenue, setDistanceToVenue] = useState<string | null>(null);
   const [announcementIndex, setAnnouncementIndex] = useState(0);
@@ -148,6 +169,8 @@ export default function App() {
   // Team Edit Modal State
   const [isTeamEditModalOpen, setIsTeamEditModalOpen] = useState(false);
   const [teamToEdit, setTeamToEdit] = useState<{team: Team, players: Player[]} | null>(null);
+  const [selectedHomeTeam, setSelectedHomeTeam] = useState<Team | null>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const activeTeams = currentTournamentId ? availableTeams.filter(t => t.tournamentId === currentTournamentId || (!t.tournamentId && currentTournamentId === 'default')) : [];
   const activePlayers = currentTournamentId ? availablePlayers.filter(p => p.tournamentId === currentTournamentId || (!p.tournamentId && currentTournamentId === 'default')) : [];
@@ -155,6 +178,24 @@ export default function App() {
   const activeTournament = tournaments.find(t => t.id === currentTournamentId);
   const activeDonations = currentTournamentId ? donations.filter(d => d.tournamentId === currentTournamentId) : [];
   const activePredictions = currentTournamentId ? predictions.filter(p => p.tournamentId === currentTournamentId) : [];
+  const participatingTeams = useMemo(
+    () => activeTeams.filter(team => team.status !== 'Rejected'),
+    [activeTeams],
+  );
+  const activeGroupNames = useMemo(
+    () => Array.from(new Set(participatingTeams.map(team => team.group?.trim()).filter((group): group is string => Boolean(group)))).sort(),
+    [participatingTeams],
+  );
+  const rosterStats = useMemo(() => {
+    const participatingIds = new Set(participatingTeams.map(team => team.id));
+    const registeredPlayers = activePlayers.filter(player => participatingIds.has(player.teamId));
+    return {
+      teams: new Set(registeredPlayers.map(player => player.teamId)).size,
+      players: registeredPlayers.length,
+      // ทีมที่เจ้าหน้าที่ตรวจสลิปแล้วว่าจ่ายจริง (ไม่ใช่แค่แนบสลิปมา)
+      paid: participatingTeams.filter(team => team.isPaid).length,
+    };
+  }, [activePlayers, participatingTeams]);
 
   const getTournamentConfig = (): TournamentConfig => { try { return activeTournament?.config ? JSON.parse(activeTournament.config) : {}; } catch(e) { return {}; } };
   const tConfig = getTournamentConfig();
@@ -172,9 +213,25 @@ export default function App() {
   };
 
   const registrationDeadline = tConfig.registrationDeadline;
+  const registrationEnabled = tConfig.registrationEnabled !== false;
+  const teamEditingEnabled = tConfig.teamEditingEnabled !== false;
+  const teamEditDeadline = tConfig.teamEditDeadline;
   const maxTeams = tConfig.maxTeams || 0;
   const currentTeamCount = activeTeams.filter(t => t.status !== 'Rejected').length;
   const isRegistrationFull = maxTeams > 0 && currentTeamCount >= maxTeams;
+  const deadlineHasPassed = (value?: string) => {
+      if (!value) return false;
+      const timestamp = new Date(value).getTime();
+      return !Number.isNaN(timestamp) && timestamp < Date.now();
+  };
+  const formatDeadline = (value?: string) => {
+      if (!value) return 'ไม่กำหนดวันปิด';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return 'ไม่กำหนดวันปิด';
+      return date.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+  const isRegistrationOpen = registrationEnabled && !deadlineHasPassed(registrationDeadline) && !isRegistrationFull;
+  const isTeamEditingOpen = teamEditingEnabled && !deadlineHasPassed(teamEditDeadline);
 
   // Objective Data
   const objectiveData = tConfig.objective?.isEnabled ? {
@@ -265,7 +322,12 @@ export default function App() {
                         const backendUser = idToken
                             ? await authenticateUser({ authType: 'line', idToken })
                             : null;
-                        if (backendUser) { setCurrentUser(backendUser); if (backendUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
+                        if (backendUser) {
+                            setCurrentUser(backendUser);
+                            if (backendUser.role === 'admin') setIsAdmin(true);
+                            // ยังไม่เคยเลือกโรงเรียน -> ถามก่อนใช้งาน
+                            if (backendUser.needsSchool) setAskSchool(true);
+                        } else { setCurrentUser(liffUser); }
                     } else if (liffUser.role) { setCurrentUser(liffUser); if (liffUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
                 } catch (e) { console.warn("Backend Auth Sync Failed", e); setCurrentUser(liffUser); }
             }
@@ -281,13 +343,16 @@ export default function App() {
 
     init();
 
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }), (error) => console.log("Geolocation error:", error));
-    }
   }, []); // Run once
 
   useEffect(() => { if (userLocation && effectiveSettings.locationLat && effectiveSettings.locationLng) { const dist = calculateDistance(userLocation.lat, userLocation.lng, effectiveSettings.locationLat, effectiveSettings.locationLng); setDistanceToVenue(dist); } }, [userLocation, effectiveSettings.locationLat, effectiveSettings.locationLng]);
   useEffect(() => { if (announcements.length > 1) { const interval = setInterval(() => setAnnouncementIndex(prev => (prev + 1) % announcements.length), 5000); return () => clearInterval(interval); } }, [announcements.length]);
+  useEffect(() => {
+    const updateScrollButton = () => setShowScrollTop(window.scrollY > 500);
+    updateScrollButton();
+    window.addEventListener('scroll', updateScrollButton, { passive: true });
+    return () => window.removeEventListener('scroll', updateScrollButton);
+  }, []);
   useEffect(() => { 
       if (!isLoadingData && availableTeams.length > 0) { 
           const params = new URLSearchParams(window.location.search); 
@@ -373,6 +438,9 @@ export default function App() {
     setCurrentUser(user);
     const admin = user.role === 'admin' || user.role === 'staff';
     setIsAdmin(admin);
+    // ผู้ใช้ทั่วไปที่เข้าทางหน้า /login ก็ต้องถูกถามโรงเรียนเหมือนกัน
+    // (server ไม่ตั้ง needsSchool ให้แอดมิน/เจ้าหน้าที่อยู่แล้ว)
+    if (user.needsSchool) setAskSchool(true);
     localStorage.setItem('penalty_pro_user', JSON.stringify(user));
     showNotification('เข้าสู่ระบบแล้ว', `สวัสดีคุณ ${user.displayName}`, 'success');
     if (!admin) {
@@ -385,6 +453,32 @@ export default function App() {
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     setToasts(prev => [...prev, { id, title, message, type }]);
   }, []);
+
+  // ── PWA + กล่องแจ้งเตือน ────────────────────────────────────────────
+  // กล่องทำงานเฉพาะเมื่อล็อกอินแล้ว — การแจ้งเตือนผูกกับบัญชี ไม่มีบัญชีก็ไม่มีอะไรให้ดึง
+  const notifications = useNotifications(!!currentUser, (n) => {
+    // เด้งให้เห็นทันทีแม้ผู้ใช้เปิดแอปค้างไว้และไม่ได้จ้องกระดิ่ง
+    showNotification(n.title, n.body ?? '', 'info');
+  });
+  usePWABadge(notifications.unreadCount);
+
+  // มีเวอร์ชันใหม่รออยู่ → บอกผู้ใช้ให้กดโหลดใหม่ ไม่รีโหลดเองเพราะอาจกำลังกรอกข้อมูลค้างอยู่
+  const handleSWUpdate = useCallback((apply: () => void) => {
+    setPendingUpdate(() => apply);
+  }, []);
+  useSWUpdate(handleSWUpdate);
+
+  const requestLocationForNavigation = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      position => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      error => {
+        // การนำทางยังเปิดได้แม้ผู้ใช้ไม่อนุญาตตำแหน่ง เพียงไม่แสดงระยะห่าง
+        console.info('Location permission was not granted:', error.code);
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  };
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
   const setPenaltyCardVisibility = async (visible: boolean) => {
@@ -423,16 +517,19 @@ export default function App() {
     } catch (e: any) { console.warn("Database Error", e); setConnectionError(e.message); showNotification("เชื่อมต่อไม่ได้", e.message, 'error'); } finally { setIsLoadingData(false); }
   };
 
-  const handleRegisterClick = () => { if (isRegistrationFull) { showNotification("ขออภัย", "การลงทะเบียนเต็มจำนวนแล้ว", "info"); return; } setEditingTeamData(null); if (currentUser) goTo('register'); else setIsUserLoginOpen(true); };
+  const handleRegisterClick = () => {
+    if (!registrationEnabled || deadlineHasPassed(registrationDeadline)) { showNotification("ปิดรับสมัครแล้ว", registrationDeadline ? `ปิดรับสมัครเมื่อ ${formatDeadline(registrationDeadline)}` : "ผู้ดูแลระบบปิดการรับสมัครแล้ว", "info"); return; }
+    if (isRegistrationFull) { showNotification("ขออภัย", "การลงทะเบียนเต็มจำนวนแล้ว", "info"); return; }
+    setEditingTeamData(null);
+    setIsUserLoginOpen(false);
+    goTo('register');
+  };
   
   const handleEditMyTeam = (team: Team) => { 
-      if (registrationDeadline) { 
-          const deadline = new Date(registrationDeadline); 
-          if (new Date() > deadline && !isAdmin) { 
-              showNotification("ปิดรับสมัครแล้ว", "ไม่สามารถแก้ไขข้อมูลได้เนื่องจากเลยกำหนด", "warning"); 
-              return; 
-          } 
-      } 
+      if (!isAdmin && !isTeamEditingOpen) {
+          showNotification("ปิดแก้ไขข้อมูลทีมแล้ว", teamEditDeadline ? `ปิดแก้ไขเมื่อ ${formatDeadline(teamEditDeadline)}` : "ผู้ดูแลระบบปิดการแก้ไขรายชื่อแล้ว", "warning");
+          return;
+      }
       const teamPlayers = activePlayers.filter(p => p.teamId === team.id); 
       setTeamToEdit({ team, players: teamPlayers }); 
       setIsTeamEditModalOpen(true);
@@ -448,8 +545,23 @@ export default function App() {
       }
   };
 
-  const handleUserLoginSuccess = (user: UserProfile) => { setCurrentUser(user); if (user.role === 'admin') setIsAdmin(true); if (user.type === 'credentials') localStorage.setItem('penalty_pro_user', JSON.stringify(user)); showNotification("ยินดีต้อนรับ", `สวัสดีคุณ ${user.displayName}`, "success"); };
-  const handleLogout = () => { authLogout(); setCurrentUser(null); setIsAdmin(false); showNotification("ออกจากระบบแล้ว"); };
+  const handleUserLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (user.role === 'admin') setIsAdmin(true);
+    if (user.type === 'credentials') localStorage.setItem('penalty_pro_user', JSON.stringify(user));
+    if (user.needsSchool) setAskSchool(true);
+    showNotification("ยินดีต้อนรับ", `สวัสดีคุณ ${user.displayName}`, "success");
+  };
+
+  /** ผู้ใช้ตอบเรื่องโรงเรียนแล้ว — จำไว้ในโปรไฟล์ที่ถืออยู่ จะได้ไม่ถามซ้ำ */
+  const handleSchoolChosen = (schoolId: string | null, schoolName: string | null) => {
+    setAskSchool(false);
+    setCurrentUser(prev => prev
+      ? { ...prev, schoolId, schoolName, needsSchool: false }
+      : prev);
+    if (schoolName) showNotification("บันทึกแล้ว", `ต้นสังกัด: ${schoolName}`, "success");
+  };
+  const handleLogout = () => { authLogout(); setCurrentUser(null); setIsAdmin(false); setAskSchool(false); clearPWABadge(); showNotification("ออกจากระบบแล้ว"); };
   
   const startMatchSession = (teamA: Team, teamB: Team, matchId?: string) => { 
       const finalMatchId = matchId || `M_${Date.now()}`;
@@ -510,7 +622,20 @@ export default function App() {
   const handleDeleteKick = (kickId: string) => { setMatchState(prev => { if (!prev) return null; const newKicks = prev.kicks.filter(k => k.id !== kickId); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; let tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); setEditingKick(null); showNotification("ลบรายการเรียบร้อย", "", "warning"); };
   const requestUndoLastKick = () => { if (!matchState || matchState.kicks.length === 0) return; setConfirmModal({ isOpen: true, title: "ยกเลิกการยิงล่าสุด", message: "ต้องการลบผลการยิงลูกล่าสุดใช่หรือไม่?", onConfirm: () => { handleUndoLastKick(); setConfirmModal(null); } }); };
   const handleUndoLastKick = () => { setMatchState(prev => { if (!prev) return null; const newKicks = [...prev.kicks]; newKicks.pop(); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; const tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); showNotification("ย้อนกลับรายการล่าสุดแล้ว", "", "info"); };
-  const resetMatch = () => { setConfirmModal({ isOpen: true, title: "เริ่มแมตช์ใหม่?", message: "ข้อมูลการแข่งขันปัจจุบันจะหายไป ต้องการเริ่มใหม่หรือไม่?", isDangerous: true, onConfirm: () => { goTo('home'); setMatchState(null); setConfirmModal(null); } }); };
+  const requestExitMatchWithoutSaving = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'ออกจากหน้าบันทึกผล?',
+      message: 'คะแนน เวลา และเหตุการณ์ที่ยังไม่ได้จบการแข่งขันจะไม่ถูกบันทึก',
+      isDangerous: true,
+      confirmText: 'ออกโดยไม่บันทึก',
+      onConfirm: () => {
+        setConfirmModal(null);
+        setMatchState(null);
+        goTo('schedule');
+      },
+    });
+  };
   const handleNavClick = (view: string) => { if (view === 'schedule') setInitialMatchId(null); if (currentView === view) setViewKey(prev => prev + 1); else goTo(view); };
   const BottomNav = () => ( <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 flex justify-around items-center z-[100] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] safe-area-bottom"> <NavButton view="home" icon={Home} label="หน้าหลัก" /> <NavButton view="schedule" icon={CalendarDays} label="ตาราง" /> <NavButton view="standings" icon={ListChecks} label="คะแนน" /> <NavButton view="tournament" icon={Trophy} label="ผังแข่ง" /> <NavButton view="admin" icon={isAdmin ? Settings : Lock} label="ระบบ" onClick={isAdmin ? undefined : () => setIsLoginOpen(true)} /> </div> );
   const NavButton = ({ view, icon: Icon, label, onClick }: { view: string, icon: any, label: string, onClick?: () => void }) => { const isActive = currentView === view; const handleClick = onClick || (() => handleNavClick(view)); return ( <button onClick={handleClick} className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all w-16 ${isActive ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}><Icon className={`w-6 h-6 mb-1 ${isActive ? 'fill-indigo-200' : ''}`} /><span className="text-[10px] font-bold">{label}</span></button> ) };
@@ -563,6 +688,19 @@ export default function App() {
       );
   }
 
+  if (!currentTournamentId && currentView === 'programme') {
+      return (
+          <ProgrammePage
+              tournament={activeTournament}
+              config={effectiveSettings}
+              teams={activeTeams}
+              players={activePlayers}
+              matches={activeMatches}
+              onBack={() => goTo('home')}
+          />
+      );
+  }
+
   if (!currentTournamentId && currentView === 'login') {
       return (
           <LoginPage
@@ -598,17 +736,37 @@ export default function App() {
   }
 
   if (currentView === 'register') {
+      if (!currentUser) {
+          return (
+            <div className="min-h-screen font-sans" style={{ fontFamily: "'Kanit', sans-serif" }}>
+              <ToastContainer toasts={toasts} removeToast={removeToast} />
+              <SystemDialogHost onNotify={showNotification} />
+              <UserLoginDialog
+                isOpen
+                variant="page"
+                title="เข้าสู่ระบบเพื่อสมัครแข่งขัน"
+                onClose={() => goTo('home')}
+                onLoginSuccess={handleUserLoginSuccess}
+              />
+            </div>
+          );
+      }
       return (
-          <RegistrationForm 
-            key={viewKey} 
-            onBack={() => { loadData(true); goTo('home'); setEditingTeamData(null); }} 
-            schools={schools} 
-            config={effectiveSettings} 
-            showNotification={showNotification} 
-            user={currentUser} 
-            initialData={editingTeamData}
-            registrationDeadline={registrationDeadline}
-          />
+          <>
+            <ToastContainer toasts={toasts} removeToast={removeToast} />
+            <SystemDialogHost onNotify={showNotification} />
+            <RegistrationForm
+              key={viewKey}
+              onBack={() => { loadData(true); goTo('home'); setEditingTeamData(null); }}
+              schools={schools}
+              config={effectiveSettings}
+              showNotification={showNotification}
+              user={currentUser}
+              initialData={editingTeamData}
+              registrationDeadline={registrationDeadline}
+              registrationEnabled={registrationEnabled}
+            />
+          </>
       );
   }
 
@@ -620,6 +778,103 @@ export default function App() {
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
       <UserLoginDialog isOpen={isUserLoginOpen} onClose={() => setIsUserLoginOpen(false)} onLoginSuccess={handleUserLoginSuccess} />
+      {currentUser && (
+        <NotificationCenter
+          open={notifOpen}
+          onClose={() => setNotifOpen(false)}
+          notify={showNotification}
+          onNavigate={(url) => {
+            // ลิงก์ในแจ้งเตือนเป็นเส้นทางภายในแอป เช่น /schedule?match=M_1
+            const path = url.split('?')[0].replace(/^\/+/, '');
+            goTo(path === '' ? 'home' : path);
+          }}
+          feed={notifications}
+        />
+      )}
+
+      {/* มีเวอร์ชันใหม่รออยู่ — ไม่รีโหลดเองเพราะผู้ใช้อาจกรอกข้อมูลค้างไว้ */}
+      {pendingUpdate && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] w-[min(92vw,26rem)]
+                        bg-slate-900 text-white rounded-2xl shadow-2xl p-3 flex items-center gap-3
+                        animate-in slide-in-from-bottom-4">
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-sm">มีเวอร์ชันใหม่ของระบบ</p>
+            <p className="text-[11px] text-slate-300">กดโหลดใหม่เพื่อใช้เวอร์ชันล่าสุด</p>
+          </div>
+          <button onClick={() => setPendingUpdate(null)}
+            className="px-2 py-1.5 text-xs text-slate-300">ภายหลัง</button>
+          <button onClick={() => { const apply = pendingUpdate; setPendingUpdate(null); apply?.(); }}
+            className="px-3 py-1.5 rounded-lg bg-white text-slate-900 text-xs font-bold shrink-0">
+            โหลดใหม่
+          </button>
+        </div>
+      )}
+
+      {readingAnnouncement && (
+        <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm modal-sheet modal-contained
+                        flex items-end xl:items-center justify-center p-0 xl:p-4 overflow-hidden"
+          onClick={() => setReadingAnnouncement(null)}>
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl flex flex-col"
+            style={{ maxHeight: 'min(88vh, 44rem)' }}
+            onClick={e => e.stopPropagation()}
+            role="dialog" aria-modal="true" aria-label="ประกาศ">
+            <div className="shrink-0 px-5 pt-5 pb-3 flex items-start justify-between gap-3"
+              style={{ backgroundColor: '#4338CA', color: '#ffffff', borderRadius: '1rem 1rem 0 0' }}>
+              <div className="flex items-center gap-2">
+                <Megaphone className="w-5 h-5" />
+                <h3 className="font-black text-lg" style={{ color: '#ffffff' }}>ประกาศ</h3>
+              </div>
+              <button onClick={() => setReadingAnnouncement(null)} aria-label="ปิด"
+                className="p-2 rounded-full shrink-0"
+                style={{ backgroundColor: 'rgba(255,255,255,0.18)', color: '#ffffff' }}>
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 flex-1 overflow-y-auto modal-scroll-region">
+              <p className="text-slate-700 whitespace-pre-line leading-relaxed text-[15px] break-words">
+                {readingAnnouncement}
+              </p>
+            </div>
+            {announcements.length > 1 && (
+              <div className="shrink-0 border-t border-slate-100 p-3 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    const i = (announcementIndex - 1 + announcements.length) % announcements.length;
+                    setAnnouncementIndex(i); setReadingAnnouncement(announcements[i]);
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-1">
+                  <ChevronLeft className="w-4 h-4" /> ก่อนหน้า
+                </button>
+                <span className="text-xs text-slate-400">
+                  {announcementIndex + 1} / {announcements.length}
+                </span>
+                <button
+                  onClick={() => {
+                    const i = (announcementIndex + 1) % announcements.length;
+                    setAnnouncementIndex(i); setReadingAnnouncement(announcements[i]);
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100 flex items-center gap-1">
+                  ถัดไป <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <TeamListDialog
+        kind={teamListKind}
+        teams={participatingTeams}
+        players={activePlayers}
+        onClose={() => setTeamListKind(null)}
+        onPickTeam={(t) => { setTeamListKind(null); setSelectedHomeTeam(t); }}
+      />
+      <SchoolChooserDialog
+        open={askSchool}
+        displayName={currentUser?.displayName}
+        onDone={handleSchoolChosen}
+        notify={showNotification}
+      />
       <DonationDialog 
         isOpen={isDonationOpen} 
         onClose={() => setIsDonationOpen(false)} 
@@ -637,10 +892,9 @@ export default function App() {
         onRefresh={() => loadData(true)}
       />
 
-      {/* Floating Support Button - Adjusted Position
-          ซ่อนในหน้าโรงเรียน เพราะไปบังช่องกรอกรายชื่อและปุ่มส่งบนมือถือ
-          ครูกำลังกรอกข้อมูล 7-9 คน ไม่ใช่จังหวะที่ควรชวนบริจาค */}
-      {currentView !== 'school' && (
+      {/* ปุ่มสนับสนุนแสดงเฉพาะหน้าหลัก เพื่อไม่บังช่องกรอก ปุ่มบันทึกผล
+          และ navigation สำคัญบนหน้าจอมือถือ */}
+      {currentView === 'home' && settingEnabled(appConfig.showSupportButton) && (
       <button
         onClick={() => setIsSupportOpen(true)}
         className="fixed bottom-24 right-4 md:right-8 md:bottom-24 z-[90] bg-gradient-to-r from-orange-500 to-pink-500 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform duration-300 group border-4 border-white/20 animate-in slide-in-from-bottom-10"
@@ -705,13 +959,27 @@ export default function App() {
               <h3 className="font-bold text-lg">{confirmModal.title}</h3>
             </div>
             <p className="text-slate-600 mb-6">{confirmModal.message}</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium text-slate-600">ยกเลิก</button>
-              <button onClick={confirmModal.onConfirm} className={`flex-1 py-2 rounded-lg font-bold text-white ${confirmModal.isDangerous ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>ยืนยัน</button>
+            <div className="flex flex-col-reverse sm:flex-row gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 min-h-12 px-4 border-2 border-slate-300 rounded-xl hover:bg-slate-50 font-bold text-slate-700">ยกเลิก</button>
+              <button onClick={confirmModal.onConfirm} className={`flex-1 min-h-12 px-4 rounded-xl font-black !text-white border-2 shadow-lg ${confirmModal.isDangerous ? 'bg-red-600 border-red-800 hover:bg-red-700 shadow-red-200' : 'bg-indigo-600 border-indigo-800 hover:bg-indigo-700 shadow-indigo-200'}`}>{confirmModal.confirmText || 'ยืนยัน'}</button>
             </div>
           </div>
         </div>
       )}
+
+      {showScrollTop && showBottomNav && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className={`fixed right-4 md:right-8 z-[89] w-12 h-12 rounded-full bg-slate-900/90 text-white border border-white/20 shadow-xl backdrop-blur flex items-center justify-center hover:bg-indigo-700 active:scale-95 transition-all ${currentView === 'home' && settingEnabled(appConfig.showSupportButton) ? 'bottom-44' : 'bottom-24'}`}
+          aria-label="กลับขึ้นด้านบน"
+          title="กลับขึ้นด้านบน"
+        >
+          <ArrowUp className="w-5 h-5" />
+        </button>
+      )}
+
+      <TeamOverviewDialog team={selectedHomeTeam} players={activePlayers} onClose={() => setSelectedHomeTeam(null)} />
       {editingKick && activeTournament?.type === 'Penalty' && (
         <div className="fixed inset-0 bg-black/60 modal-sheet flex items-end xl:items-center justify-center z-[1100] p-0 xl:p-4 backdrop-blur-sm" onClick={() => setEditingKick(null)}>
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
@@ -765,11 +1033,13 @@ export default function App() {
             currentTournamentId={currentTournamentId} 
             predictions={activePredictions}
             currentUser={currentUser}
+            tournament={activeTournament}
+            onOpenProgramme={() => goTo('programme')}
             onLoginRequest={() => setIsUserLoginOpen(true)}
         /> 
       )}
       
-      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => goTo('home')} isLoading={isLoadingData} predictions={activePredictions} />}
+      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => goTo('home')} isLoading={isLoadingData} predictions={activePredictions} />}
       {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
       {currentView === 'login' && (
         <LoginPage
@@ -780,6 +1050,17 @@ export default function App() {
             setAuthReason('');
             goTo(u.role === 'admin' || u.role === 'staff' ? 'admin' : 'home');
           }}
+        />
+      )}
+
+      {currentView === 'programme' && (
+        <ProgrammePage
+          tournament={activeTournament}
+          config={effectiveSettings}
+          teams={activeTeams}
+          players={activePlayers}
+          matches={activeMatches}
+          onBack={() => goTo('schedule')}
         />
       )}
 
@@ -796,10 +1077,10 @@ export default function App() {
         <div className="min-h-screen bg-slate-900 pb-20">
             {activeTournament?.type === 'Penalty' ? (
                 <div className="p-4 space-y-6 max-w-md mx-auto">
-                    <div className="flex justify-between items-center text-white">
-                        <button onClick={resetMatch} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition"><Undo2 className="w-5 h-5"/></button>
+                    <div className="grid grid-cols-[2.5rem_1fr_2.5rem] items-center text-white">
+                        <button onClick={requestExitMatchWithoutSaving} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition" aria-label="ออกโดยไม่บันทึก"><ArrowLeft className="w-5 h-5"/></button>
                         <h2 className="font-bold text-lg">การดวลจุดโทษ</h2>
-                        <button onClick={requestUndoLastKick} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition"><Undo2 className="w-5 h-5"/></button>
+                        <button onClick={requestUndoLastKick} disabled={matchState.kicks.length === 0} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition disabled:opacity-30" aria-label="ย้อนกลับผลการยิงล่าสุด"><Undo2 className="w-5 h-5"/></button>
                     </div>
                     
                     <ScoreVisualizer kicks={matchState.kicks} teamId="A" team={matchState.teamA} />
@@ -838,6 +1119,7 @@ export default function App() {
                     roster={activePlayers}
                     onFinishMatch={handleFinishRegularMatch}
                     onUpdateState={handleUpdateRegularMatchState}
+                    onBack={requestExitMatchWithoutSaving}
                 />
             )}
         </div>
@@ -856,37 +1138,51 @@ export default function App() {
                   </h1>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                  <button 
-                    onClick={() => goTo('contest')} 
-                    className="flex items-center gap-1 text-[10px] sm:text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-2 py-1.5 rounded-full transition shadow-sm font-bold"
-                  >
-                      <Camera className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">ประกวดภาพ</span>
-                  </button>
-                  <button onClick={() => setCurrentTournamentId(null)} className="flex items-center gap-1 text-[10px] sm:text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1.5 rounded-full transition">
-                      <ArrowLeftRight className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">เปลี่ยนรายการ</span>
-                  </button>
-                  <button 
-                    onClick={handleRegisterClick} 
-                    className={`text-white px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
+                  {currentUser && (
+                    <NotificationBell
+                      unreadCount={notifications.unreadCount}
+                      onClick={() => setNotifOpen(true)}
+                    />
+                  )}
+
+                  {/* ── ปุ่มหลักที่เห็นเสมอ ─────────────────────────────
+                      จอ 375px วางปุ่มได้จริงราว 3 ปุ่มเท่านั้น ก่อนหน้านี้ยัด 6 ปุ่ม
+                      จนชื่อรายการถูกบีบเหลือไม่กี่ตัวอักษรและปุ่มเล็กจนกดพลาด
+                      จึงเหลือไว้แค่ "สมัครแข่ง" ซึ่งเป็นสิ่งที่คนเข้ามาทำมากที่สุด
+                      ที่เหลือย้ายเข้าเมนู — จอ sm ขึ้นไปยังแสดงครบเหมือนเดิม */}
+                  <button
+                    onClick={handleRegisterClick}
+                    className={`text-white px-2.5 py-1.5 rounded-full text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
                     disabled={isRegistrationFull}
                   >
                       {isRegistrationFull ? (
                           <>เต็ม</>
                       ) : (
-                          <><UserPlus className="w-3 h-3 sm:w-3 sm:h-3" /> <span className="hidden sm:inline">สมัครแข่ง</span></>
+                          <><UserPlus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">สมัครแข่ง</span></>
                       )}
                   </button>
-                  {/* ทางเข้าสำหรับโรงเรียนที่ถูกเชิญเข้าร่วมแล้ว — เดิมไม่มีช่องทางเข้าเลย
-                      ครูต้องรู้ URL /school เองซึ่งไม่มีใครรู้ */}
+
+                  {/* ปุ่มที่ซ่อนบนจอเล็ก — ขึ้นมาอยู่ในเมนูแทน */}
+                  <button
+                    onClick={() => goTo('contest')}
+                    className="hidden sm:flex items-center gap-1 text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-2 py-1.5 rounded-full transition shadow-sm font-bold"
+                  >
+                      <Camera className="w-3 h-3 mr-1"/> ประกวดภาพ
+                  </button>
+                  <button onClick={() => setCurrentTournamentId(null)}
+                    className="hidden sm:flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 bg-slate-100 px-2 py-1.5 rounded-full transition">
+                      <ArrowLeftRight className="w-3 h-3 mr-1"/> เปลี่ยนรายการ
+                  </button>
                   <button
                     onClick={() => goTo('school')}
                     title="สำหรับโรงเรียนที่ส่งทีมเข้าแข่งขัน — เข้าด้วยรหัส 8 ตัว"
-                    className="text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 transition"
+                    className="hidden sm:flex text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-full text-xs font-bold items-center gap-1 hover:bg-indigo-100 transition"
                   >
-                      <Lock className="w-3 h-3" /> <span className="hidden sm:inline">โรงเรียน</span>
+                      <Lock className="w-3 h-3" /> โรงเรียน
                   </button>
+
                   {currentUser ? (
-                      <div className="flex items-center gap-1 pl-1 ml-1 border-l border-slate-200">
+                      <div className="hidden sm:flex items-center gap-1 pl-1 ml-1 border-l border-slate-200">
                           {currentUser.pictureUrl ? (
                               <img src={currentUser.pictureUrl} className="w-7 h-7 rounded-full border border-slate-200" />
                           ) : (
@@ -897,12 +1193,87 @@ export default function App() {
                           <button onClick={handleLogout} className="text-slate-400 hover:text-red-500"><LogOut className="w-4 h-4" /></button>
                       </div>
                   ) : (
-                      <button onClick={() => setIsUserLoginOpen(true)} className="text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 ml-1">
-                          <LogIn className="w-3 h-3" /> <span className="hidden sm:inline">Login</span>
+                      <button onClick={() => setIsUserLoginOpen(true)} className="hidden sm:flex text-indigo-600 bg-indigo-50 px-2 py-1.5 rounded-full text-xs font-bold items-center gap-1 hover:bg-indigo-100 ml-1">
+                          <LogIn className="w-3 h-3" /> Login
                       </button>
                   )}
+
+                  {/* ── เมนูรวมสำหรับจอเล็ก ───────────────────────────── */}
+                  <button
+                    onClick={() => setMoreOpen(v => !v)}
+                    aria-label="เมนูเพิ่มเติม"
+                    aria-expanded={moreOpen}
+                    className="sm:hidden p-2 rounded-full text-slate-600 hover:bg-slate-100"
+                  >
+                      <MoreVertical className="w-5 h-5" />
+                  </button>
               </div>
           </div>
+
+          {moreOpen && (
+            <>
+              <div className="sm:hidden fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+              <div className="sm:hidden fixed right-2 top-16 z-50 w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in slide-in-from-top-2">
+                {currentUser && (
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                    {currentUser.pictureUrl ? (
+                      <img src={currentUser.pictureUrl} className="w-8 h-8 rounded-full border border-slate-200" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                        {String(currentUser.displayName || 'U').charAt(0)}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{currentUser.displayName}</p>
+                      {currentUser.schoolName && (
+                        <p className="text-[11px] text-slate-500 truncate">{currentUser.schoolName}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {[
+                  { icon: <Lock className="w-4 h-4" />, label: 'สำหรับโรงเรียน', onClick: () => goTo('school') },
+                  { icon: <Camera className="w-4 h-4" />, label: 'ประกวดภาพ', onClick: () => goTo('contest') },
+                  { icon: <ArrowLeftRight className="w-4 h-4" />, label: 'เปลี่ยนรายการแข่งขัน', onClick: () => setCurrentTournamentId(null) },
+                ].map(item => (
+                  <button key={item.label}
+                    onClick={() => { setMoreOpen(false); item.onClick(); }}
+                    className="w-full px-4 py-3 flex items-center gap-3 text-sm text-slate-700 hover:bg-slate-50 text-left">
+                    <span className="text-indigo-600">{item.icon}</span> {item.label}
+                  </button>
+                ))}
+
+                {/* ปุ่มติดตั้งขึ้นเฉพาะตอนที่เบราว์เซอร์ยอมให้ติดตั้งจริง
+                    ถ้าโชว์ตลอดแล้วกดไม่ได้จะดูเหมือนระบบเสีย */}
+                {canInstallApp() && (
+                  <button
+                    onClick={async () => {
+                      setMoreOpen(false);
+                      const done = await promptInstall();
+                      if (done) showNotification('ติดตั้งแล้ว', 'เปิดจากหน้าจอโฮมได้เลย', 'success');
+                    }}
+                    className="w-full px-4 py-3 flex items-center gap-3 text-sm text-slate-700 hover:bg-slate-50 text-left border-t border-slate-100">
+                    <span className="text-indigo-600"><Download className="w-4 h-4" /></span> ติดตั้งแอปลงหน้าจอโฮม
+                  </button>
+                )}
+
+                <div className="border-t border-slate-100">
+                  {currentUser ? (
+                    <button onClick={() => { setMoreOpen(false); handleLogout(); }}
+                      className="w-full px-4 py-3 flex items-center gap-3 text-sm text-rose-600 hover:bg-rose-50 text-left">
+                      <LogOut className="w-4 h-4" /> ออกจากระบบ
+                    </button>
+                  ) : (
+                    <button onClick={() => { setMoreOpen(false); setIsUserLoginOpen(true); }}
+                      className="w-full px-4 py-3 flex items-center gap-3 text-sm text-indigo-600 hover:bg-indigo-50 text-left">
+                      <LogIn className="w-4 h-4" /> เข้าสู่ระบบ
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-6 pb-12 relative overflow-hidden transition-all duration-300">
               <div className="absolute top-0 right-0 w-64 h-64 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
@@ -920,13 +1291,21 @@ export default function App() {
                   {announcements.length > 0 && !isLoadingData && (
                     <div className="bg-white/10 border border-white/20 rounded-xl p-3 backdrop-blur-md flex items-center gap-3 mb-6 relative group">
                         <div className="shrink-0"><Bell className="w-5 h-5 text-yellow-400 animate-pulse" /></div>
-                        <div className="flex-1 overflow-hidden relative h-12 flex items-center">
+                        {/*
+                          กล่องนี้สูงคงที่ 48px และซ่อนส่วนที่ล้น ประกาศยาว ๆ จึงถูกตัดทิ้ง
+                          และไม่มีทางอ่านต่อได้เลย — แตะเพื่อเปิดอ่านฉบับเต็มที่เลื่อนได้
+                        */}
+                        <button
+                          onClick={() => setReadingAnnouncement(announcements[announcementIndex])}
+                          className="flex-1 overflow-hidden relative h-12 flex items-center text-left min-w-0"
+                          title="แตะเพื่ออ่านทั้งหมด"
+                        >
                             {announcements.map((text, idx) => (
-                                <p key={idx} className={`text-xs text-slate-200 leading-relaxed absolute w-full transition-opacity duration-500 ${idx === announcementIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
+                                <p key={idx} className={`text-xs text-slate-200 leading-relaxed absolute w-full line-clamp-2 transition-opacity duration-500 ${idx === announcementIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
                                     {text}
                                 </p>
                             ))}
-                        </div>
+                        </button>
                         {announcements.length > 1 && (
                              <div className="flex items-center gap-1">
                                 <button onClick={() => setAnnouncementIndex(prev => (prev - 1 + announcements.length) % announcements.length)} className="p-1 hover:bg-white/20 rounded-full text-slate-300 hover:text-white transition"><ChevronLeft className="w-4 h-4" /></button>
@@ -958,6 +1337,7 @@ export default function App() {
                         href={effectiveSettings.locationLink}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={requestLocationForNavigation}
                         className="bg-blue-600 text-white px-4 py-2 rounded-full text-xs font-bold flex items-center gap-1 shadow-sm hover:bg-blue-700 transition shrink-0"
                       >
                         <Navigation className="w-3 h-3" /> นำทาง
@@ -978,23 +1358,98 @@ export default function App() {
                       </div>
                   </div>
                   <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
-                      <button
-                        onClick={handleRegisterClick}
-                        disabled={isRegistrationFull}
-                        className="min-h-12 rounded-xl bg-white text-indigo-700 font-black flex items-center justify-center gap-2 px-4 shadow-lg hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                      >
-                          <UserPlus className="w-5 h-5" />
-                          {isRegistrationFull ? 'ปิดรับสมัครแล้ว' : 'กรอกใบสมัครส่งทีม'}
-                      </button>
-                      <button
-                        onClick={() => goTo('school')}
-                        className="min-h-12 rounded-xl bg-indigo-950/35 border border-white/30 text-white font-black flex items-center justify-center gap-2 px-4 hover:bg-indigo-950/55 transition"
-                      >
-                          <ClipboardPenLine className="w-5 h-5" />
-                          กรอก/แก้ไขข้อมูลทีม
-                      </button>
+                      {isRegistrationOpen ? (
+                        <button onClick={handleRegisterClick} className="min-h-16 rounded-xl bg-white text-indigo-700 font-black flex items-center justify-center gap-3 px-4 shadow-lg hover:bg-indigo-50 transition">
+                            <UserPlus className="w-5 h-5 shrink-0" />
+                            <span className="text-left leading-tight">กรอกใบสมัครส่งทีม<span className="block text-[11px] font-medium text-indigo-500 mt-1">{registrationDeadline ? `เปิดถึง ${formatDeadline(registrationDeadline)}` : 'เปิดรับสมัครอยู่'}</span></span>
+                        </button>
+                      ) : (
+                        <div className="min-h-16 rounded-xl bg-white/10 border border-white/25 text-white px-4 py-3 flex items-center justify-center gap-3" role="status">
+                            <XCircle className="w-5 h-5 shrink-0 text-rose-200" />
+                            <span className="font-black leading-tight">ปิดรับสมัครแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{isRegistrationFull ? 'ทีมครบจำนวนที่กำหนดแล้ว' : registrationDeadline ? `ตั้งแต่ ${formatDeadline(registrationDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
+                        </div>
+                      )}
+                      {isTeamEditingOpen ? (
+                        <button onClick={() => goTo('school')} className="min-h-16 rounded-xl bg-indigo-950/35 border border-white/30 text-white font-black flex items-center justify-center gap-3 px-4 hover:bg-indigo-950/55 transition">
+                            <ClipboardPenLine className="w-5 h-5 shrink-0" />
+                            <span className="text-left leading-tight">กรอก/แก้ไขข้อมูลทีม<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `แก้ไขได้ถึง ${formatDeadline(teamEditDeadline)}` : 'เปิดให้แก้ไขข้อมูลอยู่'}</span></span>
+                        </button>
+                      ) : (
+                        <div className="min-h-16 rounded-xl bg-indigo-950/25 border border-white/20 text-white px-4 py-3 flex items-center justify-center gap-3" role="status">
+                            <XCircle className="w-5 h-5 shrink-0 text-amber-200" />
+                            <span className="font-black leading-tight">ปิดแก้ไขข้อมูลทีมแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{teamEditDeadline ? `ตั้งแต่ ${formatDeadline(teamEditDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
+                        </div>
+                      )}
                   </div>
               </div>
+
+              <section className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-2">
+                <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-indigo-600">ภาพรวมการแข่งขัน</p>
+                    <h3 className="font-black text-lg text-slate-900 mt-0.5">ทีมที่อยู่ในระบบแล้ว</h3>
+                    <p className="text-xs text-slate-500 mt-1">แตะที่ทีมเพื่อดูรายละเอียดและรายชื่อนักกีฬา</p>
+                  </div>
+                  <button onClick={() => goTo('standings')} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-2 rounded-full hover:bg-indigo-100 shrink-0">ดูคะแนน</button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 border-b border-slate-100">
+                  <button onClick={() => goTo('standings')} className="p-4 text-center hover:bg-slate-50 transition">
+                    <p className="text-2xl font-black text-indigo-600">{participatingTeams.length}</p>
+                    <p className="text-[11px] text-slate-500">ทีมทั้งหมด</p>
+                  </button>
+                  <button onClick={() => goTo('standings')} className="p-4 text-center hover:bg-slate-50 transition">
+                    <p className="text-2xl font-black text-violet-600">{activeGroupNames.length}</p>
+                    <p className="text-[11px] text-slate-500">สายการแข่งขัน</p>
+                  </button>
+                  <button onClick={() => goTo('schedule')} className="p-4 text-center hover:bg-slate-50 transition">
+                    <p className="text-2xl font-black text-emerald-600">{activeMatches.length}</p>
+                    <p className="text-[11px] text-slate-500">คู่แข่งขัน</p>
+                  </button>
+                  <button onClick={() => setTeamListKind('roster')} className="p-4 text-center hover:bg-sky-50 transition border-t lg:border-t-0 border-slate-100">
+                    <p className="text-2xl font-black text-sky-600">{rosterStats.teams}</p>
+                    <p className="text-[11px] text-slate-500 underline decoration-dotted underline-offset-2">ทีมที่ส่งรายชื่อ</p>
+                  </button>
+                  <button onClick={() => goTo('standings')} className="p-4 text-center hover:bg-slate-50 transition border-t lg:border-t-0 border-slate-100">
+                    <p className="text-2xl font-black text-rose-600">{rosterStats.players}</p>
+                    <p className="text-[11px] text-slate-500">นักกีฬาทั้งหมด</p>
+                  </button>
+                  <button onClick={() => setTeamListKind('paid')} className="p-4 text-center hover:bg-amber-50 transition border-t lg:border-t-0 border-slate-100">
+                    <p className="text-2xl font-black text-amber-600">{rosterStats.paid}</p>
+                    <p className="text-[11px] text-slate-500 underline decoration-dotted underline-offset-2">ทีมที่ชำระค่าสมัคร</p>
+                  </button>
+                </div>
+                {participatingTeams.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-slate-400">ยังไม่มีทีมในรายการนี้</div>
+                ) : (
+                  <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {participatingTeams.slice(0, 8).map(team => (
+                      <button
+                        key={team.id}
+                        onClick={() => setSelectedHomeTeam(team)}
+                        className="rounded-2xl border border-slate-200 p-3 text-left hover:border-indigo-300 hover:bg-indigo-50/40 active:scale-[0.98] transition min-w-0"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-11 h-11 rounded-xl bg-slate-50 border border-slate-100 p-1.5 flex items-center justify-center shrink-0">
+                            {team.logoUrl ? <img src={team.logoUrl} alt="" className="w-full h-full object-contain" /> : <ShieldAlert className="w-5 h-5 text-slate-300" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm text-slate-800 truncate">{team.name}</p>
+                            <p className="text-[11px] text-indigo-600 font-bold">สาย {team.group || 'ยังไม่จัด'}</p>
+                            {team.isPaid && (
+                              <p className="text-[10px] text-emerald-700 font-bold flex items-center gap-0.5 mt-0.5">
+                                <CheckCircle2 className="w-3 h-3 shrink-0" /> ชำระค่าสมัครแล้ว
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {participatingTeams.length > 8 && (
+                  <button onClick={() => goTo('standings')} className="w-full py-3 border-t border-slate-100 text-sm font-bold text-indigo-600 hover:bg-indigo-50">ดูทีมทั้งหมดอีก {participatingTeams.length - 8} ทีม</button>
+                )}
+              </section>
 
               {(objectiveData.goal > 0 || objectiveData.title) && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-2">
@@ -1220,11 +1675,6 @@ export default function App() {
               )}
 
               <div className="pt-2">
-                  <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                          <Megaphone className="w-5 h-5 text-indigo-600" /> ข่าวสารและประกาศ
-                      </h3>
-                  </div>
                   <NewsFeed 
                       news={newsItems} 
                       isLoading={isLoadingData} 

@@ -13,7 +13,7 @@ declare(strict_types=1);
  *
  * กติกาที่บังคับฝั่ง server ทุกครั้ง (ของเดิมเช็คแค่ฝั่ง client):
  *   - โรงเรียนแก้ได้เฉพาะทีมของ school_id ตัวเอง
- *   - แก้ได้เฉพาะก่อน registration_deadline
+ *   - แก้ได้เฉพาะเมื่อเปิดแก้ไข และก่อน team_edit_deadline
  *   - จำนวนผู้เล่นไม่เกิน players_per_team + max_subs
  */
 
@@ -25,6 +25,7 @@ function handle(string $action, array $cfg): void
         'saveTeam'    => save_team(),
         'submitTeam'  => submit_team(),
         'reviewTeam'  => review_team(),
+        'reviewRegistrationPayment' => review_registration_payment(),
         'createTeam'  => create_team(),
         'deleteTeam'  => delete_team(),
         'setTeamMeta' => set_team_meta(),
@@ -38,6 +39,7 @@ function load_tournament(string $id): array
 {
     $t = Db::one(
         'SELECT tournament_id, name, status, registration_deadline,
+                team_editing_enabled, team_edit_deadline,
                 max_teams, max_teams_per_school, players_per_team, max_subs
            FROM tournaments WHERE tournament_id = :tid',
         [':tid' => $id]
@@ -48,18 +50,21 @@ function load_tournament(string $id): array
     return $t;
 }
 
-/** ปิดรับสมัครแล้วห้ามแก้ — ยกเว้นแอดมินที่ต้องแก้ให้ได้เสมอ */
+/** ปิดช่วงแก้ไขรายชื่อแล้วห้ามแก้ — ยกเว้นแอดมินที่ต้องแก้ให้ได้เสมอ */
 function assert_window_open(array $t): void
 {
     if (Auth::isAdmin() || Auth::isStaff()) {
         return;
     }
-    $deadline = $t['registration_deadline'];
+    if ((int) $t['team_editing_enabled'] !== 1) {
+        Response::fail('ผู้ดูแลระบบปิดการแก้ไขข้อมูลทีมและรายชื่อนักกีฬาแล้ว', 403);
+    }
+    $deadline = $t['team_edit_deadline'];
     if ($deadline !== null && strtotime((string) $deadline) < time()) {
         Response::fail(
-            'เลยกำหนดปิดรับสมัครแล้ว ไม่สามารถแก้ไขข้อมูลได้',
+            'เลยกำหนดแก้ไขข้อมูลทีมและรายชื่อนักกีฬาแล้ว',
             403,
-            ['registrationDeadline' => $deadline]
+            ['teamEditDeadline' => $deadline]
         );
     }
 }
@@ -83,6 +88,9 @@ function team_payload(array $t, array $players): array
         'coachPhone'   => $t['coach_phone'],
         'docUrl'     => drive_img($t['doc_url']),
         'slipUrl'    => drive_img($t['slip_url']),
+        'paymentStatus' => $t['payment_status'] ?? ((string) $t['slip_url'] !== '' ? 'Pending' : 'Unpaid'),
+        'paymentNote' => $t['payment_note'] ?? '',
+        'paymentReviewedAt' => isset($t['payment_reviewed_at']) ? iso($t['payment_reviewed_at']) : null,
         'rowVersion' => (int) $t['row_version'],
         'players'    => array_map(static fn(array $p): array => [
             'id'        => $p['player_id'],
@@ -250,13 +258,15 @@ function my_teams(): void
         $out[] = team_payload($team, $players);
     }
 
-    $deadline = $t['registration_deadline'];
+    $deadline = $t['team_edit_deadline'];
+    $editingEnabled = (int) $t['team_editing_enabled'] === 1;
     Response::ok([
         'tournament' => [
             'id'   => $t['tournament_id'],
             'name' => $t['name'],
-            'registrationDeadline' => $deadline,
-            'isOpen' => $deadline === null || strtotime((string) $deadline) > time(),
+            'registrationDeadline' => $t['registration_deadline'],
+            'teamEditDeadline' => $deadline,
+            'isOpen' => $editingEnabled && ($deadline === null || strtotime((string) $deadline) > time()),
             'playersPerTeam' => (int) $t['players_per_team'],
             'maxSubs'        => (int) $t['max_subs'],
             'maxTeamsPerSchool' => (int) $t['max_teams_per_school'],
@@ -330,7 +340,22 @@ function save_team(): void
         Response::fail('ต้องระบุชื่อทีม', 422);
     }
 
-    Db::transaction(static function () use ($teamId, $team, $name, $players, $touchPlayers): void {
+    $newSlip = (string) Input::get('slipUrl', $team['slip_url']);
+    $slipChanged = $newSlip !== (string) $team['slip_url'];
+    $newPaymentStatus = $newSlip === ''
+        ? 'Unpaid'
+        : ($slipChanged ? 'Pending' : (string) ($team['payment_status'] ?? 'Pending'));
+    $newPaymentNote = ($newSlip === '' || $slipChanged)
+        ? '' : (string) ($team['payment_note'] ?? '');
+    $newPaymentReviewedAt = ($newSlip === '' || $slipChanged)
+        ? null : ($team['payment_reviewed_at'] ?? null);
+    $newPaymentReviewedBy = ($newSlip === '' || $slipChanged)
+        ? null : ($team['payment_reviewed_by'] ?? null);
+
+    Db::transaction(static function () use (
+        $teamId, $team, $name, $players, $touchPlayers, $newSlip,
+        $newPaymentStatus, $newPaymentNote, $newPaymentReviewedAt, $newPaymentReviewedBy
+    ): void {
         Db::exec(
             'UPDATE teams SET
                 name = :name, short_name = :short,
@@ -338,6 +363,9 @@ function save_team(): void
                 director_name = :dir, manager_name = :mgr, manager_phone = :mgrp,
                 coach_name = :coach, coach_phone = :coachp,
                 doc_url = :doc, slip_url = :slip,
+                payment_status = :payment_status, payment_note = :payment_note,
+                payment_reviewed_at = :payment_reviewed_at,
+                payment_reviewed_by = :payment_reviewed_by,
                 status = CASE WHEN status = :st_invited THEN :st_draft ELSE status END,
                 confirmed_at = COALESCE(confirmed_at, NOW()),
                 row_version = row_version + 1
@@ -354,7 +382,11 @@ function save_team(): void
                 ':coach'  => (string) Input::get('coachName', $team['coach_name']),
                 ':coachp' => (string) Input::get('coachPhone', $team['coach_phone']),
                 ':doc'    => (string) Input::get('docUrl', $team['doc_url']),
-                ':slip'   => (string) Input::get('slipUrl', $team['slip_url']),
+                ':slip'   => $newSlip,
+                ':payment_status' => $newPaymentStatus,
+                ':payment_note' => $newPaymentNote,
+                ':payment_reviewed_at' => $newPaymentReviewedAt,
+                ':payment_reviewed_by' => $newPaymentReviewedBy,
                 ':st_invited' => 'Invited',
                 ':st_draft'   => 'Draft',
                 ':tid'    => $teamId,
@@ -471,6 +503,14 @@ function submit_team(): void
     Audit::log('team', $teamId, 'submit', null, ['players' => $playerCount]);
     Cache::flush();
 
+    // แจ้งผู้จัดการแข่งขันว่ามีใบสมัครรอตรวจ — ไม่ต้องคอยกดรีเฟรชดูเอง
+    PushNotifier::notifyByRole(
+        ['admin', 'staff'], 'team_submitted',
+        'มีทีมส่งใบสมัครรอตรวจ',
+        $team['name'] . ' ส่งรายชื่อ ' . $playerCount . ' คน',
+        '/admin', ['teamId' => $teamId]
+    );
+
     Response::ok(['status' => 'Submitted', 'playerCount' => $playerCount]);
 }
 
@@ -510,6 +550,16 @@ function review_team(): void
         Audit::log('team', $teamId, 'reject', ['status' => $team['status']],
             ['reason' => $reason]);
         Cache::flush();
+
+        // แจ้งครูของโรงเรียนนั้นทันที — เดิมต้องรอโรงเรียนเข้ามาดูเอง
+        // ซึ่งหลายทีมไม่รู้ตัวจนเลยกำหนดส่ง
+        PushNotifier::notifySchool(
+            (string) $team['school_id'], 'team_rejected',
+            'ทีมถูกตีกลับให้แก้ไข',
+            $team['name'] . ' — ' . mb_substr($reason, 0, 120),
+            '/school', ['teamId' => $teamId]
+        );
+
         Response::ok(['status' => 'Rejected']);
     }
 
@@ -548,7 +598,102 @@ function review_team(): void
     Audit::log('team', $teamId, 'approve', ['status' => $team['status']], null);
     Cache::flush();
 
+    PushNotifier::notifySchool(
+        (string) $team['school_id'], 'team_approved',
+        'ทีมของคุณได้รับอนุมัติแล้ว',
+        $team['name'] . ' ผ่านการตรวจสอบเรียบร้อย พร้อมลงแข่งขัน',
+        '/school', ['teamId' => $teamId]
+    );
+
     Response::ok(['status' => 'Approved', 'approvedCount' => $approved + 1]);
+}
+
+/**
+ * ตรวจหลักฐานค่าสมัครโดยไม่เปลี่ยนสถานะการอนุมัติใบสมัครของทีม
+ * ผู้ดูแลประจำรายการตรวจได้เฉพาะรายการที่ได้รับมอบหมาย
+ */
+function review_registration_payment(): void
+{
+    Auth::requireLogin();
+
+    $teamId = Input::require_str('teamId');
+    $decision = Input::enum('decision', ['verify', 'reject', 'reset'], null);
+    if ($decision === null) {
+        Response::fail('ต้องระบุ decision = verify, reject หรือ reset', 422);
+    }
+
+    $team = Db::one(
+        'SELECT team_id, tournament_id, name, slip_url, payment_status, payment_note
+           FROM teams WHERE team_id = :tid',
+        [':tid' => $teamId]
+    );
+    if ($team === null) {
+        Response::fail('ไม่พบทีมนี้', 404);
+    }
+    Perm::requireTournamentManager($team['tournament_id']);
+
+    $old = ['status' => $team['payment_status'], 'note' => $team['payment_note']];
+    $note = trim(Input::str('note'));
+
+    if ($decision === 'verify') {
+        if (trim((string) $team['slip_url']) === '') {
+            Response::fail('ทีมนี้ยังไม่ได้ส่งสลิปค่าสมัคร', 422);
+        }
+        $status = 'Verified';
+    } elseif ($decision === 'reject') {
+        if (trim((string) $team['slip_url']) === '') {
+            Response::fail('ทีมนี้ยังไม่ได้ส่งสลิปค่าสมัคร', 422);
+        }
+        if ($note === '') {
+            Response::fail('กรุณาระบุเหตุผลที่สลิปไม่ผ่าน เพื่อให้ติดตามแก้ไขได้', 422);
+        }
+        $status = 'Rejected';
+    } else {
+        $status = trim((string) $team['slip_url']) === '' ? 'Unpaid' : 'Pending';
+        $note = '';
+    }
+
+    Db::exec(
+        'UPDATE teams SET payment_status = :status, payment_note = :note,
+                          payment_reviewed_at = :reviewed_at,
+                          payment_reviewed_by = :reviewed_by,
+                          row_version = row_version + 1
+          WHERE team_id = :tid2',
+        [
+            ':status' => $status,
+            ':note' => $note,
+            ':reviewed_at' => $decision === 'reset' ? null : date('Y-m-d H:i:s'),
+            ':reviewed_by' => $decision === 'reset' ? null : Auth::userId(),
+            ':tid2' => $teamId,
+        ]
+    );
+
+    Audit::log('team', $teamId, 'review_registration_payment', $old, [
+        'status' => $status,
+        'note' => $note,
+    ]);
+    Cache::flush();
+
+    // แจ้งเฉพาะตอนผลตรวจสลิปเปลี่ยนจริง — reset เป็นการย้อนสถานะของเจ้าหน้าที่เอง
+    // โรงเรียนไม่ต้องรู้ ไม่งั้นจะได้แจ้งเตือนงง ๆ ว่า "ยังไม่ชำระ"
+    if ($status === 'Verified' || $status === 'Rejected') {
+        $sid = (string) Db::value('SELECT school_id FROM teams WHERE team_id = :tid3',
+            [':tid3' => $teamId]);
+        PushNotifier::notifySchool(
+            $sid, 'payment_verified',
+            $status === 'Verified' ? 'ยืนยันการชำระค่าสมัครแล้ว' : 'หลักฐานการชำระเงินไม่ผ่าน',
+            $status === 'Verified'
+                ? $team['name'] . ' — ผู้ดูแลตรวจสลิปเรียบร้อยแล้ว'
+                : $team['name'] . ' — ' . mb_substr($note, 0, 120),
+            '/school', ['teamId' => $teamId, 'paymentStatus' => $status]
+        );
+    }
+
+    Response::ok([
+        'teamId' => $teamId,
+        'paymentStatus' => $status,
+        'paymentNote' => $note,
+    ]);
 }
 
 // ── CRUD ฝั่งแอดมิน ───────────────────────────────────────────────────────

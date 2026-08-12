@@ -225,12 +225,19 @@ const AdminTournaments: React.FC<Props> = ({
                         {t.type}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1 flex flex-wrap gap-x-3">
+                    <p className="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
                       <span>ผู้เล่น {c.playersPerTeam ?? 7} คน + สำรอง {c.maxSubs ?? 0}</span>
                       {c.maxTeams ? <span>เพดาน {c.maxTeams} ทีม</span> : null}
-                      {c.registrationDeadline
-                        ? <span>ปิดรับสมัคร {new Date(c.registrationDeadline).toLocaleDateString('th-TH')}</span>
-                        : <span>ยังไม่กำหนดวันปิดรับสมัคร</span>}
+                      <span className={c.registrationEnabled === false ? 'text-rose-600 font-bold' : 'text-emerald-700'}>
+                        {c.registrationEnabled === false ? 'ปิดรับสมัครด้วยตนเอง' : c.registrationDeadline
+                          ? `รับสมัครถึง ${new Date(c.registrationDeadline).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`
+                          : 'เปิดรับสมัคร ไม่กำหนดวันปิด'}
+                      </span>
+                      <span className={c.teamEditingEnabled === false ? 'text-rose-600 font-bold' : 'text-indigo-700'}>
+                        {c.teamEditingEnabled === false ? 'ปิดแก้ไขข้อมูลทีมด้วยตนเอง' : c.teamEditDeadline
+                          ? `แก้ไขข้อมูลถึง ${new Date(c.teamEditDeadline).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`
+                          : 'เปิดแก้ไขข้อมูลทีม ไม่กำหนดวันปิด'}
+                      </span>
                     </p>
                   </div>
                   <button onClick={() => openEdit(t)}
@@ -307,11 +314,33 @@ const AdminTournaments: React.FC<Props> = ({
                                flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5" /> การรับสมัคร
                 </h4>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition ${cfg.registrationEnabled !== false ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                  <input type="checkbox" className="w-5 h-5 mt-0.5 accent-emerald-600" checked={cfg.registrationEnabled !== false}
+                    onChange={e => setC('registrationEnabled', e.target.checked)} />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-800">เปิดรับสมัครและแสดงปุ่ม “กรอกใบสมัครส่งทีม”</span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5">เมื่อปิด ผู้ใช้จะเห็นสถานะปิดรับสมัครและไม่สามารถส่งใบสมัครผ่าน API ได้</span>
+                  </span>
+                </label>
                 <div>
                   <label className={lbl}>ปิดรับสมัคร (เว้นว่าง = ไม่จำกัด)</label>
                   <input type="datetime-local" className={inp}
                     value={toLocalInput(cfg.registrationDeadline)}
                     onChange={e => setC('registrationDeadline', e.target.value || undefined)} />
+                </div>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition ${cfg.teamEditingEnabled !== false ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
+                  <input type="checkbox" className="w-5 h-5 mt-0.5 accent-indigo-600" checked={cfg.teamEditingEnabled !== false}
+                    onChange={e => setC('teamEditingEnabled', e.target.checked)} />
+                  <span>
+                    <span className="block text-sm font-bold text-slate-800">เปิดกรอก/แก้ไขข้อมูลทีมและรายชื่อนักกีฬา</span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5">เมื่อปิด ปุ่มแก้ไขจะถูกแทนด้วยสถานะปิด และโรงเรียนบันทึกข้อมูลเพิ่มไม่ได้</span>
+                  </span>
+                </label>
+                <div>
+                  <label className={lbl}>ปิดแก้ไขข้อมูลทีมและรายชื่อนักกีฬา (เว้นว่าง = ไม่จำกัด)</label>
+                  <input type="datetime-local" className={inp}
+                    value={toLocalInput(cfg.teamEditDeadline)}
+                    onChange={e => setC('teamEditDeadline', e.target.value || undefined)} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>

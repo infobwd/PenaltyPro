@@ -16,15 +16,33 @@ const ScoreVisualizer: React.FC<ScoreVisualizerProps> = ({ kicks, teamId, team }
   // We want to display at least 5 placeholders, or more if sudden death
   const totalSlots = Math.max(5, teamKicks.length + (teamKicks.length >= 5 ? 1 : 0));
   const slots = Array.from({ length: totalSlots });
+  const primaryColor = (() => {
+    try {
+      const parsed = JSON.parse(team.color || '');
+      if (Array.isArray(parsed) && typeof parsed[0] === 'string') return parsed[0];
+    } catch {}
+    return /^#[0-9a-f]{3,8}$/i.test(team.color || '') ? team.color : '#4338ca';
+  })();
+  const normalizedHex = primaryColor.length === 4
+    ? `#${primaryColor[1]}${primaryColor[1]}${primaryColor[2]}${primaryColor[2]}${primaryColor[3]}${primaryColor[3]}`
+    : primaryColor.slice(0, 7);
+  const rgb = /^#[0-9a-f]{6}$/i.test(normalizedHex)
+    ? [1, 3, 5].map(index => parseInt(normalizedHex.slice(index, index + 2), 16))
+    : [67, 56, 202];
+  const isLightTeamColor = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 > 180;
 
   return (
     <div className="flex flex-col items-center space-y-2 bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 w-full overflow-hidden">
       <div 
-        className="flex items-center gap-2 text-white px-4 py-1.5 rounded-full mb-2 shadow-sm max-w-full"
-        style={{ backgroundColor: team.color }}
+        className="flex items-center gap-2 px-4 py-2 rounded-full mb-2 shadow-md max-w-full border-2"
+        style={{
+          backgroundColor: primaryColor,
+          color: isLightTeamColor ? '#0f172a' : '#ffffff',
+          borderColor: isLightTeamColor ? '#cbd5e1' : 'rgba(255,255,255,.35)',
+        }}
       >
         {team.logoUrl && <img src={team.logoUrl} alt="" className="w-6 h-6 bg-white rounded-full p-0.5 object-cover" />}
-        <h3 className="font-bold text-lg line-clamp-1 truncate">{team.name}</h3>
+        <h3 className="font-black text-lg line-clamp-1 truncate drop-shadow-sm">{team.name}</h3>
       </div>
       
       {/* Scrollable Container */}

@@ -34,6 +34,7 @@ export interface AppSettings {
   educationSupportBankName?: string;
   educationSupportAccountNumber?: string;
   showPenaltyModeCard?: boolean | string;
+  showSupportButton?: boolean | string;
 }
 
 export interface NewsItem {
@@ -74,6 +75,9 @@ export interface TournamentConfig {
   maxSubs?: number; 
   extraTime?: boolean;
   registrationDeadline?: string; 
+  registrationEnabled?: boolean;
+  teamEditingEnabled?: boolean;
+  teamEditDeadline?: string;
   maxTeams?: number; 
   
   bankName?: string;
@@ -142,15 +146,22 @@ export interface Team {
   shortName: string;
   color: string;
   logoUrl: string;
-  status?: 'Pending' | 'Approved' | 'Rejected';
+  status?: 'Invited' | 'Draft' | 'Submitted' | 'Pending' | 'Approved' | 'Rejected' | 'Withdrawn';
   group?: string; 
   rejectReason?: string; 
   
   docUrl?: string;
   slipUrl?: string;
+  paymentStatus?: 'Unpaid' | 'Pending' | 'Verified' | 'Rejected';
+  /** ยืนยันการชำระค่าสมัครแล้ว — เห็นได้ทุกคน ต่างจาก paymentStatus ที่เห็นเฉพาะเจ้าของทีม/เจ้าหน้าที่ */
+  isPaid?: boolean;
+  paymentNote?: string;
+  paymentReviewedAt?: string | null;
 
   district?: string;
   province?: string;
+  schoolId?: string;
+  schoolName?: string;
   directorName?: string;
   managerName?: string;
   managerPhone?: string;
@@ -280,6 +291,13 @@ export interface Standing {
 }
 
 export interface UserProfile {
+  /** โรงเรียนต้นสังกัด — ผู้ใช้เลือกเองตอนเข้าครั้งแรก หรือแอดมินกำหนดให้ */
+  schoolId?: string | null;
+  schoolName?: string | null;
+  /** ยังไม่เคยเลือกโรงเรียน — ให้ถามก่อนใช้งาน */
+  needsSchool?: boolean;
+  /** เคยตอบเรื่องโรงเรียนแล้ว (ตอบว่า "ไม่สังกัด" ก็นับ) — ใช้แยกจาก "ยังไม่ได้เลือก" */
+  schoolChosen?: boolean;
   userId: string;
   username?: string;
   displayName: string;

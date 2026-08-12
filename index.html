@@ -17,72 +17,8 @@
     <meta name="apple-mobile-web-app-title" content="PenaltyPro" />
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif" />
 
-    <script src="https://cdn.tailwindcss.com"></script>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@200;300;400;500;600;700&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-      body {
-        font-family: 'Kanit', sans-serif;
-        background-color: #f8fafc;
-        overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
-      }
-      .font-sarabun {
-        font-family: 'Sarabun', sans-serif;
-      }
-      /* Custom scrollbar for cleaner look */
-      ::-webkit-scrollbar {
-        width: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #f1f5f9; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e1; 
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8; 
-      }
-      .safe-area-bottom {
-        padding-bottom: env(safe-area-inset-bottom);
-      }
-
-      /* มีโมดัลเปิดอยู่ = ล็อกไม่ให้พื้นหลังเลื่อน
-         ไม่งั้นเวลาปัดในโมดัลจนสุด นิ้วจะไปพาหน้าเบื้องหลังเลื่อนแทน (scroll chaining)
-         ซึ่งบนมือถือทำให้ตำแหน่งที่กรอกค้างไว้หายไปเลย */
-      body.modal-open {
-        overflow: hidden !important;
-        touch-action: none;
-        overscroll-behavior: none;
-        position: fixed;
-        width: 100%;
-        left: 0;
-        right: 0;
-      }
-      .modal-sheet { overscroll-behavior: contain; }
-
-      /* โมดัลบนมือถือ/แท็บเล็ต = bottom sheet
-         กล่องกลางจอบนมือถือทำให้เนื้อหายาว ๆ (ฟอร์มแก้ทีม รายชื่อนักกีฬา)
-         ถูกบีบจนต้องเลื่อนสองชั้น และปุ่มล่างมักตกไปใต้แป้นพิมพ์
-         เลื่อนขึ้นมาจากขอบล่างแทน จะกดด้วยนิ้วโป้งได้และเห็นเนื้อหาเต็มความสูง */
-      @media (max-width: 1279px) {
-        .modal-sheet { align-items: flex-end !important; padding: 0 !important; }
-        .modal-sheet > div:not([class*="max-w-none"]) {
-          width: 100% !important;
-          max-width: 100% !important;
-          max-height: 92dvh !important;
-          margin: 0 !important;
-          overflow-y: auto !important;
-          overscroll-behavior: contain;
-          border-bottom-left-radius: 0 !important;
-          border-bottom-right-radius: 0 !important;
-          border-top-left-radius: 1.5rem !important;
-          border-top-right-radius: 1.5rem !important;
-          animation: sheet-up .22s cubic-bezier(.32,.72,0,1);
-        }
-        @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
-      }
-    </style>
   <script type="importmap">
 {
   "imports": {
@@ -114,11 +50,11 @@
           var locked = document.body.classList.contains('modal-open');
           if (open && !locked) {
             lockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
-            document.body.style.top = '-' + lockedScrollY + 'px';
+            document.body.style.setProperty('--modal-lock-top', '-' + lockedScrollY + 'px');
             document.body.classList.add('modal-open');
           } else if (!open && locked) {
             document.body.classList.remove('modal-open');
-            document.body.style.top = '';
+            document.body.style.removeProperty('--modal-lock-top');
             window.scrollTo(0, lockedScrollY);
           }
         };
@@ -127,16 +63,20 @@
         sync();
       })();
 
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then(registration => {
-              console.log('SW registered: ', registration);
-            })
-            .catch(registrationError => {
-              console.log('SW registration failed: ', registrationError);
-            });
+      // ไม่ลง service worker ตอนพัฒนาในเครื่อง — SW จะแคช shell ไว้แล้วทับ
+      // การอัปเดตสด ๆ ของ Vite ทำให้แก้โค้ดแล้วหน้าไม่เปลี่ยนจนกว่าจะล้างแคชเอง
+      var isLocal = ['localhost', '127.0.0.1', '::1'].indexOf(location.hostname) !== -1;
+      if ('serviceWorker' in navigator && !isLocal) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function (err) {
+            console.warn('ลงทะเบียน service worker ไม่สำเร็จ', err);
+          });
         });
+      } else if (isLocal && 'serviceWorker' in navigator) {
+        // ถอน SW ที่อาจค้างจากการทดสอบครั้งก่อน ไม่งั้นจะเสิร์ฟ shell เก่าให้ dev server
+        navigator.serviceWorker.getRegistrations()
+          .then(function (rs) { rs.forEach(function (r) { r.unregister(); }); })
+          .catch(function () {});
       }
     </script>
   </body>

@@ -369,9 +369,9 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                                             
                                             {/* Status Badge Overlay */}
                                             <div className="absolute top-3 left-3 flex gap-2">
-                                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm flex items-center gap-1 border border-white/20 backdrop-blur-sm ${t.status === 'Active' ? 'bg-green-500/80 text-white' : t.status === 'Archived' ? 'bg-slate-600/80 text-white' : 'bg-blue-500/80 text-white'}`}>
-                                                    <span className={`w-1.5 h-1.5 rounded-full bg-white ${t.status === 'Active' ? 'animate-pulse' : ''}`}></span>
-                                                    {t.status}
+                                                <span className={`px-2.5 py-1.5 rounded-full text-[10px] font-bold tracking-wider shadow-lg flex items-center gap-1.5 border border-white/25 backdrop-blur-sm ${t.status === 'Active' ? 'bg-green-500/90 text-white' : t.status === 'Archived' ? 'bg-slate-950/90 text-white' : 'bg-blue-500/90 text-white'}`}>
+                                                    {t.status === 'Archived' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" /> : <span className={`w-1.5 h-1.5 rounded-full bg-white ${t.status === 'Active' ? 'animate-pulse' : ''}`}></span>}
+                                                    {t.status === 'Archived' ? 'แข่งขันจบแล้ว' : t.status === 'Active' ? 'กำลังแข่งขัน' : 'เร็ว ๆ นี้'}
                                                 </span>
                                                 <span className="px-2 py-1 bg-black/40 text-white backdrop-blur-md rounded-full text-[10px] font-bold shadow-sm border border-white/10">
                                                     {t.type}
@@ -383,6 +383,12 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                                                 <h3 className="font-bold text-lg leading-tight line-clamp-2 drop-shadow-md">{t.name}</h3>
                                             </div>
                                         </div>
+
+                                        {t.status === 'Archived' && (
+                                          <div className="mx-4 mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800 flex items-center gap-2 text-xs font-bold">
+                                            <CheckCircle2 className="w-4 h-4 shrink-0" /> รายการนี้แข่งขันเสร็จสิ้นแล้ว
+                                          </div>
+                                        )}
                                         
                                         <div className="relative z-10 w-full flex-1 flex flex-col p-4">
                                             

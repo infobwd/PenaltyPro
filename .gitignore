@@ -38,3 +38,7 @@ storage/uploads/*
 *.njsproj
 *.sln
 *.sw?
+
+# คีย์ VAPID ของ Web Push — private key ใช้เซ็นการแจ้งเตือนในนามระบบ
+# ถ้าหลุดออกไป คนอื่นส่งแจ้งเตือนปลอมเข้าเครื่องผู้ใช้ได้
+db/vapid-keys*.sql

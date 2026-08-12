@@ -19,6 +19,8 @@ require __DIR__ . '/lib/Perm.php';
 require __DIR__ . '/lib/Media.php';
 require __DIR__ . '/lib/Lookup.php';
 require __DIR__ . '/lib/Secret.php';
+require __DIR__ . '/lib/NotificationPrefs.php';
+require __DIR__ . '/lib/PushNotifier.php';
 
 // config.local.php ใช้ทับตอนพัฒนาในเครื่อง (อยู่ใน .gitignore เหมือน config.php)
 $configPath = is_file(__DIR__ . '/config.local.php')
@@ -64,6 +66,7 @@ $routes = [
     'me'                 => 'auth.php',
     'teamLogin'          => 'auth.php',   // โรงเรียนเข้าด้วยรหัส 8 ตัว
     'changePassword'     => 'auth.php',
+    'setMySchool'        => 'auth.php',   // ผู้ใช้เลือกโรงเรียนต้นสังกัดเอง
 
     // --- ทัวร์นาเมนต์ ------------------------------------------------------
     'createTournament'   => 'tournaments.php',
@@ -79,6 +82,7 @@ $routes = [
     'issueAccessCodes'     => 'schools.php',
     'regenerateAccessCode' => 'schools.php',
     'listSchools'          => 'schools.php',
+    'publicSchools'        => 'schools.php',  // รายชื่อโรงเรียนให้ผู้ใช้เลือกเอง
     'searchUsers'          => 'schools.php',  // ตัวเลือกผู้ดูแลประจำรายการ
     'revealAccessCode'     => 'schools.php',  // ผู้ดูแลเปิดดูรหัสเดิมได้
 
@@ -88,6 +92,7 @@ $routes = [
     'saveTeam'    => 'teams.php',
     'submitTeam'  => 'teams.php',
     'reviewTeam'  => 'teams.php',   // แอดมินอนุมัติ/ปฏิเสธ
+    'reviewRegistrationPayment' => 'teams.php', // ตรวจสลิปค่าสมัคร (แยกจากสถานะใบสมัคร)
     'createTeam'  => 'teams.php',   // แอดมินเพิ่มทีม (ผูกโรงเรียนในระบบ)
     'deleteTeam'  => 'teams.php',
     'setTeamMeta' => 'teams.php',   // ย้ายสาย / เปลี่ยนโรงเรียนที่ผูก
@@ -110,6 +115,20 @@ $routes = [
     'register'         => 'public.php',   // สมัครทีมจากหน้าเว็บ
     'submitDonation'   => 'public.php',
     'submitPrediction' => 'public.php',
+
+    // --- การแจ้งเตือน ------------------------------------------------------
+    'getNotifications'       => 'notifications.php',
+    'notificationCount'      => 'notifications.php',
+    'readNotification'       => 'notifications.php',
+    'readAllNotifications'   => 'notifications.php',
+    'deleteNotification'     => 'notifications.php',
+    'clearNotifications'     => 'notifications.php',
+    'savePushSubscription'   => 'notifications.php',
+    'deletePushSubscription' => 'notifications.php',
+    'getNotificationPrefs'   => 'notifications.php',
+    'saveNotificationPrefs'  => 'notifications.php',
+    'pushConfig'             => 'notifications.php',
+    'sendTestNotification'   => 'notifications.php',
 
     // --- ประกวดภาพ ---------------------------------------------------------
     'getContests'          => 'contests.php',

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Match, Team, Player, AppSettings, KickResult, Prediction, UserProfile } from '../types';
+import { Match, Team, Player, AppSettings, KickResult, Prediction, UserProfile, Tournament } from '../types';
 import { ArrowLeft, Calendar, MapPin, Clock, Trophy, Plus, X, Save, Loader2, Search, ChevronDown, Check, Share2, Edit2, Trash2, AlertTriangle, User, ListPlus, PlusCircle, Users, ArrowRight, PlayCircle, ClipboardCheck, RotateCcw, Flag, Video, Image, Youtube, Facebook, BarChart2, ImageIcon, Download, Camera, Filter, Sparkles, MessageSquare, Cpu, FileText, PenTool, LayoutTemplate, BrainCircuit } from 'lucide-react';
 import { scheduleMatch, deleteMatch, saveMatchToSheet, fileToBase64, submitPrediction } from '../services/sheetService';
 import { generateMatchSummary, generateLocalSummary } from '../services/geminiService';
@@ -23,6 +23,10 @@ interface ScheduleListProps {
   predictions?: Prediction[];
   currentUser?: UserProfile | null;
   onLoginRequest?: () => void;
+  /** ใช้ประกอบหัวสูจิบัตร (ชื่อรายการ สนาม รางวัล) */
+  tournament?: Tournament | null;
+  /** เปิดหน้าสูจิบัตร (หน้าแยก ไม่ใช่ป๊อปอัป) */
+  onOpenProgramme?: () => void;
 }
 
 const VENUE_OPTIONS = ["สนาม 1", "สนาม 2", "สนาม 3", "สนาม 4", "สนามกลาง (Main Stadium)"];
@@ -107,7 +111,7 @@ const TeamSelectorModal: React.FC<TeamSelectorProps> = ({ isOpen, onClose, onSel
     );
 };
 
-const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [], onBack, isAdmin, isLoading, onRefresh, showNotification, onStartMatch, config, initialMatchId, currentTournamentId, predictions = [], currentUser, onLoginRequest }) => {
+const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [], onBack, isAdmin, isLoading, onRefresh, showNotification, onStartMatch, config, initialMatchId, currentTournamentId, predictions = [], currentUser, onLoginRequest, tournament = null, onOpenProgramme }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -145,6 +149,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   const [filterDate, setFilterDate] = useState('');
   const [filterGroup, setFilterGroup] = useState('All');
   const [filterVenue, setFilterVenue] = useState('All');
+  // จอเล็กซ่อนตัวกรองไว้ก่อน — แถบกรองเดิมสูง ~5 แถวและเป็น sticky
+  // จึงบังรายการแข่งไปครึ่งจอตลอดเวลา ทั้งที่ส่วนใหญ่เปิดมาเพื่อดูตาราง ไม่ได้มากรอง
+  const [showFilters, setShowFilters] = useState(false);
 
   // AI Summary State
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -611,6 +618,13 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   };
 
   const getEmbedUrl = (url: string) => { if (!url) return null; if (url.includes('youtube.com') || url.includes('youtu.be')) { let videoId = ''; if (url.includes('v=')) videoId = url.split('v=')[1].split('&')[0]; else if (url.includes('youtu.be/')) videoId = url.split('youtu.be/')[1].split('?')[0]; if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`; } if (url.includes('facebook.com')) { const encodedUrl = encodeURIComponent(url); return `https://www.facebook.com/plugins/video.php?href=${encodedUrl}&show_text=false&t=0&autoplay=1`; } return null; };
+  /** ไปหน้าสูจิบัตร — เป็นหน้าของตัวเอง ไม่ใช้ป๊อปอัปที่เบราว์เซอร์มักบล็อก */
+  const handleDownloadProgramme = () => {
+    if (onOpenProgramme) { onOpenProgramme(); return; }
+    // เผื่อ caller เก่าที่ยังไม่ได้ส่ง prop มา
+    window.location.href = '/programme';
+  };
+
   const renderRoster = (teamName: string) => { const team = teams.find(t => t.name === teamName); if (!team) return <div className="text-center text-slate-400 py-4">ไม่พบข้อมูลทีม</div>; const roster = players.filter(p => p.teamId === team.id); return ( <div className="space-y-3"> <div className="flex items-center gap-2 mb-3 bg-slate-50 p-2 rounded-lg border border-slate-100"> {team.logoUrl && <img src={team.logoUrl} className="w-8 h-8 object-contain" />} <div><div className="font-bold text-slate-800 text-sm">{team.name}</div><div className="text-xs text-slate-500">{team.managerName ? `ผจก: ${team.managerName}` : ''}</div></div> </div> {roster.length > 0 ? ( <div className="grid grid-cols-1 gap-2"> {roster.map(p => ( <div key={p.id} className="flex items-center gap-3 p-2 bg-white border border-slate-100 rounded-lg shadow-sm hover:shadow-md transition"> <div className="w-16 h-20 bg-slate-200 rounded-md overflow-hidden shrink-0 border border-slate-200"> {p.photoUrl ? <img src={p.photoUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-400"><User className="w-6 h-6" /></div>} </div> <div className="flex-1 min-w-0"> <div className="flex items-center gap-2 mb-1"><span className="text-xl font-black text-indigo-700 font-mono italic">#{p.number}</span><span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">{p.position || 'Player'}</span></div> <div className="font-bold text-slate-800 text-sm truncate leading-tight mb-1">{p.name}</div> <div className="flex items-center gap-2 text-[10px] text-slate-500"><span>เกิด: {p.birthDate || '-'}</span><span className="bg-indigo-50 text-indigo-600 px-1 rounded font-bold">อายุ {calculateAge(p.birthDate)}</span></div> </div> </div> ))} </div> ) : <div className="text-center text-slate-400 text-xs py-4 bg-slate-50 rounded-lg border border-dashed border-slate-200">ไม่มีรายชื่อนักกีฬา</div>} </div> ); };
   const getFilteredTeams = (excludeName?: string) => { const currentGroup = activeMatchType === 'group' && matchForm.roundLabel.startsWith('Group ') ? matchForm.roundLabel.replace('Group ', '').trim() : null; return teams.filter(t => { if (excludeName && t.name === excludeName) return false; if (currentGroup && t.group?.toUpperCase() !== currentGroup.toUpperCase()) return false; return true; }); };
   const openTeamSelector = (mode: 'singleA' | 'singleB' | 'bulkA' | 'bulkB', rowIndex?: number, currentVal?: string) => setSelectorConfig({ isOpen: true, mode, rowIndex, currentValue: currentVal });
@@ -637,27 +651,50 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
 
       <div className="max-w-4xl mx-auto">
         {/* ... (Header and search UI) ... */}
-        <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4"><button onClick={onBack} className="p-2 bg-white rounded-full shadow-sm hover:bg-slate-100 transition text-slate-600"><ArrowLeft className="w-5 h-5" /></button><h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-6 h-6 text-blue-600" /> ตารางการแข่งขัน</h1></div>
-            {isAdmin && <button onClick={handleOpenAdd} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg shadow hover:bg-indigo-700 transition font-bold text-sm"><Plus className="w-4 h-4" /> เพิ่มคู่แข่ง</button>}
+        <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+                <button onClick={onBack} className="p-2 bg-white rounded-full shadow-sm hover:bg-slate-100 transition text-slate-600 shrink-0"><ArrowLeft className="w-5 h-5" /></button>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2 truncate"><Calendar className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 shrink-0" /> ตารางการแข่งขัน</h1>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+                <button onClick={handleDownloadProgramme}
+                    title="สูจิบัตรการแข่งขัน (พิมพ์ / บันทึกเป็น PDF)"
+                    className="flex items-center gap-1.5 bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg shadow-sm hover:bg-slate-50 transition font-bold text-sm">
+                    <FileText className="w-4 h-4" />
+                    <span className="hidden sm:inline">สูจิบัตร</span>
+                </button>
+                {isAdmin && <button onClick={handleOpenAdd} className="flex items-center gap-1.5 bg-indigo-600 text-white px-3 py-2 rounded-lg shadow hover:bg-indigo-700 transition font-bold text-sm"><Plus className="w-4 h-4" /> <span className="hidden sm:inline">เพิ่มคู่แข่ง</span></button>}
+            </div>
         </div>
 
         <div className="mb-8">
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 sticky top-0 z-20">
-                <div className="flex flex-col lg:flex-row gap-3">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                        <input type="text" placeholder="ค้นหาทีม / สนามแข่ง..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm" />
+            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-slate-200 mb-4 sm:mb-6 sticky top-0 z-20">
+                <div className="flex flex-col lg:flex-row gap-2 sm:gap-3">
+                    <div className="flex gap-2 flex-1">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                            <input type="text" placeholder="ค้นหาทีม / สนาม..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm" />
+                        </div>
+                        {/* ปุ่มนี้มีเฉพาะจอเล็ก — จอใหญ่แสดงตัวกรองเต็มอยู่แล้ว */}
+                        <button
+                            onClick={() => setShowFilters(v => !v)}
+                            aria-expanded={showFilters}
+                            className={`lg:hidden shrink-0 px-3 rounded-lg border text-sm font-bold flex items-center gap-1.5 transition ${activeFilterCount > 0 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                            <Filter className="w-4 h-4" />
+                            {activeFilterCount > 0 ? activeFilterCount : ''}
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+                        </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:min-w-[520px]">
+                    <div className={`${showFilters ? 'grid' : 'hidden'} lg:grid grid-cols-1 sm:grid-cols-3 gap-2 lg:min-w-[520px]`}>
                         <div className="relative"><input aria-label="กรองตามวันที่" type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="w-full p-2 border rounded-lg bg-slate-50 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
                         <div className="relative"><select aria-label="กรองตามรอบ" value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="w-full p-2 pr-8 border rounded-lg bg-slate-50 text-sm appearance-none focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="All">ทุกรอบ</option>{uniqueRounds.map(r => <option key={r} value={r}>{r}</option>)}</select><ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /></div>
                         <div className="relative"><select aria-label="กรองตามสนาม" value={filterVenue} onChange={e => setFilterVenue(e.target.value)} className="w-full p-2 pl-9 pr-8 border rounded-lg bg-slate-50 text-sm appearance-none focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="All">ทุกสนาม</option>{uniqueVenues.map(venue => <option key={venue} value={venue}>{venue} ({venueCounts[venue]})</option>)}</select><MapPin className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /><ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /></div>
                     </div>
                 </div>
-                <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap">
+                {/* ชิปเลือกสนามกินที่มาก จอเล็กจึงโชว์เฉพาะตอนกางตัวกรอง
+                    ส่วนบรรทัดสรุปจำนวนคู่ยังเห็นเสมอ เพราะเป็นข้อมูลที่ต้องรู้ตลอด */}
+                <div className={`${showFilters ? 'flex' : 'hidden'} lg:flex items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap`}>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-slate-500">พบ <b className="text-slate-800">{filteredScheduled.length}</b> จาก {scheduledMatches.length} คู่</span>
                         {uniqueVenues.map(venue => (
                             <button key={venue} onClick={() => setFilterVenue(filterVenue === venue ? 'All' : venue)}
                                 className={`text-[11px] px-2 py-1 rounded-full border transition ${filterVenue === venue ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
@@ -668,6 +705,15 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                     {activeFilterCount > 0 && (
                         <button onClick={clearFilters} className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1">
                             <X className="w-3.5 h-3.5" /> ล้างตัวกรอง ({activeFilterCount})
+                        </button>
+                    )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 mt-2 text-xs text-slate-500">
+                    <span>พบ <b className="text-slate-800">{filteredScheduled.length}</b> จาก {scheduledMatches.length} คู่</span>
+                    {activeFilterCount > 0 && (
+                        <button onClick={clearFilters} className="lg:hidden font-bold text-rose-600 flex items-center gap-1">
+                            <X className="w-3.5 h-3.5" /> ล้างตัวกรอง
                         </button>
                     )}
                 </div>
@@ -688,7 +734,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                 <div className="space-y-8">
                     {sortedDates.map(dateKey => (
                         <div key={dateKey}>
-                             <div className="flex items-center gap-2 mb-3 bg-indigo-50 px-3 py-1.5 rounded-lg w-fit border border-indigo-100 shadow-sm sticky top-20 z-10 backdrop-blur-sm">
+                             <div className="flex items-center gap-2 mb-3 bg-indigo-50 px-3 py-1.5 rounded-lg w-fit border border-indigo-100 shadow-sm sticky top-[4.5rem] lg:top-32 z-10 backdrop-blur-sm">
                                 <Calendar className="w-4 h-4 text-indigo-600" />
                                 <span className="font-bold text-indigo-900 text-sm">
                                     {/* กลุ่ม "ยังไม่กำหนดวัน" ไม่ใช่วันที่ — แปลงเป็นวันที่จะได้ Invalid Date */}

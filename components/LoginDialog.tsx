@@ -55,7 +55,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center z-[1200] p-0 xl:p-4"
       onClick={onClose}>
-      <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200"
+      <div className="bg-white w-full max-w-sm rounded-t-3xl xl:rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 max-h-[92dvh]"
         onClick={e => e.stopPropagation()}>
         <div className="p-6">
           <button onClick={onClose}
@@ -79,7 +79,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
               autoComplete="username"
               autoCapitalize="none"
               placeholder="ชื่อผู้ใช้"
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+              className="modal-field w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none bg-white"
             />
             <input
               type="password"
@@ -87,7 +87,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
               onChange={e => setPassword(e.target.value)}
               autoComplete="current-password"
               placeholder="รหัสผ่าน"
-              className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+              className="modal-field w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none bg-white"
             />
 
             {error && (
@@ -98,7 +98,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
             )}
 
             <button type="submit" disabled={busy}
-              className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 disabled:opacity-50 flex items-center justify-center gap-2">
+              className="modal-primary w-full py-3 bg-slate-800 text-white rounded-xl font-bold hover:bg-slate-900 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-slate-200">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
               เข้าสู่ระบบ
             </button>

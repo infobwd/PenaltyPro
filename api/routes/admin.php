@@ -44,9 +44,12 @@ function list_users(): void
     Auth::requireStaff();
 
     $rows = Db::all(
-        'SELECT user_id, username, display_name, role, phone, picture_url,
-                line_user_id, last_login_at, must_change_password
-           FROM users ORDER BY FIELD(role,\'admin\',\'staff\',\'user\'), display_name'
+        'SELECT u.user_id, u.username, u.display_name, u.role, u.phone, u.picture_url,
+                u.line_user_id, u.last_login_at, u.must_change_password,
+                u.school_id, u.school_set_at, s.school_name
+           FROM users u
+           LEFT JOIN schools s ON s.school_id = u.school_id
+          ORDER BY FIELD(u.role,\'admin\',\'staff\',\'user\'), u.display_name'
     );
     Response::ok(['users' => array_map(static fn(array $u): array => [
         'userId'      => $u['user_id'],
@@ -57,6 +60,10 @@ function list_users(): void
         'pictureUrl'  => drive_img($u['picture_url']),
         'lineUserId'  => $u['line_user_id'],
         'lastLogin'   => $u['last_login_at'],
+        'schoolId'    => $u['school_id'],
+        'schoolName'  => $u['school_name'],
+        // แยก "ยังไม่เคยถูกถาม" ออกจาก "เลือกแล้วว่าไม่สังกัดโรงเรียนใด"
+        'schoolChosen' => $u['school_set_at'] !== null,
         'mustChangePassword' => (bool) $u['must_change_password'],
     ], $rows)]);
 }
@@ -79,11 +86,19 @@ function create_user(): void
         Response::fail('ชื่อผู้ใช้นี้มีอยู่แล้ว', 409);
     }
 
+    $schoolId = Input::str('schoolId');
+    if ($schoolId !== '' && Db::value('SELECT 1 FROM schools WHERE school_id = :sid',
+            [':sid' => $schoolId]) === null) {
+        Response::fail('ไม่พบโรงเรียนนี้ในระบบ', 404);
+    }
+
     $uid = 'U_' . (int) (microtime(true) * 1000);
     Db::exec(
         'INSERT INTO users (user_id, username, password_hash, password_algo,
-                            display_name, role, phone, must_change_password)
-         VALUES (:uid, :un2, :pw, :algo, :name, :role, :phone, :must)',
+                            display_name, role, phone, must_change_password,
+                            school_id, school_set_at)
+         VALUES (:uid, :un2, :pw, :algo, :name, :role, :phone, :must,
+                 :sid2, NOW())',
         [
             ':uid'  => $uid,
             ':un2'  => $username,
@@ -93,6 +108,7 @@ function create_user(): void
             ':role' => $role,
             ':phone' => Input::str('phone'),
             ':must' => $password !== '' ? 1 : 0,
+            ':sid2' => $schoolId !== '' ? $schoolId : null,
         ]
     );
     Audit::log('user', $uid, 'create', null, ['username' => $username, 'role' => $role]);
@@ -121,9 +137,23 @@ function update_user(): void
         Response::fail('ต้องตั้งรหัสผ่านให้บัญชีนี้ก่อนเลื่อนเป็นผู้ดูแล/เจ้าหน้าที่', 422);
     }
 
+    // โรงเรียนต้นสังกัด — ส่งมาเมื่อไหร่ถึงจะแก้ ไม่ส่งมาก็ไม่แตะของเดิม
+    // (ถ้าไม่แยกแบบนี้ การกดบันทึกชื่อ/เบอร์เฉย ๆ จะล้างโรงเรียนทิ้งทุกครั้ง)
+    $touchSchool = array_key_exists('schoolId', Input::body());
+    $schoolId = null;
+    if ($touchSchool) {
+        $schoolId = Input::str('schoolId');
+        if ($schoolId !== '' && Db::value('SELECT 1 FROM schools WHERE school_id = :sid',
+                [':sid' => $schoolId]) === null) {
+            Response::fail('ไม่พบโรงเรียนนี้ในระบบ', 404);
+        }
+    }
+
     Db::exec(
         'UPDATE users SET
             display_name = :name, phone = :phone, role = :role,
+            school_id = CASE WHEN :touch = 1 THEN :sid2 ELSE school_id END,
+            school_set_at = CASE WHEN :touch2 = 1 THEN NOW() ELSE school_set_at END,
             password_hash = COALESCE(:pw, password_hash),
             must_change_password = CASE WHEN :pw2 IS NULL THEN must_change_password ELSE 1 END
           WHERE user_id = :uid2',
@@ -131,6 +161,9 @@ function update_user(): void
             ':name'  => Input::str('displayName') ?: $before['display_name'],
             ':phone' => Input::str('phone'),
             ':role'  => $role,
+            ':touch' => $touchSchool ? 1 : 0,
+            ':touch2' => $touchSchool ? 1 : 0,
+            ':sid2'  => ($schoolId ?? '') !== '' ? $schoolId : null,
             ':pw'    => $password !== '' ? Auth::hashPassword($password) : null,
             ':pw2'   => $password !== '' ? '1' : null,
             ':uid2'  => $uid,

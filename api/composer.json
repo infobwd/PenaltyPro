@@ -1,0 +1,18 @@
+{
+  "name": "bwd/penalty-pro-api",
+  "description": "API ของ Penalty Pro Arena — ใช้ composer เฉพาะการส่ง Web Push",
+  "type": "project",
+  "require": {
+    "php": ">=8.1",
+    "ext-openssl": "*",
+    "ext-mbstring": "*",
+    "ext-curl": "*",
+    "minishlink/web-push": "^8.0"
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "platform": {
+      "php": "8.3.30"
+    }
+  }
+}

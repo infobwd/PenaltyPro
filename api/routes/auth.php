@@ -16,6 +16,7 @@ function handle(string $action, array $cfg): void
         'logout'           => do_logout(),
         'me'               => do_me(),
         'changePassword'   => do_change_password(),
+        'setMySchool'      => set_my_school(),
         default            => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -38,9 +39,12 @@ function do_login(): void
     $password = Input::require_str('password');
 
     $u = Db::one(
-        'SELECT user_id, username, password_hash, display_name, role, phone,
-                picture_url, line_user_id, must_change_password
-           FROM users WHERE username = :un',
+        'SELECT u.user_id, u.username, u.password_hash, u.display_name, u.role, u.phone,
+                u.picture_url, u.line_user_id, u.must_change_password,
+                u.school_id, u.school_set_at, s.school_name
+           FROM users u
+           LEFT JOIN schools s ON s.school_id = u.school_id
+          WHERE u.username = :un',
         [':un' => $username]
     );
 
@@ -61,6 +65,10 @@ function do_login(): void
         'phoneNumber' => $u['phone'],
         'role'        => $u['role'],
         'lineUserId'  => $u['line_user_id'],
+        'schoolId'    => $u['school_id'],
+        'schoolName'  => $u['school_name'],
+        // เจ้าหน้าที่ไม่ต้องถูกถามหาโรงเรียน — แอดมินเป็นคนกำหนดให้
+        'needsSchool' => $u['school_set_at'] === null && $u['role'] === 'user',
         'mustChangePassword' => (bool) $u['must_change_password'],
         'token'       => $session['token'],
         'expiresAt'   => $session['expiresAt'],
@@ -87,9 +95,12 @@ function line_login(): void
     $sub = $profile['sub'];
 
     $u = Db::one(
-        'SELECT user_id, username, display_name, role, phone, picture_url,
-                line_user_id, must_change_password
-           FROM users WHERE line_user_id = :sub',
+        'SELECT u.user_id, u.username, u.display_name, u.role, u.phone, u.picture_url,
+                u.line_user_id, u.must_change_password, u.school_id, u.school_set_at,
+                s.school_name
+           FROM users u
+           LEFT JOIN schools s ON s.school_id = u.school_id
+          WHERE u.line_user_id = :sub',
         [':sub' => $sub]
     );
 
@@ -112,6 +123,7 @@ function line_login(): void
             'user_id' => $uid, 'username' => null, 'display_name' => $name,
             'role' => 'user', 'phone' => '', 'picture_url' => $profile['picture'],
             'line_user_id' => $sub, 'must_change_password' => 0,
+            'school_id' => null, 'school_set_at' => null, 'school_name' => null,
         ];
         Audit::log('user', $uid, 'create_via_line');
     } else {
@@ -137,8 +149,52 @@ function line_login(): void
         'phoneNumber' => $u['phone'],
         'role'        => $u['role'],
         'lineUserId'  => $u['line_user_id'],
+        'schoolId'    => $u['school_id'],
+        'schoolName'  => $u['school_name'],
+        // ยังไม่เคยเลือกโรงเรียน -> ฝั่งเว็บถามก่อนเข้าใช้งาน
+        // ใช้ school_set_at ไม่ใช่ school_id เพราะคนที่ "เลือกว่าไม่สังกัดโรงเรียนใด"
+        // ต้องไม่ถูกถามซ้ำทุกครั้งที่เปิดแอป
+        'needsSchool' => $u['school_set_at'] === null,
         'token'       => $session['token'],
         'expiresAt'   => $session['expiresAt'],
+    ]);
+}
+
+/**
+ * ผู้ใช้เลือกโรงเรียนต้นสังกัดของตัวเอง
+ *
+ * เลือกได้เฉพาะโรงเรียนที่มีในระบบ ไม่ให้พิมพ์ชื่ออิสระ — ชื่อที่พิมพ์เองต่างกัน
+ * นิดเดียวจะกลายเป็นคนละโรงเรียนทันที แล้วตามรวมทีหลังไม่ได้
+ * ส่ง schoolId ว่าง = "ไม่สังกัดโรงเรียนใด" ซึ่งเป็นคำตอบที่ถูกต้องได้
+ * (ผู้ปกครอง/ผู้ชมทั่วไป) จึงบันทึกเวลาไว้เพื่อไม่ถามซ้ำ
+ */
+function set_my_school(): void
+{
+    $u = Auth::requireLogin();
+
+    $schoolId = Input::str('schoolId');
+    $name = null;
+    if ($schoolId !== '') {
+        $name = Db::value('SELECT school_name FROM schools
+                            WHERE school_id = :sid AND is_active = 1',
+            [':sid' => $schoolId]);
+        if ($name === null) {
+            Response::fail('ไม่พบโรงเรียนนี้ในระบบ', 404);
+        }
+    }
+
+    Db::exec(
+        'UPDATE users SET school_id = :sid2, school_set_at = NOW() WHERE user_id = :uid',
+        [':sid2' => $schoolId !== '' ? $schoolId : null, ':uid' => $u['user_id']]
+    );
+
+    Audit::log('user', (string) $u['user_id'], 'set_school', null,
+        ['schoolId' => $schoolId ?: null]);
+
+    Response::ok([
+        'schoolId'   => $schoolId ?: null,
+        'schoolName' => $name,
+        'needsSchool' => false,
     ]);
 }
 
@@ -295,6 +351,9 @@ function do_me(): void
         ]);
     }
     $u = Auth::requireLogin();
+    $sc = Db::one('SELECT u.school_id, u.school_set_at, s.school_name
+                     FROM users u LEFT JOIN schools s ON s.school_id = u.school_id
+                    WHERE u.user_id = :uid', [':uid' => $u['user_id']]) ?? [];
     Response::ok([
         'type'        => 'user',
         'userId'      => $u['user_id'],
@@ -302,6 +361,10 @@ function do_me(): void
         'role'        => $u['role'],
         'pictureUrl'  => $u['picture_url'],
         'lineUserId'  => $u['line_user_id'],
+        'schoolId'    => $sc['school_id'] ?? null,
+        'schoolName'  => $sc['school_name'] ?? null,
+        'needsSchool' => ($sc['school_set_at'] ?? null) === null
+            && ($u['role'] ?? 'user') === 'user',
         'mustChangePassword' => (bool) $u['must_change_password'],
     ]);
 }

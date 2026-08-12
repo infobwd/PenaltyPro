@@ -185,6 +185,9 @@ export const authenticateUser = async (data: any): Promise<UserProfile | null> =
     phoneNumber: r.phoneNumber,
     role: r.role,
     lineUserId: r.lineUserId,
+    schoolId: r.schoolId ?? null,
+    schoolName: r.schoolName ?? null,
+    needsSchool: !!r.needsSchool,
   };
 };
 export const generateGeminiContent = async (prompt: string, initialModel: string = 'gemini-1.5-flash'): Promise<string> => { return "AI Response Placeholder"; };

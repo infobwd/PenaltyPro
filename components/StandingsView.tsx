@@ -8,6 +8,7 @@ import { shareGroupStandings } from '../services/liffService';
 interface StandingsViewProps {
   matches: Match[]; 
   teams: Team[];
+  players: Player[];
   onBack: () => void;
   isLoading?: boolean;
   predictions?: Prediction[];
@@ -39,7 +40,11 @@ const formatMatchDate = (match: Match, includeTime = false): string => {
         : { month: 'short', day: 'numeric' });
 };
 
-const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => void }> = ({ team, matches, onClose }) => {
+const TeamDetailModal: React.FC<{ team: Team, matches: Match[], players: Player[], onClose: () => void }> = ({ team, matches, players, onClose }) => {
+    const [showRoster, setShowRoster] = useState(false);
+    const teamPlayers = players
+        .filter(player => player.teamId === team.id)
+        .sort((a, b) => Number(a.number || 999) - Number(b.number || 999) || a.name.localeCompare(b.name, 'th'));
     const teamMatches = matches.filter(m => {
         const tA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
         const tB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
@@ -55,13 +60,13 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
     };
 
     return (
-        <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in zoom-in duration-200" onClick={onClose}>
-            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
-                <div className="bg-indigo-900 p-6 text-white flex justify-between items-center shrink-0">
-                    <div className="flex items-center gap-4">
-                        {team.logoUrl ? <img src={team.logoUrl} className="w-16 h-16 bg-white rounded-xl p-1 object-contain" /> : <div className="w-16 h-16 bg-white/10 rounded-xl flex items-center justify-center text-2xl font-bold">{team.shortName}</div>}
+        <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm modal-sheet modal-inset-mobile modal-contained flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in zoom-in duration-200" onClick={onClose}>
+            <div className="bg-white w-full max-w-2xl rounded-t-3xl xl:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] xl:max-h-[85vh]" role="dialog" aria-modal="true" aria-label={`รายละเอียดอันดับของ ${team.name}`} onClick={e => e.stopPropagation()}>
+                <div className="bg-indigo-900 p-4 sm:p-6 text-white flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0 pr-2">
+                        {team.logoUrl ? <img src={team.logoUrl} className="w-14 h-14 sm:w-16 sm:h-16 bg-white rounded-xl p-1 object-contain shrink-0" /> : <div className="w-14 h-14 sm:w-16 sm:h-16 bg-white/10 rounded-xl flex items-center justify-center text-2xl font-bold shrink-0">{team.shortName}</div>}
                         <div>
-                            <h2 className="text-xl font-bold">{team.name}</h2>
+                            <h2 className="text-lg sm:text-xl font-bold leading-tight">{team.name}</h2>
                             <div className="flex items-center gap-2 text-indigo-200 text-sm mt-1">
                                 {team.province} • {team.group ? `Group ${team.group}` : 'No Group'}
                             </div>
@@ -70,23 +75,61 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
                     <button onClick={onClose} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition"><X className="w-5 h-5"/></button>
                 </div>
                 
-                <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
-                    <div className="grid grid-cols-3 gap-4 mb-6">
-                        <div className="bg-white p-4 rounded-xl shadow-sm text-center border border-slate-100">
+                <div className="p-4 sm:p-6 modal-scroll-region bg-slate-50 flex-1">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
+                        <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm text-center border border-slate-100">
                             <div className="text-xs text-slate-400 font-bold uppercase">Played</div>
                             <div className="text-2xl font-black text-slate-800">{stats.played}</div>
                         </div>
-                        <div className="bg-white p-4 rounded-xl shadow-sm text-center border border-slate-100">
+                        <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm text-center border border-slate-100">
                             <div className="text-xs text-slate-400 font-bold uppercase">Won</div>
                             <div className="text-2xl font-black text-green-600">{stats.won}</div>
                         </div>
-                        <div className="bg-white p-4 rounded-xl shadow-sm text-center border border-slate-100">
+                        <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm text-center border border-slate-100">
                             <div className="text-xs text-slate-400 font-bold uppercase">Goals</div>
                             <div className="text-2xl font-black text-indigo-600">{stats.gf}</div>
                         </div>
                     </div>
 
-                    <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><History className="w-4 h-4"/> Match History</h3>
+                    <button
+                        type="button"
+                        onClick={() => setShowRoster(current => !current)}
+                        className="w-full mb-5 min-h-12 rounded-xl border border-indigo-200 bg-white px-4 py-3 text-indigo-700 font-bold flex items-center justify-between gap-3 shadow-sm hover:bg-indigo-50 transition"
+                        aria-expanded={showRoster}
+                    >
+                        <span className="flex items-center gap-2"><User className="w-5 h-5" /> ดูรายชื่อนักกีฬา ({teamPlayers.length} คน)</span>
+                        <ChevronRight className={`w-5 h-5 transition-transform ${showRoster ? 'rotate-90' : ''}`} />
+                    </button>
+
+                    {showRoster && (
+                        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4" aria-label={`รายชื่อนักกีฬาของ ${team.name}`}>
+                            {teamPlayers.length === 0 ? (
+                                <p className="py-5 text-center text-sm text-slate-400">ทีมนี้ยังไม่ได้บันทึกรายชื่อนักกีฬา</p>
+                            ) : (
+                                <div
+                                    className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[42dvh] sm:max-h-[24rem] overflow-y-auto overscroll-contain touch-pan-y pr-1 focus:outline-none focus:ring-2 focus:ring-indigo-300 rounded-xl"
+                                    style={{ WebkitOverflowScrolling: 'touch' }}
+                                    role="region"
+                                    aria-label={`รายชื่อนักกีฬาของ ${team.name}`}
+                                    tabIndex={0}
+                                >
+                                    {teamPlayers.map(player => (
+                                        <div key={player.id} className="flex items-center gap-3 rounded-xl bg-slate-50 border border-slate-100 p-2.5 min-w-0">
+                                            <div className="w-11 h-11 rounded-lg bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                                                {player.photoUrl ? <img src={player.photoUrl} alt="" className="w-full h-full object-cover" /> : <User className="w-5 h-5 text-slate-300" />}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="font-bold text-sm text-slate-800 truncate">{player.name}</p>
+                                                <p className="text-xs text-slate-500">เบอร์ {player.number || '-'}{player.position ? ` · ${player.position}` : ''}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </section>
+                    )}
+
+                    <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2"><History className="w-4 h-4"/> ตารางและผลการแข่งขัน</h3>
                     <div className="space-y-2">
                         {teamMatches.length === 0 ? (
                             <div className="text-center text-slate-400 py-4 text-sm">ยังไม่มีประวัติการแข่งขัน</div>
@@ -99,9 +142,9 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
                                 const resultColor = !m.winner ? 'bg-slate-100 border-slate-200' : (m.winner === (isA ? 'A' : 'B') || m.winner === team.name) ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200';
                                 
                                 return (
-                                    <div key={m.id} className={`p-3 rounded-lg border flex justify-between items-center ${resultColor}`}>
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-xs font-bold text-slate-500 min-w-16">{formatMatchDate(m)}</span>
+                                    <div key={m.id} className={`p-3 rounded-lg border flex justify-between items-center gap-3 ${resultColor}`}>
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <span className="text-xs font-bold text-slate-600 min-w-[6.75rem] leading-tight">{formatMatchDate(m, true)}</span>
                                             <div>
                                                 <div className="font-bold text-sm text-slate-800">vs {opponent}</div>
                                                 <div className="text-[10px] text-slate-500">{m.roundLabel?.split(':')[0]}</div>
@@ -121,7 +164,7 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
     );
 };
 
-const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, isLoading, predictions = [] }) => {
+const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, players, onBack, isLoading, predictions = [] }) => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay' | 'fan'>('table');
   const finishedMatches = useMemo(
@@ -216,11 +259,22 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
 
   // --- LOGIC: Fan Leaderboard ---
   const fanLeaderboard = useMemo(() => {
-      const scores: Record<string, { name: string, pic: string, points: number, correct: number }> = {};
+      const scores: Record<string, {
+          userId: string;
+          name: string;
+          pic: string;
+          points: number;
+          correct: number;
+          total: number;
+          pending: number;
+          picks: string[];
+      }> = {};
       
       // Map match results for quick lookup
       const results: Record<string, 'A' | 'B' | null> = {};
+      const matchById: Record<string, Match> = {};
       matches.forEach(m => {
+          matchById[m.id] = m;
           if (m.winner) {
               if (m.winner === 'A' || m.winner === (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)) results[m.id] = 'A';
               else if (m.winner === 'B' || m.winner === (typeof m.teamB === 'string' ? m.teamB : m.teamB.name)) results[m.id] = 'B';
@@ -228,20 +282,52 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
       });
 
       predictions.forEach(p => {
-          const winner = results[p.matchId];
-          if (!winner) return; // Match not finished yet
-
           if (!scores[p.userId]) {
-              scores[p.userId] = { name: p.userDisplayName || 'User', pic: p.userPictureUrl || '', points: 0, correct: 0 };
+              scores[p.userId] = {
+                  userId: p.userId,
+                  name: p.userDisplayName || 'User',
+                  pic: p.userPictureUrl || '',
+                  points: 0,
+                  correct: 0,
+                  total: 0,
+                  pending: 0,
+                  picks: [],
+              };
           }
 
+          const fan = scores[p.userId];
+          const match = matchById[p.matchId];
+          const pickedTeam = match
+              ? (p.prediction === 'A'
+                  ? (typeof match.teamA === 'string' ? match.teamA : match.teamA.name)
+                  : (typeof match.teamB === 'string' ? match.teamB : match.teamB.name))
+              : `ฝั่ง ${p.prediction}`;
+          fan.total += 1;
+          if (!fan.picks.includes(pickedTeam)) fan.picks.push(pickedTeam);
+
+          const winner = results[p.matchId];
+          if (!winner) {
+              fan.pending += 1;
+              return;
+          }
           if (p.prediction === winner) {
-              scores[p.userId].points += 10;
-              scores[p.userId].correct += 1;
+              fan.points += 10;
+              fan.correct += 1;
           }
       });
 
-      return Object.values(scores).sort((a, b) => b.points - a.points).slice(0, 50); // Top 50
+      return Object.values(scores)
+          .sort((a, b) => b.points - a.points || b.correct - a.correct || b.total - a.total || a.name.localeCompare(b.name, 'th'))
+          .slice(0, 50); // Top 50
+  }, [matches, predictions]);
+
+  const fanPredictionSummary = useMemo(() => {
+      const finishedIds = new Set(matches.filter(match => Boolean(match.winner)).map(match => match.id));
+      return predictions.reduce((summary, prediction) => {
+          summary[prediction.prediction] += 1;
+          if (!finishedIds.has(prediction.matchId)) summary.pending += 1;
+          return summary;
+      }, { A: 0, B: 0, pending: 0 });
   }, [matches, predictions]);
 
   // --- LOGIC: Top Scorers ---
@@ -669,26 +755,53 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                         <p className="text-purple-100 mt-1 relative z-10">อันดับกองเชียร์ตาทิพย์ ทายผลแม่นยำ</p>
                     </div>
 
+                    <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 sm:p-4 text-center">
+                            <p className="text-2xl font-black text-blue-700">{fanPredictionSummary.A}</p>
+                            <p className="text-[11px] sm:text-xs font-bold text-blue-600">เลือกฝั่ง A</p>
+                        </div>
+                        <div className="rounded-2xl border border-rose-100 bg-rose-50 p-3 sm:p-4 text-center">
+                            <p className="text-2xl font-black text-rose-700">{fanPredictionSummary.B}</p>
+                            <p className="text-[11px] sm:text-xs font-bold text-rose-600">เลือกฝั่ง B</p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3 sm:p-4 text-center">
+                            <p className="text-2xl font-black text-amber-700">{fanPredictionSummary.pending}</p>
+                            <p className="text-[11px] sm:text-xs font-bold text-amber-600">กำลังรอผล</p>
+                        </div>
+                    </div>
+
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                         <div className="divide-y divide-slate-100">
                             {fanLeaderboard.length === 0 ? (
                                 <div className="p-12 text-center text-slate-400">ยังไม่มีข้อมูลการทายผล</div>
                             ) : (
                                 fanLeaderboard.map((fan, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
-                                        <div className="flex items-center gap-4">
+                                    <div key={fan.userId} className="flex items-start justify-between gap-3 p-4 hover:bg-slate-50 transition">
+                                        <div className="flex items-start gap-3 sm:gap-4 min-w-0">
                                             <div className={`w-8 h-8 flex items-center justify-center font-black rounded-full ${idx === 0 ? 'bg-yellow-100 text-yellow-600' : idx === 1 ? 'bg-slate-200 text-slate-600' : idx === 2 ? 'bg-orange-100 text-orange-600' : 'text-slate-400'}`}>
                                                 {idx < 3 ? <Crown className="w-4 h-4"/> : idx + 1}
                                             </div>
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-start gap-3 min-w-0">
                                                 {fan.pic ? (
                                                     <img src={fan.pic} className="w-10 h-10 rounded-full object-cover border border-slate-200" />
                                                 ) : (
                                                     <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><User className="w-5 h-5 text-slate-400"/></div>
                                                 )}
-                                                <div>
+                                                <div className="min-w-0">
                                                     <div className="font-bold text-slate-800 text-sm">{fan.name}</div>
-                                                    <div className="text-xs text-slate-400">ทายถูก {fan.correct} คู่</div>
+                                                    <div className="text-xs text-slate-400">
+                                                        ทาย {fan.total} คู่ · ถูก {fan.correct} · รอผล {fan.pending}
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                                        {fan.picks.slice(0, 3).map(pick => (
+                                                            <span key={pick} className="max-w-32 truncate rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-600">
+                                                                เลือก {pick}
+                                                            </span>
+                                                        ))}
+                                                        {fan.picks.length > 3 && (
+                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">+{fan.picks.length - 3}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -733,6 +846,7 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                 <TeamDetailModal 
                     team={selectedTeam} 
                     matches={matches} 
+                    players={players}
                     onClose={() => setSelectedTeam(null)} 
                 />
             )}

@@ -30,6 +30,18 @@ function handle(string $action, array $cfg): void
                  'required' => false];
     $checks[] = ['name' => 'ext_gd', 'ok' => extension_loaded('gd'), 'required' => false];
 
+    // ── ความพร้อมของการแจ้งเตือน (ไม่บังคับ — ระบบใช้งานได้แม้ยังไม่พร้อม) ──
+    $checks[] = ['name' => 'push_vendor_installed',
+        'ok' => is_file(__DIR__ . '/../vendor/autoload.php'), 'required' => false,
+        'detail' => 'อัปโหลด api/vendor/ ขึ้นโฮสต์แล้วหรือยัง'];
+    $hasVapid = (string) (Db::value(
+        "SELECT setting_value FROM app_settings WHERE setting_key = 'vapid_public_key'") ?? '') !== '';
+    $checks[] = ['name' => 'push_vapid_key', 'ok' => $hasVapid, 'required' => false,
+        'detail' => 'รัน php api/tools/generate-vapid.php เพื่อสร้างคีย์'];
+    $checks[] = ['name' => 'table_notifications',
+        'ok' => Db::value("SHOW TABLES LIKE 'notifications'") !== null, 'required' => false,
+        'detail' => 'รัน db/07-notifications.sql'];
+
     try {
         $ver = (string) Db::value('SELECT VERSION()');
         $add('database', true, $ver);

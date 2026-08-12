@@ -410,6 +410,25 @@ function save_match(): void
         );
         Audit::log('match', $matchId, 'create');
     } else {
+        // อ่านค่าเดิมไว้เทียบว่าเวลา/สนามเปลี่ยนไหม — ต้องอ่านก่อน UPDATE
+        $existing = Db::one(
+            'SELECT scheduled_time, venue, team_a_id, team_b_id, team_a_name, team_b_name
+               FROM matches WHERE match_id = :mid_old',
+            [':mid_old' => $matchId]
+        ) ?? [];
+
+        // ⚠️ แก้เฉพาะเวลา/สนามโดยไม่ส่งทีมมาด้วย = ต้องไม่ล้างคู่แข่งทิ้ง
+        // ก่อนหน้านี้ค่าที่ไม่ได้ส่งมากลายเป็น NULL ทำให้นัดนั้นไม่มีคู่แข่งอีกเลย
+        // และตารางคะแนนนับผลนัดนั้นไม่ได้ (ของเดิมรอดเพราะหน้าเว็บส่งทีมมาทุกครั้ง
+        // แต่พึ่งพฤติกรรมของ client ไม่ได้ — ใครยิง API ตรงก็ทำข้อมูลหายได้)
+        $teamsProvided = Input::str('teamAId') !== '' || Input::str('teamBId') !== ''
+            || Input::str('teamA') !== '' || Input::str('teamB') !== '';
+        if (!$teamsProvided && $existing !== []) {
+            $teamA = $existing['team_a_id'];
+            $teamB = $existing['team_b_id'];
+            $names = [(string) $existing['team_a_name'], (string) $existing['team_b_name']];
+        }
+
         Db::exec(
             'UPDATE matches SET
                 team_a_id = :ta, team_b_id = :tb,
@@ -428,6 +447,14 @@ function save_match(): void
             ]
         );
         Audit::log('match', $matchId, 'update');
+
+        // เวลาหรือสนามเปลี่ยน = เรื่องที่ต้องรีบบอก ทีมอาจเดินทางผิดเวลา
+        $timeChanged  = (string) ($existing['scheduled_time'] ?? '') !== (string) $sched;
+        $venueChanged = (string) ($existing['venue'] ?? '') !== Input::str('venue');
+        if ($timeChanged || $venueChanged) {
+            notify_schedule_change($matchId, $names[0], $names[1], $sched, Input::str('venue'),
+                [$teamA, $teamB]);
+        }
     }
 
     Cache::flush();
@@ -516,4 +543,23 @@ function delete_all_matches(): void
             ? "ลบนัดที่ยังไม่แข่ง $deleted นัด (เก็บนัดที่แข่งแล้ว $played นัดไว้)"
             : "ลบตารางแข่งทั้งหมด $deleted นัด",
     ]);
+}
+
+/**
+ * แจ้งเมื่อเวลาหรือสนามแข่งเปลี่ยน — ส่งเฉพาะสองโรงเรียนที่เกี่ยวข้อง
+ */
+function notify_schedule_change(
+    string $matchId, string $nameA, string $nameB,
+    ?string $scheduled, string $venue, array $teamIds
+): void {
+    $when = $scheduled ? date('j M เวลา H:i น.', (int) strtotime($scheduled)) : 'ยังไม่กำหนดเวลา';
+    $body = "$nameA พบ $nameB · $when" . ($venue !== '' ? " · $venue" : '');
+
+    foreach (array_filter($teamIds) as $tid) {
+        $sid = Db::value('SELECT school_id FROM teams WHERE team_id = :tid', [':tid' => $tid]);
+        if ($sid) {
+            PushNotifier::notifySchool((string) $sid, 'match_scheduled',
+                'เปลี่ยนกำหนดการแข่งขัน', $body, '/schedule', ['matchId' => $matchId]);
+        }
+    }
 }

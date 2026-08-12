@@ -85,6 +85,9 @@ CREATE TABLE tournaments (
 
   -- เดิมยัดรวมเป็น JSON string ในเซลล์เดียว query ไม่ได้เลย
   registration_deadline DATETIME     NULL,
+  registration_enabled  TINYINT(1)   NOT NULL DEFAULT 1,
+  team_editing_enabled  TINYINT(1)   NOT NULL DEFAULT 1,
+  team_edit_deadline    DATETIME     NULL,
   max_teams             SMALLINT UNSIGNED NULL COMMENT 'NULL = ไม่จำกัด',
   max_teams_per_school  TINYINT UNSIGNED NOT NULL DEFAULT 1
                         COMMENT '1 = โรงเรียนละทีม / 2+ = ส่งได้หลายทีม (เช่น อนุบาลบ่อพลอย A, B)',
@@ -236,6 +239,10 @@ CREATE TABLE teams (
 
   doc_url        VARCHAR(500) NOT NULL DEFAULT '',
   slip_url       VARCHAR(500) NOT NULL DEFAULT '',
+  payment_status ENUM('Unpaid','Pending','Verified','Rejected') NOT NULL DEFAULT 'Unpaid',
+  payment_note   VARCHAR(500) NOT NULL DEFAULT '',
+  payment_reviewed_at DATETIME NULL,
+  payment_reviewed_by VARCHAR(40) NULL,
 
   director_name  VARCHAR(150) NOT NULL DEFAULT '',
   manager_name   VARCHAR(150) NOT NULL DEFAULT '',
@@ -256,6 +263,7 @@ CREATE TABLE teams (
   UNIQUE KEY uq_team_name_tournament (tournament_id, name),
   KEY idx_teams_school_tournament (tournament_id, school_id),
   KEY idx_teams_status (tournament_id, status),
+  KEY idx_teams_payment_status (tournament_id, payment_status),
   KEY idx_teams_group (tournament_id, group_name),
   KEY idx_teams_school (school_id),
   KEY idx_teams_source (source_team_id),
@@ -265,6 +273,8 @@ CREATE TABLE teams (
   CONSTRAINT fk_teams_school FOREIGN KEY (school_id)
     REFERENCES schools (school_id) ON UPDATE CASCADE ON DELETE RESTRICT,
   CONSTRAINT fk_teams_approver FOREIGN KEY (approved_by)
+    REFERENCES users (user_id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_teams_payment_reviewer FOREIGN KEY (payment_reviewed_by)
     REFERENCES users (user_id) ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

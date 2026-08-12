@@ -1,23 +1,57 @@
 {
-  "name": "Penalty Pro Arena",
+  "name": "Penalty Pro Arena — จุดโทษบ่อพลอย",
   "short_name": "PenaltyPro",
+  "description": "ระบบจัดการแข่งขันฟุตบอลและบันทึกผลการยิงจุดโทษ สำหรับโรงเรียนในอำเภอบ่อพลอย",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#4f46e5",
-  "description": "Professional tournament management and scoreboard app",
   "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#4338ca",
+  "lang": "th",
+  "dir": "ltr",
+  "categories": ["sports", "education"],
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif",
+      "src": "/icons/icon-192.png?v=20260812",
       "sizes": "192x192",
-      "type": "image/gif"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif",
+      "src": "/icons/icon-512.png?v=20260812",
       "sizes": "512x512",
-      "type": "image/gif"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png?v=20260812",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "ตารางการแข่งขัน",
+      "short_name": "ตารางแข่ง",
+      "description": "ดูโปรแกรมการแข่งขันและผลล่าสุด",
+      "url": "/schedule",
+      "icons": [{ "src": "/icons/shortcut-schedule.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "ตารางคะแนน",
+      "short_name": "คะแนน",
+      "description": "ดูตารางคะแนนแต่ละสาย",
+      "url": "/standings",
+      "icons": [{ "src": "/icons/shortcut-standings.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "สำหรับโรงเรียน",
+      "short_name": "โรงเรียน",
+      "description": "กรอกและแก้ไขรายชื่อนักกีฬาด้วยรหัสโรงเรียน",
+      "url": "/school",
+      "icons": [{ "src": "/icons/shortcut-school.svg", "sizes": "any", "type": "image/svg+xml" }]
     }
   ]
 }

@@ -21,6 +21,13 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
 }) => {
   const [playerInput, setPlayerInput] = useState('');
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
+  const teamColor = (() => {
+    try {
+      const parsed = JSON.parse(team.color || '');
+      if (Array.isArray(parsed) && typeof parsed[0] === 'string') return parsed[0];
+    } catch {}
+    return /^#[0-9a-f]{3,8}$/i.test(team.color || '') ? team.color : '#3730a3';
+  })();
 
   const handleRecord = (result: KickResult) => {
     let finalPlayerName = playerInput;
@@ -48,10 +55,11 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
     <div className="w-full max-w-md mx-auto bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100">
       <div 
         className="p-4 text-center text-white font-bold text-xl flex items-center justify-center gap-3 relative overflow-hidden"
-        style={{ backgroundColor: team.color }}
+        style={{ backgroundColor: teamColor }}
       >
-        {team.logoUrl && <img src={team.logoUrl} alt={team.name} className="w-10 h-10 object-contain bg-white rounded-full p-1" />}
-        <span className="z-10 relative">ตาของทีม {team.name}</span>
+        <div className="absolute inset-0 bg-slate-950/55" aria-hidden="true" />
+        {team.logoUrl && <img src={team.logoUrl} alt={team.name} className="w-10 h-10 object-contain bg-white rounded-full p-1 z-10 relative" />}
+        <span className="z-10 relative text-white drop-shadow-[0_2px_3px_rgba(0,0,0,0.9)]">ตาของทีม {team.name}</span>
       </div>
 
       <div className="p-4 md:p-6 space-y-6">
