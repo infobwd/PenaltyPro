@@ -5,6 +5,7 @@ import {
   Camera, Upload, FileText,
 } from 'lucide-react';
 import { apiGet, apiPost, apiUpload, ApiError, setToken, clearToken, getToken } from '../services/apiConfig';
+import { confirmAction } from '../services/uiService';
 
 /**
  * หน้าสำหรับโรงเรียน — ใส่รหัส 8 ตัว แล้วยืนยัน/แก้ไขข้อมูลทีมของตัวเอง
@@ -159,13 +160,13 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
     setTeams([]); setEditing(null); setSchoolName(''); setCode('');
   };
 
-  const openTeam = (t: TeamData) => {
+  const openTeam = async (t: TeamData) => {
     let data = { ...t, players: [...t.players] };
     try {
       const draft = localStorage.getItem(DRAFT_KEY);
       if (draft) {
         const d = JSON.parse(draft) as TeamData;
-        if (d.id === t.id && window.confirm('พบข้อมูลที่กรอกค้างไว้ ต้องการกรอกต่อจากเดิมไหม?')) {
+        if (d.id === t.id && await confirmAction('พบข้อมูลที่กรอกค้างไว้ในอุปกรณ์นี้', { title: 'กรอกต่อจากเดิมไหม?', confirmText: 'กรอกต่อ' })) {
           data = d;
         }
       }
@@ -236,7 +237,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
   };
 
   const withdraw = async (teamId: string) => {
-    if (!window.confirm('ยืนยันว่าไม่ส่งทีมนี้เข้าแข่งขันปีนี้?')) return;
+    if (!await confirmAction('ทีมนี้จะถูกถอนออกจากรายการแข่งขันปีนี้', { title: 'ยืนยันไม่ส่งทีม?', dangerous: true, confirmText: 'ยืนยันการถอนทีม' })) return;
     setBusy('wd');
     try {
       await apiPost('submitTeam', { teamId, withdraw: true });
@@ -298,7 +299,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify }) => {
     return (
       <div className="min-h-screen bg-slate-50 pb-32">
         <div className="sticky top-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => { if (!dirty || window.confirm('ออกโดยไม่บันทึก?')) setEditing(null); }}
+          <button onClick={async () => { if (!dirty || await confirmAction('ข้อมูลที่แก้ไขจะไม่ถูกบันทึก', { title: 'ออกจากหน้านี้?', dangerous: true, confirmText: 'ออกโดยไม่บันทึก' })) setEditing(null); }}
             className="p-1.5 -ml-1.5 rounded-lg hover:bg-slate-100">
             <ChevronLeft className="w-5 h-5" />
           </button>

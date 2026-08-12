@@ -33,24 +33,27 @@ const PredictionModal: React.FC<PredictionModalProps> = ({ match, teamA, teamB, 
   };
 
   return (
-    <div className="fixed inset-0 z-[1600] bg-black/70 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200" onClick={onClose}>
-      <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden relative" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[3000] bg-black/70 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in zoom-in duration-200" onClick={onClose}>
+      <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-y-auto relative max-h-[92dvh] safe-area-bottom" onClick={e => e.stopPropagation()}>
+        <div className="w-full flex justify-center pt-3 xl:hidden" aria-hidden="true">
+          <div className="w-12 h-1.5 rounded-full bg-slate-200" />
+        </div>
         <button onClick={onClose} className="absolute top-4 right-4 bg-slate-100 p-2 rounded-full hover:bg-slate-200 z-10">
             <X className="w-5 h-5 text-slate-500" />
         </button>
 
-        <div className="pt-8 pb-4 text-center px-6">
+        <div className="pt-5 xl:pt-8 pb-4 text-center px-6">
             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-1">Match Prediction</h3>
             <p className="text-slate-500 text-sm">ทายผลผู้ชนะเพื่อสะสมแต้ม Fan Zone</p>
         </div>
 
-        <div className="p-6 pt-2">
-            <div className="flex justify-between items-stretch gap-4 mb-6">
+        <div className="p-4 sm:p-6 pt-2">
+            <div className="flex justify-between items-stretch gap-2 sm:gap-4 mb-6">
                 {/* Team A Option */}
                 <button 
                     onClick={() => handlePredict('A')}
                     disabled={isSubmitting}
-                    className={`flex-1 flex flex-col items-center p-4 rounded-2xl border-2 transition-all relative ${selected === 'A' ? 'bg-indigo-50 border-indigo-600 shadow-md transform scale-105' : 'bg-white border-slate-200 hover:border-indigo-300'}`}
+                    className={`min-w-0 flex-1 flex flex-col items-center p-3 sm:p-4 rounded-2xl border-2 transition-all relative ${selected === 'A' ? 'bg-indigo-50 border-indigo-600 shadow-md transform scale-[1.02]' : 'bg-white border-slate-200 hover:border-indigo-300'}`}
                 >
                     {selected === 'A' && <div className="absolute -top-3 right-[-10px] bg-green-500 text-white p-1 rounded-full shadow-sm"><Check className="w-4 h-4"/></div>}
                     <div className="w-16 h-16 mb-3 relative">
@@ -72,7 +75,7 @@ const PredictionModal: React.FC<PredictionModalProps> = ({ match, teamA, teamB, 
                 <button 
                     onClick={() => handlePredict('B')}
                     disabled={isSubmitting}
-                    className={`flex-1 flex flex-col items-center p-4 rounded-2xl border-2 transition-all relative ${selected === 'B' ? 'bg-red-50 border-red-600 shadow-md transform scale-105' : 'bg-white border-slate-200 hover:border-red-300'}`}
+                    className={`min-w-0 flex-1 flex flex-col items-center p-3 sm:p-4 rounded-2xl border-2 transition-all relative ${selected === 'B' ? 'bg-red-50 border-red-600 shadow-md transform scale-[1.02]' : 'bg-white border-slate-200 hover:border-red-300'}`}
                 >
                     {selected === 'B' && <div className="absolute -top-3 right-[-10px] bg-green-500 text-white p-1 rounded-full shadow-sm"><Check className="w-4 h-4"/></div>}
                     <div className="w-16 h-16 mb-3 relative">

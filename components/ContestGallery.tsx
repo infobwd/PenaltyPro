@@ -809,7 +809,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
       {/* Delete Confirmation Modal */}
       {deleteModal.isOpen && (
-          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-xs w-full animate-in zoom-in duration-200 text-center">
                   <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-red-50">
                       <Trash2 className="w-8 h-8 text-red-500" />
@@ -828,7 +828,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
       {/* Upload Modal */}
       {isUploadOpen && (
-          <div className="fixed inset-0 z-[1500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[1500] bg-black/80 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4">
               <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 shadow-2xl relative">
                   
                   {isSubmitting && (
@@ -934,7 +934,7 @@ const ContestGallery: React.FC<ContestGalleryProps> = ({ user, onLoginRequest, s
 
       {/* View Entry Modal (Improved Mobile Layout) */}
       {selectedEntry && (
-          <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-md flex items-center justify-center p-0 md:p-4 animate-in fade-in duration-200" onClick={() => setSelectedEntry(null)}>
+          <div className="fixed inset-0 z-[2000] bg-black/95 backdrop-blur-md modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in fade-in duration-200" onClick={() => setSelectedEntry(null)}>
               <div className="w-full h-full md:max-w-6xl md:h-[90vh] flex flex-col md:flex-row bg-black md:bg-[#1a1a1a] md:rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
                   
                   <button onClick={() => setSelectedEntry(null)} className="absolute top-4 right-4 z-50 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-white/20 transition">

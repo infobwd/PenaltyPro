@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { KickResult, Player, Team } from '../types';
 import { Loader2, Goal, XOctagon, Hand, User } from 'lucide-react';
+import { notifyUser } from '../services/uiService';
 
 interface PenaltyInterfaceProps {
   currentTurn: 'A' | 'B';
@@ -26,14 +27,14 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
     
     if (roster.length > 0) {
         if (!selectedPlayerId) {
-             alert("กรุณาเลือกนักเตะ");
+             notifyUser('ยังไม่ได้เลือกนักเตะ', 'กรุณาเลือกนักเตะก่อนบันทึกผล', 'warning');
              return;
         }
         const p = roster.find(x => x.id === selectedPlayerId);
         finalPlayerName = p ? `${p.name} (#${p.number})` : 'ไม่ระบุ';
     } else {
         if (!playerInput.trim()) {
-            alert("กรุณากรอกชื่อหรือเบอร์เสื้อนักเตะ");
+            notifyUser('ข้อมูลยังไม่ครบ', 'กรุณากรอกชื่อหรือเบอร์เสื้อนักเตะ', 'warning');
             return;
         }
     }

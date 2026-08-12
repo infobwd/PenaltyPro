@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { notifyUser } from '../services/uiService';
 import { Heart, X, Copy, Check, CreditCard, Upload, FileText, Loader2, ArrowRight, ShieldAlert, CheckCircle2, FileCheck } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
 import { fileToBase64 } from '../services/sheetService';
@@ -81,7 +83,7 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
       }
 
       if (isEdonation && !taxId) {
-          alert("กรุณากรอกเลขบัตรประชาชน/ผู้เสียภาษี สำหรับ e-Donation");
+          notifyUser('ข้อมูลยังไม่ครบ', 'กรุณากรอกเลขบัตรประชาชน/ผู้เสียภาษี สำหรับ e-Donation', 'warning');
           return;
       }
 
@@ -134,7 +136,7 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
           setTimeout(() => setIsSuccess(true), 500);
 
       } catch (error) {
-          alert("เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่");
+          notifyUser('ส่งข้อมูลไม่สำเร็จ', 'เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาลองใหม่', 'error');
           setUploadProgress(0);
       } finally {
           setIsSubmitting(false);
@@ -142,9 +144,15 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
   };
 
   if (isSuccess) {
-      return (
-        <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200">
-            <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center relative overflow-hidden">
+      return createPortal(
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 overflow-hidden"
+          style={{ zIndex: 2147483646 }}
+          data-app-modal="donation-success"
+          role="presentation"
+          onClick={onClose}
+        >
+            <div className="bg-white w-full max-w-sm rounded-t-3xl xl:rounded-3xl shadow-2xl p-8 text-center relative overflow-hidden safe-area-bottom" role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}>
                 <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-400 to-emerald-600"></div>
                 <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce border-4 border-green-100">
                     <CheckCircle2 className="w-12 h-12 text-green-600" />
@@ -158,13 +166,20 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
                 </p>
                 <button onClick={onClose} className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition shadow-lg">ปิดหน้าต่าง</button>
             </div>
-        </div>
+        </div>,
+        document.body
       );
   }
 
-  return (
-    <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200 overflow-y-auto">
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 overflow-hidden"
+      style={{ zIndex: 2147483646 }}
+      data-app-modal="donation"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div className="bg-white w-full max-w-md rounded-t-3xl xl:rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[calc(100dvh-env(safe-area-inset-top))] xl:max-h-[90vh]" role="dialog" aria-modal="true" aria-label="ร่วมบริจาค" onClick={event => event.stopPropagation()}>
         <button onClick={onClose} className="absolute top-3 right-3 p-1 rounded-full bg-white/20 hover:bg-white/40 transition text-white z-10">
             <X className="w-5 h-5" />
         </button>
@@ -326,7 +341,8 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
             </form>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

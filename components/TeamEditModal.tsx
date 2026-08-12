@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Team, Player } from '../types';
 import { X, Save, Loader2, User, Plus, Trash2, Camera, FileText, Image as ImageIcon, CreditCard, ExternalLink, Shield, MapPin, Phone, Check, AlertTriangle } from 'lucide-react';
 import { fileToBase64 } from '../services/sheetService';
+import { confirmAction, notifyUser } from '../services/uiService';
 
 interface TeamEditModalProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
   const validateFile = (file: File, type: 'image' | 'doc') => {
     const limit = type === 'image' ? MAX_IMAGE_SIZE : MAX_DOC_SIZE;
     if (file.size > limit) {
-        alert(`ไฟล์ใหญ่เกินไป ขนาดไฟล์ต้องไม่เกิน ${limit / 1024 / 1024}MB`);
+        notifyUser('ไฟล์ใหญ่เกินไป', `ขนาดไฟล์ต้องไม่เกิน ${limit / 1024 / 1024}MB`, 'error');
         return false;
     }
     return true;
@@ -130,10 +131,9 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
       setPlayers([...players, newPlayer]);
   };
 
-  const removePlayer = (index: number) => {
-      if (confirm("ต้องการลบรายชื่อนี้?")) {
-          setPlayers(players.filter((_, i) => i !== index));
-      }
+  const removePlayer = async (index: number) => {
+      const confirmed = await confirmAction('ต้องการลบรายชื่อนี้?', { title: 'ลบนักกีฬา', dangerous: true, confirmText: 'ลบรายชื่อ' });
+      if (confirmed) setPlayers(players.filter((_, i) => i !== index));
   };
 
   const handleSave = async (overrideStatus?: 'Approved' | 'Rejected') => {
@@ -163,7 +163,7 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
           onClose();
       } catch (e) {
           console.error("Save error", e);
-          alert("เกิดข้อผิดพลาดในการบันทึก");
+          notifyUser('บันทึกไม่สำเร็จ', 'เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่', 'error');
       } finally {
           setIsSaving(false);
       }

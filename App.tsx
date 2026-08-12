@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation, Prediction } from './types';
 import MatchSetup from './components/MatchSetup';
 import ScoreVisualizer from './components/ScoreVisualizer';
@@ -23,12 +23,13 @@ import ContestGallery from './components/ContestGallery';
 import LiveWall from './components/LiveWall';
 import SchoolPortal from './components/SchoolPortal';
 import LoginPage from './components/LoginPage';
+import SystemDialogHost from './components/SystemDialogHost';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
+import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -46,7 +47,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   objectiveTitle: "",
   objectiveDescription: "",
   objectiveImageUrl: "",
-  liffId: ""
+  liffId: "",
+  showPenaltyModeCard: true,
+};
+
+const settingEnabled = (value: boolean | string | undefined, fallback = true): boolean => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return !['0', 'false', 'off', 'no'].includes(String(value).toLowerCase());
 };
 
 const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -373,8 +381,27 @@ export default function App() {
     }
   };
 
-  const showNotification = (title: string, message: string = '', type: ToastType = 'success') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, title, message, type }]); };
-  const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
+  const showNotification = useCallback((title: string, message: string = '', type: ToastType = 'success') => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    setToasts(prev => [...prev, { id, title, message, type }]);
+  }, []);
+  const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+
+  const setPenaltyCardVisibility = async (visible: boolean) => {
+    const previous = appConfig.showPenaltyModeCard;
+    setAppConfig(prev => ({ ...prev, showPenaltyModeCard: visible }));
+    try {
+      await saveSettings({ showPenaltyModeCard: visible });
+      showNotification(
+        visible ? 'แสดงการ์ดแล้ว' : 'ซ่อนการ์ดแล้ว',
+        visible ? 'ผู้เข้าชมจะเห็นโหมดการดวลจุดโทษบนหน้าหลัก' : 'การ์ดโหมดการดวลจุดโทษถูกซ่อนจากผู้เข้าชมแล้ว',
+        'success',
+      );
+    } catch (error) {
+      setAppConfig(prev => ({ ...prev, showPenaltyModeCard: previous }));
+      showNotification('บันทึกไม่สำเร็จ', 'ไม่สามารถเปลี่ยนการแสดงการ์ดได้ กรุณาลองใหม่', 'error');
+    }
+  };
 
   // Modified loadData to accept silent refresh
   const loadData = async (forceRefresh: boolean = false, isSilent: boolean = false) => {
@@ -588,6 +615,7 @@ export default function App() {
   return (
     <div className="bg-slate-50 min-h-screen text-slate-900 font-sans pb-24" style={{ fontFamily: "'Kanit', sans-serif" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <SystemDialogHost onNotify={showNotification} />
       <SettingsDialog isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSave={() => loadData(true)} currentSettings={appConfig} />
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
@@ -638,7 +666,7 @@ export default function App() {
       
       {/* Donor List Modal */}
       {isDonorListOpen && (
-          <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsDonorListOpen(false)}>
+          <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4" onClick={() => setIsDonorListOpen(false)}>
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
                   <div className="p-4 bg-pink-600 text-white flex justify-between items-center">
                       <div className="flex items-center gap-2">
@@ -669,8 +697,39 @@ export default function App() {
           </div>
       )}
 
-      {confirmModal && confirmModal.isOpen && (<div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setConfirmModal(null)}><div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}><div className={`flex items-center gap-3 mb-4 ${confirmModal.isDangerous ? 'text-red-600' : 'text-slate-700'}`}><AlertTriangle className="w-6 h-6" /><h3 className="font-bold text-lg">{confirmModal.title}</h3></div><p className="text-slate-600 mb-6">{confirmModal.message}</p><div className="flex gap-3"><button onClick={() => setConfirmModal(null)} className="flex-1 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium text-slate-600">ยกเลิก</button><button onClick={confirmModal.onConfirm} className={`flex-1 py-2 rounded-lg font-bold text-white ${confirmModal.isDangerous ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>ยืนยัน</button></div></div></div>)}
-      {editingKick && activeTournament?.type === 'Penalty' && (<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[1100] p-4 backdrop-blur-sm" onClick={() => setEditingKick(null)}><div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}><div className="flex justify-between items-start mb-4"><h3 className="font-bold text-lg text-slate-800">แก้ไขผลการยิง</h3><button onClick={() => confirmDeleteKick(editingKick.id)} className="text-red-500 hover:bg-red-50 p-1 rounded transition" title="ลบรายการนี้"><Trash2 className="w-5 h-5" /></button></div><div className="space-y-4"><div><label className="block text-sm text-slate-500 mb-1">ชื่อผู้เล่น</label><input type="text" className="w-full p-2 border rounded-lg" defaultValue={editingKick.player} id="edit-player-name" /></div><div><label className="block text-sm text-slate-500 mb-1">ผลการยิง</label><select className="w-full p-2 border rounded-lg" defaultValue={editingKick.result} id="edit-kick-result"><option value={KickResult.GOAL}>เข้าประตู (GOAL)</option><option value={KickResult.SAVED}>เซฟได้ (SAVED)</option><option value={KickResult.MISSED}>ยิงพลาด (MISSED)</option></select></div><div className="flex gap-2 pt-4"><button onClick={() => setEditingKick(null)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button><button onClick={() => { const name = (document.getElementById('edit-player-name') as HTMLInputElement).value; const res = (document.getElementById('edit-kick-result') as HTMLSelectElement).value as KickResult; handleUpdateOldKick(editingKick.id, res, name); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold">บันทึก</button></div></div></div></div>)}
+      {confirmModal && confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[1100] bg-black/50 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm" onClick={() => setConfirmModal(null)}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            <div className={`flex items-center gap-3 mb-4 ${confirmModal.isDangerous ? 'text-red-600' : 'text-slate-700'}`}>
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="font-bold text-lg">{confirmModal.title}</h3>
+            </div>
+            <p className="text-slate-600 mb-6">{confirmModal.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmModal(null)} className="flex-1 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium text-slate-600">ยกเลิก</button>
+              <button onClick={confirmModal.onConfirm} className={`flex-1 py-2 rounded-lg font-bold text-white ${confirmModal.isDangerous ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>ยืนยัน</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editingKick && activeTournament?.type === 'Penalty' && (
+        <div className="fixed inset-0 bg-black/60 modal-sheet flex items-end xl:items-center justify-center z-[1100] p-0 xl:p-4 backdrop-blur-sm" onClick={() => setEditingKick(null)}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="font-bold text-lg text-slate-800">แก้ไขผลการยิง</h3>
+              <button onClick={() => confirmDeleteKick(editingKick.id)} className="text-red-500 hover:bg-red-50 p-1 rounded transition" title="ลบรายการนี้"><Trash2 className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div><label className="block text-sm text-slate-500 mb-1">ชื่อผู้เล่น</label><input type="text" className="w-full p-2 border rounded-lg" defaultValue={editingKick.player} id="edit-player-name" /></div>
+              <div><label className="block text-sm text-slate-500 mb-1">ผลการยิง</label><select className="w-full p-2 border rounded-lg" defaultValue={editingKick.result} id="edit-kick-result"><option value={KickResult.GOAL}>เข้าประตู (GOAL)</option><option value={KickResult.SAVED}>เซฟได้ (SAVED)</option><option value={KickResult.MISSED}>ยิงพลาด (MISSED)</option></select></div>
+              <div className="flex gap-2 pt-4">
+                <button onClick={() => setEditingKick(null)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button>
+                <button onClick={() => { const name = (document.getElementById('edit-player-name') as HTMLInputElement).value; const res = (document.getElementById('edit-kick-result') as HTMLSelectElement).value as KickResult; handleUpdateOldKick(editingKick.id, res, name); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold">บันทึก</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {currentView === 'tournament' && (
           <TournamentView 
@@ -906,6 +965,37 @@ export default function App() {
                   )}
               </div>
 
+              <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-700 rounded-2xl shadow-xl p-5 text-white overflow-hidden relative animate-in slide-in-from-bottom-2">
+                  <div className="absolute -right-10 -top-10 w-36 h-36 rounded-full bg-white/10" />
+                  <div className="relative flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+                          <SchoolIcon className="w-7 h-7" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                          <p className="text-indigo-100 text-xs font-bold tracking-wide">สำหรับโรงเรียนและครูผู้ประสานงาน</p>
+                          <h3 className="font-black text-xl mt-1">สมัครส่งทีม หรือกรอกรายละเอียดทีม</h3>
+                          <p className="text-indigo-100 text-sm mt-1">เลือกเมนูที่ต้องการ ระบบจะพาไปยังแบบฟอร์มโดยตรง</p>
+                      </div>
+                  </div>
+                  <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
+                      <button
+                        onClick={handleRegisterClick}
+                        disabled={isRegistrationFull}
+                        className="min-h-12 rounded-xl bg-white text-indigo-700 font-black flex items-center justify-center gap-2 px-4 shadow-lg hover:bg-indigo-50 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                      >
+                          <UserPlus className="w-5 h-5" />
+                          {isRegistrationFull ? 'ปิดรับสมัครแล้ว' : 'กรอกใบสมัครส่งทีม'}
+                      </button>
+                      <button
+                        onClick={() => goTo('school')}
+                        className="min-h-12 rounded-xl bg-indigo-950/35 border border-white/30 text-white font-black flex items-center justify-center gap-2 px-4 hover:bg-indigo-950/55 transition"
+                      >
+                          <ClipboardPenLine className="w-5 h-5" />
+                          กรอก/แก้ไขข้อมูลทีม
+                      </button>
+                  </div>
+              </div>
+
               {(objectiveData.goal > 0 || objectiveData.title) && (
                   <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden animate-in slide-in-from-bottom-2">
                       <div className="p-0 relative">
@@ -999,15 +1089,27 @@ export default function App() {
                   </div>
               )}
 
-              {activeTournament?.type === 'Penalty' && (
-                  <div className="animate-in slide-in-from-bottom-3">
-                      <MatchSetup 
-                          onStart={handleStartMatchRequest} 
-                          availableTeams={activeTeams} 
-                          onOpenSettings={() => setIsSettingsOpen(true)}
-                          isLoadingData={isLoadingData}
-                      />
-                  </div>
+              {activeTournament?.type === 'Penalty' && settingEnabled(appConfig.showPenaltyModeCard) && (
+                <div className="animate-in slide-in-from-bottom-3">
+                    <MatchSetup
+                        onStart={handleStartMatchRequest}
+                        availableTeams={activeTeams}
+                        onOpenSettings={() => setIsSettingsOpen(true)}
+                        isLoadingData={isLoadingData}
+                        isAdmin={isAdmin}
+                        onHide={isAdmin ? () => setPenaltyCardVisibility(false) : undefined}
+                    />
+                </div>
+              )}
+
+              {activeTournament?.type === 'Penalty' && !settingEnabled(appConfig.showPenaltyModeCard) && isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setPenaltyCardVisibility(true)}
+                  className="w-full py-3 px-4 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition"
+                >
+                  <Eye className="w-4 h-4" /> แสดงการ์ดโหมดการดวลจุดโทษ
+                </button>
               )}
 
               {currentUser && myTeams.length > 0 && (

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckCircle, AlertCircle, XCircle, Info, X } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -83,13 +84,17 @@ interface ToastContainerProps {
 }
 
 export const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, removeToast }) => {
-  return (
-    <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+  return createPortal(
+    <div
+      className="fixed left-4 right-4 sm:left-auto sm:right-4 flex flex-col gap-2 pointer-events-none"
+      style={{ zIndex: 2147483647, top: 'calc(1rem + env(safe-area-inset-top))' }}
+    >
       <div className="pointer-events-auto flex flex-col gap-2 items-end">
         {toasts.map((t) => (
           <Toast key={t.id} toast={t} onClose={removeToast} />
         ))}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };

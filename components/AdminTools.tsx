@@ -6,6 +6,7 @@ import {
 import { Tournament, Team } from '../types';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
 import SearchPicker, { PickerItem } from './SearchPicker';
+import { confirmAction, promptAction } from '../services/uiService';
 
 /**
  * เครื่องมือผู้ดูแล — งานที่ทำผ่านหน้าจอไม่ได้มาก่อน ต้องยิง API เอง
@@ -120,7 +121,10 @@ const AdminTools: React.FC<Props> = ({
   const doReview = (teamId: string, decision: 'approve' | 'reject') => run(`rev_${teamId}`, async () => {
     let reason = '';
     if (decision === 'reject') {
-      reason = window.prompt('เหตุผลที่ปฏิเสธ (โรงเรียนจะเห็นข้อความนี้เพื่อแก้ไข)') ?? '';
+      reason = await promptAction('โรงเรียนจะเห็นข้อความนี้เพื่อกลับไปแก้ไขข้อมูล', {
+        title: 'เหตุผลที่ปฏิเสธ', placeholder: 'ระบุสิ่งที่ต้องแก้ไข', required: true,
+        confirmText: 'ส่งให้โรงเรียน',
+      }) ?? '';
       if (!reason.trim()) {
         notify('ยกเลิก', 'ต้องระบุเหตุผล ไม่งั้นโรงเรียนจะไม่รู้ว่าต้องแก้อะไร', 'info');
         throw new ApiError('ยกเลิกโดยผู้ใช้', 0);
@@ -159,7 +163,7 @@ const AdminTools: React.FC<Props> = ({
     setRevealed(prev => ({ ...prev, [schoolId]: r.accessCode }));
   }, false);
 
-  const doRegenOne = (school: any) => {
+  const doRegenOne = async (school: any) => {
     const warn = [
       `ออกรหัสใหม่ให้ "${school.schoolName}" ?`,
       '',
@@ -168,7 +172,7 @@ const AdminTools: React.FC<Props> = ({
       '',
       'ถ้าแค่ลืมรหัส ให้กด "ดูรหัส" แทน — ไม่ต้องออกใหม่',
     ].join('\n');
-    if (!window.confirm(warn)) return;
+    if (!await confirmAction(warn, { title: `ออกรหัสใหม่ให้ ${school.schoolName}?`, dangerous: true, confirmText: 'ออกรหัสใหม่' })) return;
     return run('regen_' + school.schoolId, async () => {
       const r = await apiPost('regenerateAccessCode', { schoolId: school.schoolId });
       setRevealed(prev => ({ ...prev, [school.schoolId]: r.accessCode }));
@@ -176,7 +180,7 @@ const AdminTools: React.FC<Props> = ({
     }, false);
   };
 
-  const doRegenAll = () => {
+  const doRegenAll = async () => {
     const n = schoolList?.length ?? 0;
     const warn = [
       `ออกรหัสใหม่ให้ทุกโรงเรียนในรายการนี้ (${n} โรงเรียน) ?`,
@@ -187,7 +191,7 @@ const AdminTools: React.FC<Props> = ({
       'ใช้เมื่อสงสัยว่ารหัสรั่วเท่านั้น',
       'ถ้าแค่บางโรงเรียนลืมรหัส ให้ออกทีละโรงเรียนแทน',
     ].join('\n');
-    if (!window.confirm(warn)) return;
+    if (!await confirmAction(warn, { title: 'ออกรหัสใหม่ทุกโรงเรียน?', dangerous: true, confirmText: 'ออกรหัสทั้งหมด' })) return;
     return run('regenall', async () => {
       const r = await apiPost('issueAccessCodes', {
         tournamentId: target, regenerateExisting: true,

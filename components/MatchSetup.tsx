@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trophy, ArrowRight, Users, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trophy, ArrowRight, Users, Settings, ChevronDown, ChevronUp, EyeOff } from 'lucide-react';
 import { Team } from '../types';
 
 interface MatchSetupProps {
@@ -7,6 +7,8 @@ interface MatchSetupProps {
   availableTeams: Team[];
   onOpenSettings: () => void;
   isLoadingData: boolean;
+  isAdmin?: boolean;
+  onHide?: () => void;
 }
 
 const createManualTeam = (name: string, id: string, color: string): Team => ({
@@ -17,7 +19,7 @@ const createManualTeam = (name: string, id: string, color: string): Team => ({
   logoUrl: ''
 });
 
-const MatchSetup: React.FC<MatchSetupProps> = ({ onStart, availableTeams, onOpenSettings, isLoadingData }) => {
+const MatchSetup: React.FC<MatchSetupProps> = ({ onStart, availableTeams, onOpenSettings, isLoadingData, isAdmin = false, onHide }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [teamAId, setTeamAId] = useState<string>('');
   const [teamBId, setTeamBId] = useState<string>('');
@@ -43,16 +45,30 @@ const MatchSetup: React.FC<MatchSetupProps> = ({ onStart, availableTeams, onOpen
 
   return (
     <div className="w-full">
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between bg-indigo-600 text-white p-4 rounded-t-2xl font-bold text-lg hover:bg-indigo-700 transition shadow-md"
-      >
-        <div className="flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-yellow-300" />
-            <span>โหมดการดวลจุดโทษ (Shootout)</span>
-        </div>
-        {isOpen ? <ChevronUp className="w-6 h-6" /> : <ChevronDown className="w-6 h-6" />}
-      </button>
+      <div className="w-full flex items-center bg-indigo-600 text-white rounded-t-2xl shadow-md overflow-hidden">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="min-w-0 flex-1 flex items-center justify-between p-4 font-bold text-base sm:text-lg hover:bg-indigo-700 transition text-left"
+          aria-expanded={isOpen}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+              <Trophy className="w-6 h-6 text-yellow-300 shrink-0" />
+              <span className="truncate">โหมดการดวลจุดโทษ (Shootout)</span>
+          </div>
+          {isOpen ? <ChevronUp className="w-6 h-6 shrink-0" /> : <ChevronDown className="w-6 h-6 shrink-0" />}
+        </button>
+        {isAdmin && onHide && (
+          <button
+            type="button"
+            onClick={onHide}
+            className="self-stretch px-3 border-l border-white/20 hover:bg-indigo-800 transition flex items-center gap-1 text-xs font-bold"
+            title="ซ่อนการ์ดนี้จากหน้าหลัก"
+          >
+            <EyeOff className="w-4 h-4" />
+            <span className="hidden sm:inline">ซ่อน</span>
+          </button>
+        )}
+      </div>
 
       {isOpen && (
         <div className="bg-white rounded-b-2xl shadow-xl p-6 border border-t-0 border-slate-200 animate-in slide-in-from-top-2">

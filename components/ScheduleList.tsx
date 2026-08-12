@@ -55,7 +55,7 @@ const TeamSelectorModal: React.FC<TeamSelectorProps> = ({ isOpen, onClose, onSel
     const filtered = teams.filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
 
     return (
-        <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4" onClick={onClose}>
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                 <div className="p-4 border-b flex justify-between items-center bg-slate-50">
                     <h3 className="font-bold text-slate-800">{title || "เลือกทีม"}</h3>
@@ -144,6 +144,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [filterGroup, setFilterGroup] = useState('All');
+  const [filterVenue, setFilterVenue] = useState('All');
 
   // AI Summary State
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -219,6 +220,16 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   };
 
   const uniqueRounds = Array.from(new Set(scheduledMatches.map(m => getRoundName(m.roundLabel || '')))).sort();
+  const venueNames: string[] = scheduledMatches.reduce((venues: string[], match: Match) => {
+    const venue = (match.venue || '').trim();
+    if (venue) venues.push(venue);
+    return venues;
+  }, [] as string[]);
+  const uniqueVenues = (Array.from(new Set(venueNames)) as string[]).sort();
+  const venueCounts = uniqueVenues.reduce((acc, venue) => {
+    acc[venue] = scheduledMatches.filter(m => m.venue?.trim() === venue).length;
+    return acc;
+  }, {} as Record<string, number>);
 
   /**
    * คีย์วันที่แบบไม่ throw
@@ -230,6 +241,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   const dateKey = (m: Match): string => {
     const raw = m.scheduledTime || m.date;
     if (!raw) return '';
+    const localDate = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+    if (localDate) return localDate;
     const d = new Date(raw);
     return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
   };
@@ -243,8 +256,19 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
     const matchesDate = !filterDate || mDate === filterDate;
     const mRound = getRoundName(m.roundLabel || '');
     const matchesRound = filterGroup === 'All' || mRound === filterGroup;
-    return matchesSearch && matchesDate && matchesRound;
+    const matchesVenue = filterVenue === 'All' || m.venue?.trim() === filterVenue;
+    return matchesSearch && matchesDate && matchesRound && matchesVenue;
   });
+
+  const activeFilterCount = [
+    !!searchTerm.trim(), !!filterDate, filterGroup !== 'All', filterVenue !== 'All'
+  ].filter(Boolean).length;
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterDate('');
+    setFilterGroup('All');
+    setFilterVenue('All');
+  };
 
   const groupedScheduled = filteredScheduled.reduce((acc, m) => {
     // นัดที่ยังไม่กำหนดวันไปรวมกลุ่มเดียวกัน แทนที่จะทำให้ทั้งหน้าพัง
@@ -620,15 +644,32 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
 
         <div className="mb-8">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 sticky top-0 z-20">
-                <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex flex-col lg:flex-row gap-3">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                         <input type="text" placeholder="ค้นหาทีม / สนามแข่ง..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition text-sm" />
                     </div>
-                    <div className="flex gap-2">
-                        <div className="relative"><input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="w-full md:w-auto p-2 border rounded-lg bg-slate-50 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
-                        <div className="relative flex-1 md:flex-none md:min-w-[140px]"><select value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="w-full p-2 pr-8 border rounded-lg bg-slate-50 text-sm appearance-none focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="All">ทุกรอบ</option>{uniqueRounds.map(r => <option key={r} value={r}>{r}</option>)}</select><ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /></div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:min-w-[520px]">
+                        <div className="relative"><input aria-label="กรองตามวันที่" type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="w-full p-2 border rounded-lg bg-slate-50 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
+                        <div className="relative"><select aria-label="กรองตามรอบ" value={filterGroup} onChange={e => setFilterGroup(e.target.value)} className="w-full p-2 pr-8 border rounded-lg bg-slate-50 text-sm appearance-none focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="All">ทุกรอบ</option>{uniqueRounds.map(r => <option key={r} value={r}>{r}</option>)}</select><ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /></div>
+                        <div className="relative"><select aria-label="กรองตามสนาม" value={filterVenue} onChange={e => setFilterVenue(e.target.value)} className="w-full p-2 pl-9 pr-8 border rounded-lg bg-slate-50 text-sm appearance-none focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option value="All">ทุกสนาม</option>{uniqueVenues.map(venue => <option key={venue} value={venue}>{venue} ({venueCounts[venue]})</option>)}</select><MapPin className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /><ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" /></div>
                     </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-slate-500">พบ <b className="text-slate-800">{filteredScheduled.length}</b> จาก {scheduledMatches.length} คู่</span>
+                        {uniqueVenues.map(venue => (
+                            <button key={venue} onClick={() => setFilterVenue(filterVenue === venue ? 'All' : venue)}
+                                className={`text-[11px] px-2 py-1 rounded-full border transition ${filterVenue === venue ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
+                                {venue} · {venueCounts[venue]}
+                            </button>
+                        ))}
+                    </div>
+                    {activeFilterCount > 0 && (
+                        <button onClick={clearFilters} className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1">
+                            <X className="w-3.5 h-3.5" /> ล้างตัวกรอง ({activeFilterCount})
+                        </button>
+                    )}
                 </div>
             </div>
              {isLoading ? (
@@ -639,7 +680,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                 <div className="bg-white p-10 rounded-xl shadow-sm text-center text-slate-400 border border-slate-200 border-dashed">
                     <Filter className="w-12 h-12 mx-auto mb-3 text-slate-300"/>
                     <p>ไม่พบรายการแข่งขันตามเงื่อนไข</p>
-                    <button onClick={() => {setSearchTerm(''); setFilterDate(''); setFilterGroup('All');}} className="mt-3 text-indigo-600 text-sm font-bold hover:underline">
+                    <button onClick={clearFilters} className="mt-3 text-indigo-600 text-sm font-bold hover:underline">
                         ล้างตัวกรองทั้งหมด
                     </button>
                 </div>
@@ -760,7 +801,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
         </div>
 
         {selectedMatch && (
-            <div className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedMatch(null)}>
+            <div className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4" onClick={() => setSelectedMatch(null)}>
                 <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 my-8 relative flex flex-col h-[90vh] md:h-auto md:max-h-[90vh]" onClick={e => e.stopPropagation()}>
                     
                     <button onClick={() => setSelectedMatch(null)} className="absolute top-2 right-2 md:top-4 md:right-4 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full z-[60] transition"><X className="w-5 h-5" /></button>
@@ -1048,7 +1089,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
 
         {/* ... (Add Modal and Edit Modals code remains the same) ... */}
         {isAddModalOpen && (
-            <div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto" onClick={() => setIsAddModalOpen(false)}>
+            <div className="fixed inset-0 z-[1100] bg-black/50 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm overflow-y-auto" onClick={() => setIsAddModalOpen(false)}>
                 <div className={`bg-white rounded-2xl shadow-2xl p-6 w-full ${activeMatchType === 'group' && !matchForm.id ? 'max-w-4xl' : 'max-w-md'} animate-in zoom-in duration-200 my-8 transition-all relative`} onClick={e => e.stopPropagation()}>
                     <div className="flex justify-between items-center mb-4 border-b pb-2">
                         <h3 className="text-lg font-bold text-slate-800">{matchForm.id ? 'แก้ไขตาราง' : 'เพิ่มตารางการแข่งขัน'}</h3>
@@ -1106,7 +1147,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
         )}
         
          {isEditResultOpen && (
-            <div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setIsEditResultOpen(false)}>
+            <div className="fixed inset-0 z-[1100] bg-black/50 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm" onClick={() => setIsEditResultOpen(false)}>
                  <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                      <div className="flex justify-between items-center mb-4 border-b pb-2">
                          <h3 className="font-bold text-lg text-slate-800">แก้ไขผลการแข่งขัน</h3>
@@ -1131,7 +1172,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
         )}
 
         {(matchToDelete || matchToReset) && (
-            <div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => { setMatchToDelete(null); setMatchToReset(null); }}>
+            <div className="fixed inset-0 z-[1100] bg-black/50 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm" onClick={() => { setMatchToDelete(null); setMatchToReset(null); }}>
                 <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-3 text-red-600 mb-4">
                         <AlertTriangle className="w-8 h-8" />

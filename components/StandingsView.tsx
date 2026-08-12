@@ -13,12 +13,38 @@ interface StandingsViewProps {
   predictions?: Prediction[];
 }
 
+const matchDateValue = (match: Match): string => match.date || match.scheduledTime || '';
+
+const parseMatchDate = (match: Match): Date | null => {
+    const value = matchDateValue(match);
+    if (!value) return null;
+
+    // Safari/iOS does not reliably parse SQL datetime values with a space separator.
+    const normalizedValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
+        ? value.replace(' ', 'T')
+        : value;
+    const date = new Date(normalizedValue);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const matchTimestamp = (match: Match): number => {
+    return parseMatchDate(match)?.getTime() ?? 0;
+};
+
+const formatMatchDate = (match: Match, includeTime = false): string => {
+    const date = parseMatchDate(match);
+    if (!date) return 'ยังไม่กำหนดวัน';
+    return date.toLocaleDateString('th-TH', includeTime
+        ? { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }
+        : { month: 'short', day: 'numeric' });
+};
+
 const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => void }> = ({ team, matches, onClose }) => {
     const teamMatches = matches.filter(m => {
         const tA = typeof m.teamA === 'string' ? m.teamA : m.teamA.name;
         const tB = typeof m.teamB === 'string' ? m.teamB : m.teamB.name;
         return tA === team.name || tB === team.name;
-    }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }).sort((a,b) => matchTimestamp(b) - matchTimestamp(a));
 
     const stats = {
         played: teamMatches.filter(m => m.winner).length,
@@ -29,7 +55,7 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
     };
 
     return (
-        <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200" onClick={onClose}>
+        <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in zoom-in duration-200" onClick={onClose}>
             <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
                 <div className="bg-indigo-900 p-6 text-white flex justify-between items-center shrink-0">
                     <div className="flex items-center gap-4">
@@ -75,7 +101,7 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
                                 return (
                                     <div key={m.id} className={`p-3 rounded-lg border flex justify-between items-center ${resultColor}`}>
                                         <div className="flex items-center gap-3">
-                                            <span className="text-xs font-bold text-slate-500 w-12">{new Date(m.date).toLocaleDateString('th-TH', {month:'short', day:'numeric'})}</span>
+                                            <span className="text-xs font-bold text-slate-500 min-w-16">{formatMatchDate(m)}</span>
                                             <div>
                                                 <div className="font-bold text-sm text-slate-800">vs {opponent}</div>
                                                 <div className="text-[10px] text-slate-500">{m.roundLabel?.split(':')[0]}</div>
@@ -98,6 +124,10 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], onClose: () => v
 const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, isLoading, predictions = [] }) => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay' | 'fan'>('table');
+  const finishedMatches = useMemo(
+      () => matches.filter(m => Boolean(m.winner)).sort((a, b) => matchTimestamp(b) - matchTimestamp(a)),
+      [matches]
+  );
   
   if (isLoading) {
       return (
@@ -674,17 +704,15 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                 </div>
             )}
 
-            {/* Match History (Always Visible) */}
+            {/* แสดงส่วนนี้เมื่อมีผลที่บันทึกแล้วจริงเท่านั้น นัด Scheduled ไม่ใช่ผล 0-0 */}
+            {finishedMatches.length > 0 && (
             <div className="mt-12 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in slide-in-from-bottom-8">
                 <div className="p-4 bg-slate-800 text-white font-bold flex items-center gap-2 sticky top-0 z-10">
                     <Calendar className="w-5 h-5" /> ผลการแข่งขันล่าสุด
                 </div>
                 <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto custom-scrollbar">
-                    {matches.length === 0 ? (
-                         <div className="p-8 text-center text-slate-400">ยังไม่มีบันทึกการแข่งขัน</div>
-                    ) : (
-                        matches.slice().reverse().map((m, idx) => (
-                            <div key={idx} className="p-4 flex flex-col md:flex-row items-center justify-between hover:bg-slate-50 gap-4">
+                    {finishedMatches.map(m => (
+                            <div key={m.id} className="p-4 flex flex-col md:flex-row items-center justify-between hover:bg-slate-50 gap-4">
                                 <div className="flex items-center justify-center gap-6 flex-1">
                                     <div className="text-right flex-1 font-bold text-slate-700 truncate">{typeof m.teamA === 'string' ? m.teamA : m.teamA.name}</div>
                                     <div className="bg-slate-100 px-4 py-2 rounded-lg font-mono font-bold text-xl text-indigo-600 shadow-inner border border-slate-200">
@@ -693,13 +721,13 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, onBack, i
                                     <div className="text-left flex-1 font-bold text-slate-700 truncate">{typeof m.teamB === 'string' ? m.teamB : m.teamB.name}</div>
                                 </div>
                                 <div className="text-xs text-slate-400 md:w-32 text-center">
-                                    {new Date(m.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit'})}
+                                    {formatMatchDate(m, true)}
                                 </div>
                             </div>
-                        ))
-                    )}
+                        ))}
                 </div>
             </div>
+            )}
 
             {selectedTeam && (
                 <TeamDetailModal 

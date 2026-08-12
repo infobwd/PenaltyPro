@@ -15,6 +15,7 @@
     # ทุก path ที่ไม่ใช่ไฟล์จริงและไม่ใช่ /api/ ให้เสิร์ฟ index.html
     # เพื่อให้เปิดลิงก์ตรง เช่น /schedule แล้วไม่ 404
     RewriteCond %{REQUEST_URI} !^/api/
+    RewriteCond %{REQUEST_URI} !^/storage/
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.html [L]

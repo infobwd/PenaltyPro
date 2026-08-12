@@ -50,19 +50,30 @@
       /* มีโมดัลเปิดอยู่ = ล็อกไม่ให้พื้นหลังเลื่อน
          ไม่งั้นเวลาปัดในโมดัลจนสุด นิ้วจะไปพาหน้าเบื้องหลังเลื่อนแทน (scroll chaining)
          ซึ่งบนมือถือทำให้ตำแหน่งที่กรอกค้างไว้หายไปเลย */
-      body.modal-open { overflow: hidden !important; touch-action: none; }
+      body.modal-open {
+        overflow: hidden !important;
+        touch-action: none;
+        overscroll-behavior: none;
+        position: fixed;
+        width: 100%;
+        left: 0;
+        right: 0;
+      }
       .modal-sheet { overscroll-behavior: contain; }
 
       /* โมดัลบนมือถือ/แท็บเล็ต = bottom sheet
          กล่องกลางจอบนมือถือทำให้เนื้อหายาว ๆ (ฟอร์มแก้ทีม รายชื่อนักกีฬา)
          ถูกบีบจนต้องเลื่อนสองชั้น และปุ่มล่างมักตกไปใต้แป้นพิมพ์
          เลื่อนขึ้นมาจากขอบล่างแทน จะกดด้วยนิ้วโป้งได้และเห็นเนื้อหาเต็มความสูง */
-      @media (max-width: 1023px) {
+      @media (max-width: 1279px) {
         .modal-sheet { align-items: flex-end !important; padding: 0 !important; }
         .modal-sheet > div:not([class*="max-w-none"]) {
           width: 100% !important;
           max-width: 100% !important;
-          max-height: 92vh !important;
+          max-height: 92dvh !important;
+          margin: 0 !important;
+          overflow-y: auto !important;
+          overscroll-behavior: contain;
           border-bottom-left-radius: 0 !important;
           border-bottom-right-radius: 0 !important;
           border-top-left-radius: 1.5rem !important;
@@ -97,9 +108,19 @@
       // เฝ้าดูว่ามีโมดัลเปิดอยู่ไหม แล้วล็อก/ปลดล็อกการเลื่อนของพื้นหลังให้อัตโนมัติ
       // ทำที่นี่ที่เดียวเพราะโมดัลกระจายอยู่หลายคอมโพเนนต์ ถ้าไปใส่ทีละที่จะลืมบางจุด
       (function () {
+        var lockedScrollY = 0;
         var sync = function () {
           var open = document.querySelector('.modal-sheet') !== null;
-          document.body.classList.toggle('modal-open', open);
+          var locked = document.body.classList.contains('modal-open');
+          if (open && !locked) {
+            lockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+            document.body.style.top = '-' + lockedScrollY + 'px';
+            document.body.classList.add('modal-open');
+          } else if (!open && locked) {
+            document.body.classList.remove('modal-open');
+            document.body.style.top = '';
+            window.scrollTo(0, lockedScrollY);
+          }
         };
         new MutationObserver(sync).observe(document.documentElement,
           { childList: true, subtree: true });

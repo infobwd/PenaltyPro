@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Match, Team, Standing, Player, KickResult, AppSettings, Prediction, ContestEntry, Sponsor, MusicTrack, TickerMessage, UserProfile } from '../types';
 import { Trophy, Clock, Calendar, MapPin, Activity, Award, Megaphone, Monitor, Maximize2, X, ChevronRight, Hand, Sparkles, Camera, Heart, User, QrCode, Settings, Plus, Trash2, Upload, Loader2, Save, Music, Play, Pause, SkipForward, Youtube, Volume2, VolumeX, Star, Zap, Keyboard, Info, Swords, Timer, Lock, Gamepad2, Coins, Cast, Signal, History, GitMerge, CheckCircle2, AlertCircle, Globe, Edit2, AlertTriangle, Layers, LayoutGrid, Type, BrainCircuit, BarChart3, TrendingUp, Users, Radio, Unlock, Film, Grid, ArrowLeft } from 'lucide-react';
 import { fetchContests, fetchSponsors, manageSponsor, fileToBase64, fetchMusicTracks, manageMusicTrack, saveSettings, fetchTickerMessages, manageTickerMessage } from '../services/sheetService';
+import { confirmAction } from '../services/uiService';
 
 interface LiveWallProps {
   matches: Match[];
@@ -112,7 +113,7 @@ interface ConfirmationModalProps {
 const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ isOpen, title, message, confirmText = "Confirm", cancelText = "Cancel", type = "danger", onConfirm, onCancel }) => {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0 z-[7000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200 cursor-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[7000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in zoom-in duration-200 cursor-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full border border-slate-100">
                 <div className={`flex items-center gap-3 mb-4 ${type === 'danger' ? 'text-red-600' : 'text-slate-800'}`}>
                     <div className={`p-3 rounded-full ${type === 'danger' ? 'bg-red-50' : 'bg-slate-100'}`}>
@@ -198,12 +199,12 @@ const SettingsManagerModal: React.FC<{
     const handleDeleteMusic = async (id: string) => { setConfirmModal(null); setIsSubmitting(true); try { await manageMusicTrack({ subAction: 'delete', id }); onUpdateMusic(); notify("Track removed", 'success'); } catch(e) {} finally { setIsSubmitting(false); } };
     const handleAddTicker = async () => { if (!tickerText) return; setIsSubmitting(true); try { await manageTickerMessage({ subAction: 'add', message: tickerText, type: getScopedType('ticker'), isActive: true }); onUpdateTicker(); setTickerText(''); notify("Message added", 'success'); } catch(e) { notify("Failed", 'error'); } finally { setIsSubmitting(false); } };
     const handleToggleTicker = async (id: string, currentStatus: boolean) => { await manageTickerMessage({ subAction: 'toggle', id, isActive: !currentStatus }); onUpdateTicker(); };
-    const handleDeleteTicker = async (id: string) => { if (!confirm("Delete this message?")) return; setIsSubmitting(true); try { await manageTickerMessage({ subAction: 'delete', id }); onUpdateTicker(); } catch(e) {} finally { setIsSubmitting(false); } };
+    const handleDeleteTicker = async (id: string) => { if (!await confirmAction('ข้อความนี้จะถูกนำออกจากแถบประกาศ', { title: 'ลบข้อความนี้?', dangerous: true, confirmText: 'ลบข้อความ' })) return; setIsSubmitting(true); try { await manageTickerMessage({ subAction: 'delete', id }); onUpdateTicker(); } catch(e) {} finally { setIsSubmitting(false); } };
     const handleEditSave = async () => { if (!editingItem) return; setIsSubmitting(true); try { if (editingItem.type === 'music') { await manageMusicTrack({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name }); onUpdateMusic(); } else if (editingItem.type === 'sponsor') { await manageSponsor({ subAction: 'edit' as any, id: editingItem.id, name: editingItem.name }); onUpdateSponsors(); } else if (editingItem.type === 'ticker') { await manageTickerMessage({ subAction: 'edit' as any, id: editingItem.id, message: editingItem.name }); onUpdateTicker(); } setEditingItem(null); notify("Updated", 'success'); } catch (e) { notify("Failed", 'error'); } finally { setIsSubmitting(false); } };
 
     // ... (Return JSX is same as before, simplified for insertion)
     return (
-        <div className="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm cursor-auto" onClick={onClose}>
+        <div className="fixed inset-0 z-[6000] bg-black/80 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm cursor-auto" onClick={onClose}>
             {confirmModal && <ConfirmationModal isOpen={confirmModal.isOpen} title={confirmModal.title} message={confirmModal.message} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal(null)} />}
             <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85vh] text-slate-800 shadow-2xl animate-in zoom-in duration-200 relative" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center p-5 border-b bg-slate-50"><div><h3 className="font-bold text-xl flex items-center gap-2 text-slate-800"><Settings className="w-6 h-6 text-indigo-600"/> Live Wall Settings</h3><p className="text-xs text-slate-500">Manage content for {scope === 'tournament' ? 'current tournament' : 'all events'}</p></div><button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition"><X className="w-5 h-5"/></button></div>

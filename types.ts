@@ -33,6 +33,7 @@ export interface AppSettings {
   educationSupportAccountName?: string;
   educationSupportBankName?: string;
   educationSupportAccountNumber?: string;
+  showPenaltyModeCard?: boolean | string;
 }
 
 export interface NewsItem {

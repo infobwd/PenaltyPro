@@ -581,7 +581,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
 
       {/* MATCH DETAIL MODAL */}
       {selectedMatch && (
-          <div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedMatch(null)}>
+          <div className="fixed inset-0 z-[1100] bg-black/50 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm" onClick={() => setSelectedMatch(null)}>
               <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in duration-200 flex flex-col" onClick={e => e.stopPropagation()}>
                   
                   {/* Header */}
@@ -665,7 +665,7 @@ const TournamentView: React.FC<TournamentViewProps> = ({ teams, matches, onSelec
       )}
 
       {walkoverModal && (
-          <div className="fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setWalkoverModal(null)}>
+          <div className="fixed inset-0 z-[1100] bg-black/50 modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 backdrop-blur-sm" onClick={() => setWalkoverModal(null)}>
               <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center gap-3 text-orange-600 mb-4 border-b pb-2">
                       <ShieldAlert className="w-6 h-6" />
@@ -727,7 +727,7 @@ const TeamAssignmentModal: React.FC<{
         .filter(t => t.name.toLowerCase().includes(search.toLowerCase()));
 
     return (
-        <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4" onClick={onClose}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
                 <div className="bg-slate-900 p-4 text-white flex justify-between items-center shrink-0">
                     <div>

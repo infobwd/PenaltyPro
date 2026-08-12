@@ -1,0 +1,13 @@
+# ไฟล์นี้ถูกคัดลอกไป dist/storage/uploads ตอน build เพื่อแก้ค่าบน production
+# ไฟล์รูปต้องเปิดอ่านได้ แต่ไฟล์สคริปต์ทุกชนิดต้องถูกปฏิเสธ
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>

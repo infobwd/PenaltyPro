@@ -3,6 +3,7 @@ import { Tournament, TournamentConfig, ProjectImage, TournamentPrize, Team, Dona
 import { Trophy, Plus, ArrowRight, Loader2, Calendar, Target, CheckCircle2, Users, Settings, Edit2, X, Save, ArrowLeft, FileCheck, Clock, Shield, AlertTriangle, Heart, Image as ImageIcon, Trash2, Layout, MapPin, CreditCard, Banknote, Star, Share2, DollarSign, Wallet, FileText, Upload } from 'lucide-react';
 import { createTournament, updateTournament, fileToBase64 } from '../services/sheetService';
 import { shareTournament } from '../services/liffService';
+import { notifyUser } from '../services/uiService';
 
 interface TournamentSelectorProps {
   tournaments: Tournament[];
@@ -87,7 +88,7 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
 
   const notify = (title: string, msg: string, type: 'success' | 'error' | 'info' | 'warning') => {
       if (showNotification) showNotification(title, msg, type);
-      else alert(`${title}: ${msg}`);
+      else notifyUser(title, msg, type);
   };
 
   const handleShare = (e: React.MouseEvent, tournament: Tournament, teamCount: number, maxTeams: number) => {

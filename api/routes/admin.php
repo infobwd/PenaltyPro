@@ -275,7 +275,9 @@ function save_settings(): void
                  ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
                 [
                     ':k' => $key,
-                    ':v' => (string) $v,
+                    // PHP แปลง false เป็นสตริงว่าง ซึ่ง frontend จะตีความเป็น
+                    // "ยังไม่ได้ตั้งค่า" และย้อนกลับไปใช้ค่า default=true
+                    ':v' => is_bool($v) ? ($v ? '1' : '0') : (string) $v,
                     ':pub' => in_array($k, $private, true) ? 0 : 1,
                 ]
             );

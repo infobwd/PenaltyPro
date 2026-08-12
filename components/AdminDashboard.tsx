@@ -8,6 +8,7 @@ import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, Cred
 import { apiGet, apiPost } from '../services/apiConfig';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
 import confetti from 'canvas-confetti';
+import { confirmAction, notifyUser } from '../services/uiService';
 
 interface AdminDashboardProps {
   teams: Team[];
@@ -358,7 +359,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleDeleteUser = async (userId: string) => {
-      if (!confirm("ยืนยันการลบผู้ใช้งานนี้?")) return;
+      if (!await confirmAction('ยืนยันการลบผู้ใช้งานนี้?', { title: 'ลบผู้ใช้งาน', dangerous: true, confirmText: 'ลบผู้ใช้งาน' })) return;
       executeWithReload(async () => {
           const success = await deleteUser(userId);
           if (!success) throw new Error("Failed to delete");
@@ -605,7 +606,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   }, [selectedTeam]);
 
-  const notify = (title: string, msg: string, type: 'success' | 'error' | 'info' | 'warning') => { if (showNotification) showNotification(title, msg, type); else alert(`${title}: ${msg}`); };
+  const notify = (title: string, msg: string, type: 'success' | 'error' | 'info' | 'warning') => { if (showNotification) showNotification(title, msg, type); else notifyUser(title, msg, type); };
   const validateFile = (file: File, type: 'image' | 'doc') => {
     const limit = type === 'image' ? MAX_IMAGE_SIZE : MAX_DOC_SIZE;
     if (file.size > limit) { notify("ไฟล์ใหญ่เกินไป", `ขนาดไฟล์ต้องไม่เกิน ${limit / 1024 / 1024}MB`, "error"); return false; }
@@ -635,7 +636,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
   
   const handleDeleteTeam = async (teamId: string) => {
-      if (!confirm("คุณแน่ใจหรือไม่ที่จะลบทีมนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+      if (!await confirmAction('การกระทำนี้ไม่สามารถย้อนกลับได้', { title: 'ยืนยันการลบทีมนี้?', dangerous: true, confirmText: 'ลบทีม' })) return;
       executeWithReload(async () => {
           await deleteTeam(teamId);
       }, "ลบทีมเรียบร้อย", "กำลังลบข้อมูลทีม...");

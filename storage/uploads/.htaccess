@@ -1,6 +1,14 @@
 # ไฟล์อัปโหลดต้องเปิดอ่านได้ แต่ห้ามรันเป็นสคริปต์
-<FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
-    Require all denied
-</FilesMatch>
-Options -ExecCGI
-AddHandler default-handler .php .phtml .phar
+# ห้ามใช้ Options/AddHandler ที่นี่ เพราะ shared host บางรายไม่อนุญาต directive
+# เหล่านั้นใน .htaccess และจะตอบ 500 แม้ร้องขอไฟล์ JPG ปกติ
+<IfModule mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>

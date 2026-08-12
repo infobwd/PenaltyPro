@@ -369,7 +369,7 @@ export const manageNews = async (actionType: 'add' | 'delete' | 'edit', newsItem
   await apiPost('manageNews', { subAction: actionType, newsItem }); return true;
 };
 
-export const saveSettings = async (settings: AppSettings) => {
+export const saveSettings = async (settings: Partial<AppSettings>) => {
   await apiPost('saveSettings', { settings }); return true;
 };
 

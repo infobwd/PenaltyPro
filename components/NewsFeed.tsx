@@ -125,7 +125,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ news, isLoading, initialNewsId, cur
       )}
 
       {selectedNews && (
-        <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[1200] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 overflow-y-auto">
             <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 my-8">
                 <div className="relative">
                     {selectedNews.imageUrl && (

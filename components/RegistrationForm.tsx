@@ -6,6 +6,7 @@ import { Upload, ArrowLeft, CheckCircle, School, User, FileText, Search, Image a
 import { registerTeam, fileToBase64, updateMyTeam } from '../services/sheetService';
 import { shareRegistration } from '../services/liffService';
 import { RegistrationData, AppSettings, School as SchoolType, UserProfile, Team, Player } from '../types';
+import { notifyUser } from '../services/uiService';
 
 interface RegistrationFormProps {
   onBack: () => void;
@@ -200,7 +201,7 @@ const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBack, schools, co
 
   const notify = (title: string, msg: string, type: 'success' | 'error' | 'info') => {
       if (showNotification) showNotification(title, msg, type);
-      else alert(`${title}: ${msg}`);
+      else notifyUser(title, msg, type);
   };
 
   const validateFile = (file: File, type: 'image' | 'doc') => {

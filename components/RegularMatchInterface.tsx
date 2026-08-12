@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, MatchState, MatchEvent, KickResult } from '../types';
 import { Play, Pause, Square, Plus, Flag, User, Clock, ArrowRight, RotateCcw, Save, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { confirmAction } from '../services/uiService';
 
 interface RegularMatchInterfaceProps {
   teamA: Team;
@@ -44,8 +45,8 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
 
   const handleStartStop = () => setIsRunning(!isRunning);
   
-  const handleResetTimer = () => {
-      if(window.confirm("ต้องการรีเซ็ตเวลาหรือไม่?")) {
+  const handleResetTimer = async () => {
+      if(await confirmAction('เวลาที่จับไว้จะกลับเป็น 00:00', { title: 'รีเซ็ตเวลา?', dangerous: true, confirmText: 'รีเซ็ตเวลา' })) {
           setIsRunning(false);
           setSeconds(0);
       }
@@ -84,8 +85,8 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
       // onUpdateState({ ... });
   };
 
-  const finishMatch = () => {
-      if (!window.confirm("ยืนยันจบการแข่งขัน?")) return;
+  const finishMatch = async () => {
+      if (!await confirmAction('กรุณาตรวจสอบคะแนนและเหตุการณ์ก่อนบันทึก', { title: 'ยืนยันจบการแข่งขัน?', confirmText: 'จบการแข่งขัน' })) return;
       
       setIsRunning(false);
       let winner: 'A' | 'B' | null = null;
@@ -226,7 +227,7 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
 
        {/* Modal for Player Selection */}
        {eventModal && (
-           <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setEventModal(null)}>
+           <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4" onClick={() => setEventModal(null)}>
                <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                    <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
                        <h3 className="font-bold text-slate-800">เลือกผู้เล่น ({eventModal.teamId === 'A' ? teamA.name : teamB.name})</h3>

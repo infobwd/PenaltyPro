@@ -1,5 +1,6 @@
 
 import { Match, NewsItem, RegistrationData, KickResult, Team, Player, Tournament, Donation, TournamentPrize, ContestEntry } from '../types';
+import { notifyUser } from './uiService';
 
 declare global {
   interface Window {
@@ -53,14 +54,14 @@ export const shareMatchSummary = async (match: Match, summary: string, teamAName
         }
       } 
     };
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`ไม่สามารถแชร์ได้: ${error.message}`); }
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'ไม่สามารถแชร์ได้', 'error'); }
 };
 
 export const sharePlayerCardFlex = async (player: Player, team: Team, stats: any) => {
     if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
     const createStatRow = (l1: string, v1: number, l2: string, v2: number) => ({ "type": "box", "layout": "horizontal", "contents": [ { "type": "text", "text": `${v1}`, "weight": "bold", "color": "#fbbf24", "flex": 1, "align": "end", "size": "sm" }, { "type": "text", "text": l1, "size": "xxs", "color": "#94a3b8", "flex": 1, "margin": "sm", "align": "start", "gravity": "center" }, { "type": "text", "text": `${v2}`, "weight": "bold", "color": "#fbbf24", "flex": 1, "align": "end", "size": "sm" }, { "type": "text", "text": l2, "size": "xxs", "color": "#94a3b8", "flex": 1, "margin": "sm", "align": "start", "gravity": "center" } ], "margin": "sm" });
     const flexMessage = { type: "flex", altText: `Player Card: ${player.name}`, contents: { "type": "bubble", "styles": { "body": { "backgroundColor": "#1e293b" }, "footer": { "backgroundColor": "#0f172a" } }, "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "box", "layout": "horizontal", "contents": [ { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": `${stats.ovr}`, "size": "3xl", "weight": "bold", "color": "#fbbf24", "lineHeight": "30px" }, { "type": "text", "text": player.position ? player.position.substring(0,3).toUpperCase() : "PLY", "size": "xs", "weight": "bold", "color": "#ffffff" } ], "flex": 1 }, { "type": "image", "url": team.logoUrl || "https://via.placeholder.com/100?text=Logo", "align": "end", "size": "xs", "aspectMode": "fit", "flex": 1 } ] }, { "type": "image", "url": player.photoUrl || "https://img.icons8.com/ios-filled/200/ffffff/user-male-circle.png", "size": "xl", "aspectMode": "cover", "margin": "md" }, { "type": "text", "text": truncate(player.name, 25), "weight": "bold", "size": "xl", "color": "#ffffff", "align": "center", "margin": "md", "wrap": true }, { "type": "text", "text": truncate(team.name, 30), "size": "xs", "color": "#94a3b8", "align": "center", "margin": "xs", "wrap": true }, { "type": "separator", "margin": "md", "color": "#334155" }, { "type": "box", "layout": "vertical", "contents": [ createStatRow("PAC", stats.pac, "DRI", stats.dri), createStatRow("SHO", stats.sho, "DEF", stats.def), createStatRow("PAS", stats.pas, "PHY", stats.phy) ], "margin": "md" } ] }, "footer": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "Penalty Pro Official Card", "size": "xxs", "color": "#64748b", "align": "center" } ] } } };
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`ไม่สามารถแชร์ได้: ${error.message}`); }
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'ไม่สามารถแชร์ได้', 'error'); }
 };
 
 export const shareRegistration = async (data: RegistrationData, teamId: string) => {
@@ -71,7 +72,7 @@ export const shareRegistration = async (data: RegistrationData, teamId: string) 
   const adminLink = `${baseUrl}?view=admin&teamId=${teamId}`;
   
   const flexMessage = { type: "flex", altText: `ใบสมัคร: ${truncate(data.schoolName, 20)}`, contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "ใบสมัครแข่งขัน", "weight": "bold", "color": "#166534", "size": "xs" }, { "type": "text", "text": truncate(data.schoolName, 40), "weight": "bold", "size": "xl", "color": "#1F2937", "wrap": true, "margin": "sm" }, { "type": "text", "text": `ผู้ติดต่อ: ${data.phone}`, "size": "xs", "color": "#4B5563", "margin": "md", "wrap": true }, { "type": "separator", "margin": "lg" }, { "type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [ { "type": "button", "style": "primary", "height": "sm", "action": { "type": "uri", "label": "ตรวจสอบ/อนุมัติ", "uri": adminLink }, "color": "#2563EB" } ] } ], "paddingAll": "xl" } } };
-  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
 };
 
 export const shareNews = async (news: NewsItem) => {
@@ -79,7 +80,7 @@ export const shareNews = async (news: NewsItem) => {
   if (!window.liff?.isLoggedIn()) { window.liff?.login(); return; }
   const liffUrl = `https://liff.line.me/${liffId}?view=news&id=${news.id}`;
   const flexMessage = { type: "flex", altText: truncate(`ข่าวสาร: ${news.title}`, 100), contents: { "type": "bubble", "body": { "type": "box", "layout": "vertical", "contents": [ { "type": "text", "text": "NEWS UPDATE", "size": "xxs", "color": "#1e40af", "weight": "bold" }, { "type": "text", "text": truncate(news.title, 60), "weight": "bold", "size": "lg", "wrap": true, "margin": "sm" }, { "type": "text", "text": truncate(news.content, 100), "size": "xs", "color": "#666666", "wrap": true, "margin": "md", "maxLines": 3 }, { "type": "button", "action": { "type": "uri", "label": "อ่านต่อ", "uri": liffUrl }, "style": "link", "margin": "md" } ], "paddingAll": "xl" } } };
-  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
 };
 
 export const shareMatch = async (match: Match, teamAName: string, teamBName: string, teamALogo: string, teamBLogo: string) => {
@@ -111,12 +112,12 @@ export const shareMatch = async (match: Match, teamAName: string, teamBName: str
           } 
       } 
   };
-  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+  try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
 };
 
 export const shareTournament = async (tournament: Tournament, teamCount: number = 0, maxTeams: number = 0) => {
     const liffId = window.liff?.id;
-    if (!window.liff) { alert("LIFF SDK not loaded"); return; }
+    if (!window.liff) { notifyUser('ไม่พบระบบ LINE LIFF', 'กรุณาเปิดหน้านี้ใหม่ผ่าน LINE', 'warning'); return; }
     if (!window.liff.isLoggedIn()) { window.liff.login(); return; }
     
     const liffUrl = `https://liff.line.me/${liffId}?tournamentId=${tournament.id}`;
@@ -145,11 +146,11 @@ export const shareTournament = async (tournament: Tournament, teamCount: number 
         if (window.liff.isApiAvailable('shareTargetPicker')) {
             await window.liff.shareTargetPicker([flexMessage]);
         } else {
-            alert("อุปกรณ์ของคุณไม่รองรับฟีเจอร์การแชร์");
+            notifyUser('อุปกรณ์ไม่รองรับการแชร์', 'กรุณาเปิดผ่านแอป LINE หรือใช้ปุ่มบันทึกแทน', 'info');
         }
     } catch (error: any) { 
         console.error("Share Error", error);
-        alert(`แชร์ไม่สำเร็จ: ${error.message}`); 
+        notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error');
     }
 };
 
@@ -186,7 +187,7 @@ export const shareDonation = async (donation: Donation, tournamentName: string) 
   try { 
       await window.liff.shareTargetPicker([flexMessage]); 
   } catch (error: any) { 
-      alert(`แชร์ไม่สำเร็จ: ${error.message}`); 
+      notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error');
   }
 };
 
@@ -239,7 +240,7 @@ export const sharePrizeSummary = async (tournamentName: string, prizes: Tourname
         }
     };
 
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
 };
 
 export const shareGroupStandings = async (groupName: string, standings: any[], tournamentName: string = "Official Standings") => {
@@ -294,7 +295,7 @@ export const shareGroupStandings = async (groupName: string, standings: any[], t
         }
     };
 
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
 };
 
 export const shareContestEntry = async (entry: ContestEntry, contestTitle: string) => {
@@ -385,7 +386,7 @@ export const shareContestEntry = async (entry: ContestEntry, contestTitle: strin
       }
     };
 
-    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
+    try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { notifyUser('แชร์ไม่สำเร็จ', error.message || 'กรุณาลองใหม่', 'error'); }
 };
 
 /**

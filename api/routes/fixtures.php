@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * ของเดิมแอดมินต้องพิมพ์คู่แข่งทีละนัดเอง 57 นัด (สาย A-H + R16 + QF + SF + FINAL)
  * ซึ่งกินเวลาและพลาดง่าย เช่น ลืมคู่ ใส่ทีมซ้ำในนัดเดียว หรือทีมหนึ่งแข่ง 2 สนาม
- * พร้อมกัน ที่นี่จึงสร้างคู่ให้ทั้งสายในคำสั่งเดียว แล้วแอดมินค่อยปรับเวลา/สนาม
+ * พร้อมกัน ที่นี่จึงสร้างคู่ให้ทั้งสายและลงวัน เวลา สนามให้ในคำสั่งเดียว
  *
  * ยังคงแก้ด้วยมือได้ทุกนัด — อัตโนมัติเป็นตัวช่วยตั้งต้น ไม่ใช่ตัวบังคับ
  */
@@ -44,6 +44,57 @@ function generate_fixtures(): void
     }
 
     $replace = Input::bool('replace');
+
+    // ถ้าส่งวันที่มา ให้สร้างทั้งคู่แข่งและตารางเวลาในครั้งเดียว
+    // ยังคงรองรับ caller เก่าที่ไม่ส่ง scheduleDate โดยจะสร้างเฉพาะคู่เหมือนเดิม
+    $scheduleDate = Input::str('scheduleDate');
+    $withSchedule = $scheduleDate !== '';
+    $startAt = null;
+    $matchDuration = 0;
+    $lunchEnabled = false;
+    $lunchStartAt = null;
+    $lunchEndAt = null;
+    $groupVenues = [];
+
+    if ($withSchedule) {
+        $startTime = Input::str('startTime');
+        $matchDuration = (int) (Input::int('matchDurationMinutes') ?? 0);
+        $lunchEnabled = Input::bool('lunchBreakEnabled');
+        $lunchStart = Input::str('lunchStart', '12:00');
+        $lunchEnd = Input::str('lunchEnd', '13:00');
+        $rawVenues = Input::arr('groupVenues');
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $scheduleDate)
+            || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $startTime)) {
+            Response::fail('วันที่หรือเวลาเริ่มแข่งขันไม่ถูกต้อง', 422);
+        }
+        [$year, $month, $day] = array_map('intval', explode('-', $scheduleDate));
+        if (!checkdate($month, $day, $year)) {
+            Response::fail('วันที่แข่งขันไม่ถูกต้อง', 422);
+        }
+        if ($matchDuration < 1 || $matchDuration > 240) {
+            Response::fail('เวลาต่อคู่ต้องอยู่ระหว่าง 1–240 นาที', 422);
+        }
+
+        $startAt = new DateTimeImmutable("$scheduleDate $startTime");
+        if ($lunchEnabled) {
+            if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $lunchStart)
+                || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $lunchEnd)) {
+                Response::fail('ช่วงเวลาพักเที่ยงไม่ถูกต้อง', 422);
+            }
+            $lunchStartAt = new DateTimeImmutable("$scheduleDate $lunchStart");
+            $lunchEndAt = new DateTimeImmutable("$scheduleDate $lunchEnd");
+            if ($lunchEndAt <= $lunchStartAt) {
+                Response::fail('เวลาจบพักต้องอยู่หลังเวลาเริ่มพัก', 422);
+            }
+        }
+
+        foreach ($rawVenues as $group => $venue) {
+            if (is_scalar($venue)) {
+                $groupVenues[(string) $group] = trim((string) $venue);
+            }
+        }
+    }
 
     // นัดที่แข่งไปแล้วห้ามถูกลบทิ้งโดยอัตโนมัติ — ผลการแข่งจะหาย
     $played = (int) Db::value(
@@ -85,11 +136,23 @@ function generate_fixtures(): void
     }
     ksort($byGroup);
 
+    if ($withSchedule) {
+        foreach (array_keys($byGroup) as $group) {
+            if (($groupVenues[$group] ?? '') === '') {
+                Response::fail("กรุณากำหนดสนามของสาย $group", 422);
+            }
+        }
+    }
+
     $created = [];
     $skipped = [];
+    // สายที่ใช้ชื่อสนามเดียวกันจะใช้ cursor เดียวกัน จึงไม่ถูกจัดแข่งชนกัน
+    $venueCursors = [];
 
     Db::transaction(static function () use (
-        $tournamentId, $byGroup, $replace, &$created, &$skipped
+        $tournamentId, $byGroup, $replace, $withSchedule, $startAt,
+        $matchDuration, $lunchEnabled, $lunchStartAt, $lunchEndAt,
+        $groupVenues, &$venueCursors, &$created, &$skipped
     ): void {
         if ($replace) {
             // ลบเฉพาะนัดที่ยังไม่ได้แข่ง — ผลที่บันทึกไปแล้วต้องอยู่ต่อ
@@ -141,13 +204,35 @@ function generate_fixtures(): void
                         continue;
                     }
 
+                    $venue = '';
+                    $scheduled = null;
+                    if ($withSchedule && $startAt instanceof DateTimeImmutable) {
+                        $venue = $groupVenues[$group];
+                        $cursor = $venueCursors[$venue] ?? $startAt;
+                        $endsAt = $cursor->modify("+$matchDuration minutes");
+
+                        // ถ้าคู่ใดเริ่มก่อนพักแต่แข่งไปทับเวลาพัก ให้ย้ายทั้งคู่ไปหลังพัก
+                        if ($lunchEnabled
+                            && $lunchStartAt instanceof DateTimeImmutable
+                            && $lunchEndAt instanceof DateTimeImmutable
+                            && $cursor < $lunchEndAt && $endsAt > $lunchStartAt) {
+                            $cursor = $lunchEndAt;
+                            $endsAt = $cursor->modify("+$matchDuration minutes");
+                        }
+
+                        $scheduled = $cursor->format('Y-m-d H:i:s');
+                        $venueCursors[$venue] = $endsAt;
+                    }
+
                     $mid = 'M_' . (int) (microtime(true) * 1000) . '_'
                          . random_int(100, 999);
                     Db::exec(
                         'INSERT INTO matches
                             (match_id, tournament_id, team_a_id, team_b_id,
-                             team_a_name, team_b_name, round_label, status)
-                         VALUES (:mid, :tid3, :ta, :tb, :tan, :tbn, :round, :st)',
+                             team_a_name, team_b_name, round_label, venue,
+                             scheduled_time, status)
+                         VALUES (:mid, :tid3, :ta, :tb, :tan, :tbn, :round,
+                                 :venue, :scheduled, :st)',
                         [
                             ':mid'   => $mid,
                             ':tid3'  => $tournamentId,
@@ -156,6 +241,8 @@ function generate_fixtures(): void
                             ':tan'   => $a['name'],
                             ':tbn'   => $b['name'],
                             ':round' => "สาย $group นัดที่ " . ($r + 1),
+                            ':venue' => $venue,
+                            ':scheduled' => $scheduled,
                             ':st'    => 'Scheduled',
                         ]
                     );
@@ -165,6 +252,8 @@ function generate_fixtures(): void
                         'round'   => $r + 1,
                         'teamA'   => $a['name'],
                         'teamB'   => $b['name'],
+                        'venue'   => $venue,
+                        'scheduledTime' => $scheduled,
                     ];
                 }
                 // หมุนทีม (ตรึงตัวแรกไว้)
@@ -184,6 +273,7 @@ function generate_fixtures(): void
         'created'  => count($created),
         'matches'  => $created,
         'skipped'  => $skipped,
+        'scheduled' => $withSchedule,
         'groups'   => array_map(static fn($g, $l): array => [
             'group' => $g, 'teams' => count($l),
         ], array_keys($byGroup), $byGroup),

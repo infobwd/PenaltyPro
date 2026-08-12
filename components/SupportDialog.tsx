@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Coffee, GraduationCap, X, Copy, Check, Upload, ArrowRight, Loader2, QrCode, Settings, Save, ArrowLeft } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
 import { fileToBase64, saveSettings } from '../services/sheetService';
+import { notifyUser } from '../services/uiService';
 
 interface SupportDialogProps {
   isOpen: boolean;
@@ -25,9 +27,10 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
   const [isEditing, setIsEditing] = useState(false);
   const [editConfig, setEditConfig] = useState<AppSettings>(config);
   const isAdmin = currentUser?.role === 'admin';
+  const wasOpen = useRef(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpen.current) {
       setAmount('');
       setSlipFile(null);
       setSlipPreview(null);
@@ -36,6 +39,7 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
       setIsEditing(false); // Reset to view mode
       setEditConfig(config); // Reset config form
     }
+    wasOpen.current = isOpen;
   }, [isOpen, currentUser, config]);
 
   if (!isOpen) return null;
@@ -85,7 +89,7 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
       setIsSuccess(true);
       if (onRefresh) onRefresh();
     } catch (e) {
-      alert("เกิดข้อผิดพลาด");
+      notifyUser('ส่งข้อมูลไม่สำเร็จ', 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -98,7 +102,7 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
           setIsEditing(false);
           if(onRefresh) onRefresh();
       } catch(e) {
-          alert("บันทึกการตั้งค่าไม่สำเร็จ");
+          notifyUser('บันทึกไม่สำเร็จ', 'ไม่สามารถบันทึกการตั้งค่าการสนับสนุนได้', 'error');
       } finally {
           setIsSubmitting(false);
       }
@@ -111,7 +115,7 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
               const base64 = await fileToBase64(file);
               setEditConfig(prev => ({ ...prev, educationSupportQrUrl: base64 }));
           } catch (error) {
-              alert("อัปโหลดรูปภาพไม่สำเร็จ");
+              notifyUser('อัปโหลดไม่สำเร็จ', 'ไม่สามารถอ่านรูปภาพ QR Code ได้', 'error');
           }
       }
   };
@@ -119,9 +123,21 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
   const coffeePhone = isEditing ? (editConfig.coffeeSupportPhone || '') : (config.coffeeSupportPhone || '0836645989');
   const coffeeQrUrl = `https://promptpay.io/${coffeePhone}/${amount || ''}`;
 
-  return (
-    <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200">
-      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden relative flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 overflow-hidden"
+      style={{ zIndex: 2147483646 }}
+      data-app-modal="support"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full max-w-md rounded-t-3xl xl:rounded-3xl shadow-2xl overflow-hidden relative flex flex-col max-h-[calc(100dvh-env(safe-area-inset-top))] xl:max-h-[90vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-label="สนับสนุนระบบ"
+        onClick={event => event.stopPropagation()}
+      >
         
         {/* Header Actions */}
         <div className="absolute top-4 left-4 z-10">
@@ -330,7 +346,8 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

@@ -53,7 +53,7 @@ const LoginDialog: React.FC<LoginDialogProps> = ({ isOpen, onClose, onLogin }) =
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[1200] p-4"
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm modal-sheet flex items-end xl:items-center justify-center z-[1200] p-0 xl:p-4"
       onClick={onClose}>
       <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200"
         onClick={e => e.stopPropagation()}>

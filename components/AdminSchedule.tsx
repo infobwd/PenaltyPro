@@ -1,17 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Wand2, Shuffle, Plus, Trash2, Loader2, Calendar, MapPin, Save,
   AlertTriangle, X, Clock, Swords, CheckSquare, Square, Trophy, ExternalLink,
 } from 'lucide-react';
 import { Team, Tournament, Match } from '../types';
 import { apiPost, ApiError } from '../services/apiConfig';
+import { confirmAction } from '../services/uiService';
 
 /**
  * จัดตารางแข่ง — ประกบคู่อัตโนมัติ + แก้ด้วยมือ
  *
  * ของเดิมแอดมินต้องพิมพ์คู่แข่งทีละนัด (ครั้งที่ 3 มี 57 นัด) ซึ่งกินเวลาและ
- * พลาดง่าย ที่นี่กดปุ่มเดียวได้คู่ครบทั้งสายแบบพบกันหมด แล้วค่อยไล่ใส่
- * วัน-เวลา-สนาม ทีหลัง หรือแก้/ลบรายนัดได้ตามปกติ
+ * พลาดง่าย ที่นี่กดปุ่มเดียวได้คู่ครบทั้งสายแบบพบกันหมด พร้อมวัน-เวลา-สนาม
+ * ตามค่าที่กำหนด และยังแก้/ลบรายนัดได้ตามปกติ
  */
 
 interface Props {
@@ -48,6 +49,14 @@ interface MatchEdit {
   scheduledTime: string;
 }
 
+const localDateValue = (): string => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const AdminSchedule: React.FC<Props> = ({
   tournaments, teams, matches, currentTournamentId, onRefresh, notify,
 }) => {
@@ -57,6 +66,13 @@ const AdminSchedule: React.FC<Props> = ({
   const [editing, setEditing] = useState<MatchEdit | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [customRound, setCustomRound] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(localDateValue);
+  const [startTime, setStartTime] = useState('09:00');
+  const [matchDuration, setMatchDuration] = useState(20);
+  const [hasLunchBreak, setHasLunchBreak] = useState(false);
+  const [lunchStart, setLunchStart] = useState('12:00');
+  const [lunchEnd, setLunchEnd] = useState('13:00');
+  const [groupVenues, setGroupVenues] = useState<Record<string, string>>({});
 
   const myTeams = useMemo(
     () => teams.filter(t => t.tournamentId === target && t.status === 'Approved'),
@@ -72,6 +88,20 @@ const AdminSchedule: React.FC<Props> = ({
     myTeams.forEach(t => { (g[t.group || '— ยังไม่จัดสาย'] ??= []).push(t); });
     return g;
   }, [myTeams]);
+
+  const groupNames = useMemo(
+    () => Object.keys(grouped).filter(g => !g.startsWith('—')).sort(),
+    [grouped]);
+
+  useEffect(() => {
+    setGroupVenues(prev => {
+      const next: Record<string, string> = {};
+      groupNames.forEach((group, index) => {
+        next[group] = prev[group] || `สนาม ${index + 1}`;
+      });
+      return next;
+    });
+  }, [groupNames.join('|')]);
 
   const ungrouped = myTeams.filter(t => !t.group).length;
 
@@ -105,23 +135,77 @@ const AdminSchedule: React.FC<Props> = ({
     } finally { setBusy(null); }
   };
 
-  const doAutoGroups = () => {
-    if (!window.confirm(`สุ่มแบ่ง ${myTeams.length} ทีมออกเป็น ${groupCount} สาย?\nสายเดิมจะถูกเขียนทับ`)) return;
+  const doAutoGroups = async () => {
+    if (!await confirmAction(`สุ่มแบ่ง ${myTeams.length} ทีมออกเป็น ${groupCount} สาย?\nสายเดิมจะถูกเขียนทับ`, { title: 'ยืนยันการแบ่งสาย', confirmText: 'สุ่มแบ่งสาย' })) return;
     return run('groups', async () => {
       const r = await apiPost('autoAssignGroups', { tournamentId: target, groupCount });
       notify('แบ่งสายแล้ว', r.notice, 'success');
     });
   };
 
-  const doGenerate = (replace: boolean) => run('gen', async () => {
-    const r = await apiPost('generateFixtures', { tournamentId: target, replace });
+  const lunchTimesValid = !hasLunchBreak || lunchEnd > lunchStart;
+  const venuesValid = groupNames.length > 0 && groupNames.every(g => groupVenues[g]?.trim());
+  const scheduleValid = !!scheduleDate && !!startTime && matchDuration > 0
+    && matchDuration <= 240 && lunchTimesValid && venuesValid;
+  const plannedMatches = groupNames.reduce((sum, group) => {
+    const count = grouped[group]?.length || 0;
+    return sum + (count * (count - 1)) / 2;
+  }, 0);
+  const timeToMinutes = (value: string): number => {
+    const [hours = 0, minutes = 0] = value.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  const formatMinuteOfDay = (value: number): string => {
+    const dayOffset = Math.floor(value / (24 * 60));
+    const normalized = value % (24 * 60);
+    const hours = Math.floor(normalized / 60);
+    const minutes = normalized % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}${dayOffset > 0 ? ` (+${dayOffset} วัน)` : ''}`;
+  };
+  const venueSchedulePreview = (Object.entries(groupNames.reduce((acc, group) => {
+    const venue = groupVenues[group]?.trim();
+    if (!venue) return acc;
+    const teamCount = grouped[group]?.length || 0;
+    const matchCount = (teamCount * (teamCount - 1)) / 2;
+    acc[venue] = (acc[venue] || 0) + matchCount;
+    return acc;
+  }, {} as Record<string, number>)) as [string, number][]).map(([venue, matchCount]) => {
+    let cursor = timeToMinutes(startTime);
+    const breakStart = timeToMinutes(lunchStart);
+    const breakEnd = timeToMinutes(lunchEnd);
+    for (let index = 0; index < matchCount; index++) {
+      const proposedEnd = cursor + matchDuration;
+      if (hasLunchBreak && cursor < breakEnd && proposedEnd > breakStart) cursor = breakEnd;
+      cursor += matchDuration;
+    }
+    return { venue, matchCount, finishTime: formatMinuteOfDay(cursor) };
+  });
+
+  const doGenerate = (replace: boolean) => {
+    if (!scheduleValid) {
+      notify('ข้อมูลตารางยังไม่ครบ', 'กรุณาตรวจวัน เวลา ระยะเวลาต่อคู่ เวลาพัก และสนามของทุกสาย', 'warning');
+      return Promise.resolve(null);
+    }
+    return run('gen', async () => {
+    const r = await apiPost('generateFixtures', {
+      tournamentId: target,
+      replace,
+      scheduleDate,
+      startTime,
+      matchDurationMinutes: matchDuration,
+      lunchBreakEnabled: hasLunchBreak,
+      lunchStart,
+      lunchEnd,
+      groupVenues,
+    });
     notify('สร้างตารางแข่งแล้ว',
       `${r.created} นัด${r.skipped?.length ? ` · ข้าม ${r.skipped.length} รายการ` : ''}`,
       'success');
-  });
+    });
+  };
 
-  const doDeleteMatch = (m: Match) => {
-    if (!window.confirm(`ลบนัด ${m.teamA} พบ ${m.teamB} ?`)) return;
+  const doDeleteMatch = async (m: Match) => {
+    if (!await confirmAction(`ลบนัด ${m.teamA} พบ ${m.teamB}?`, { title: 'ลบการแข่งขัน', dangerous: true, confirmText: 'ลบนัดนี้' })) return;
     return run(`del_${m.id}`, async () => {
       await apiPost('deleteMatch', { matchId: m.id, force: true });
       notify('ลบนัดแล้ว', '', 'success');
@@ -135,7 +219,7 @@ const AdminSchedule: React.FC<Props> = ({
    * ใหม่ฝั่ง server การยิงพร้อมกัน 20 นัดบน shared hosting ทำให้ล้มกลางคัน
    * แล้วเหลือลบไปครึ่ง ๆ กลาง ๆ โดยไม่รู้ว่าค้างที่ไหน
    */
-  const doDeletePicked = () => {
+  const doDeletePicked = async () => {
     const list = pickedHere;
     if (list.length === 0) return;
     const played = list.filter(m => m.status !== 'Scheduled').length;
@@ -143,7 +227,7 @@ const AdminSchedule: React.FC<Props> = ({
       + (played > 0 ? `
 
 ⚠️ มีนัดที่แข่งไปแล้ว ${played} นัด — ผลการแข่งและตารางคะแนนจะเปลี่ยน` : '');
-    if (!window.confirm(msg)) return;
+    if (!await confirmAction(msg, { title: 'ลบนัดที่เลือก', dangerous: true, confirmText: 'ยืนยันการลบ' })) return;
 
     return run('delpicked', async () => {
       let ok = 0;
@@ -163,7 +247,7 @@ const AdminSchedule: React.FC<Props> = ({
     });
   };
 
-  const doDeleteAll = (keepPlayed: boolean) => {
+  const doDeleteAll = async (keepPlayed: boolean) => {
     const played = myMatches.filter(m => m.status !== 'Scheduled').length;
     const msg = keepPlayed
       ? `ลบเฉพาะนัดที่ยังไม่แข่ง (${myMatches.length - played} นัด)?`
@@ -171,7 +255,7 @@ const AdminSchedule: React.FC<Props> = ({
         (played > 0 ? `
 
 ⚠️ มีนัดที่แข่งไปแล้ว ${played} นัด — ผลการแข่งและตารางคะแนนจะหายไปด้วย` : '');
-    if (!window.confirm(msg)) return;
+    if (!await confirmAction(msg, { title: 'ลบตารางการแข่งขัน', dangerous: true, confirmText: 'ยืนยันการลบ' })) return;
     return run('delall', async () => {
       const r = await apiPost('deleteAllMatches', {
         tournamentId: target, keepPlayed, force: !keepPlayed,
@@ -280,21 +364,122 @@ const AdminSchedule: React.FC<Props> = ({
           <div>
             <h3 className="font-bold text-slate-800">ขั้นที่ 2 — ประกบคู่อัตโนมัติ</h3>
             <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
-              สร้างคู่แข่งแบบพบกันหมดในแต่ละสาย ทุกทีมได้ลงเล่นเท่ากัน ·
+              สร้างคู่แข่งแบบพบกันหมด พร้อมลงวัน เวลา และสนามให้อัตโนมัติ ·
               <b className="text-slate-700"> นัดที่แข่งไปแล้วจะไม่ถูกลบ</b>
             </p>
           </div>
         </div>
+
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 mb-4 space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div>
+              <label className={lbl}>วันที่แข่งขัน</label>
+              <input type="date" className={inp} value={scheduleDate}
+                onChange={e => setScheduleDate(e.target.value)} />
+            </div>
+            <div>
+              <label className={lbl}>เวลาเริ่ม</label>
+              <input type="time" className={inp} value={startTime}
+                onChange={e => setStartTime(e.target.value)} />
+            </div>
+            <div>
+              <label className={lbl}>เวลาต่อคู่ (นาที)</label>
+              <input type="number" min={1} max={240} className={inp} value={matchDuration}
+                onChange={e => setMatchDuration(Number(e.target.value))} />
+            </div>
+            <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 cursor-pointer self-end min-h-[42px]">
+              <input type="checkbox" checked={hasLunchBreak}
+                onChange={e => setHasLunchBreak(e.target.checked)}
+                className="w-4 h-4 accent-indigo-600" />
+              <span className="text-sm font-bold text-slate-700">พักเที่ยง</span>
+            </label>
+          </div>
+
+          {hasLunchBreak && (
+            <div className="grid grid-cols-2 gap-3 max-w-md">
+              <div>
+                <label className={lbl}>เริ่มพัก</label>
+                <input type="time" className={inp} value={lunchStart}
+                  onChange={e => setLunchStart(e.target.value)} />
+              </div>
+              <div>
+                <label className={lbl}>เริ่มแข่งต่อ</label>
+                <input type="time" className={inp} value={lunchEnd}
+                  onChange={e => setLunchEnd(e.target.value)} />
+              </div>
+              {!lunchTimesValid && (
+                <p className="col-span-2 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> เวลาจบพักต้องอยู่หลังเวลาเริ่มพัก
+                </p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5" /> สนามประจำแต่ละสาย
+              </label>
+              <span className="text-[11px] text-slate-500">ระบบจะรันเวลาต่อเนื่องในแต่ละสนาม</span>
+            </div>
+            {groupNames.length === 0 ? (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">
+                กรุณาแบ่งสายก่อนกำหนดสนาม
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                {groupNames.map(group => (
+                  <div key={group} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-2">
+                    <span className="w-12 shrink-0 text-xs font-bold text-indigo-700">สาย {group}</span>
+                    <input className="min-w-0 w-full px-2 py-1.5 border border-slate-200 rounded text-sm outline-none focus:border-indigo-400"
+                      value={groupVenues[group] || ''}
+                      onChange={e => setGroupVenues({ ...groupVenues, [group]: e.target.value })}
+                      placeholder="ชื่อสนาม" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-indigo-700">
+            เตรียมสร้าง <b>{plannedMatches}</b> คู่ ·
+            {hasLunchBreak
+              ? ` นัดที่ทับช่วง ${lunchStart}–${lunchEnd} จะเลื่อนไปเริ่มหลังพักอัตโนมัติ`
+              : ' ไม่พักเที่ยง ระบบจะจัดคู่ถัดไปต่อเนื่องทันที'}
+          </p>
+          {venueSchedulePreview.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              {venueSchedulePreview.map(item => (
+                <div key={item.venue} className="bg-white border border-emerald-200 rounded-lg px-3 py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-700 truncate">{item.venue}</p>
+                    <p className="text-[11px] text-slate-500">{item.matchCount} คู่ · เริ่ม {startTime}</p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 whitespace-nowrap flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" /> จบ {item.finishTime}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {venueSchedulePreview.length > 1 && (
+            <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg p-2">
+              สนามต่างกันสามารถแข่งพร้อมกันได้ ส่วนสายที่ใช้ชื่อสนามเดียวกันจะต่อคิวเวลาอัตโนมัติ จึงไม่เกิดคู่แข่งทับกันในสนามเดียวกัน
+            </p>
+          )}
+        </div>
+
         <div className="flex gap-2">
-          <button onClick={() => doGenerate(false)} disabled={busy === 'gen' || ungrouped === myTeams.length}
+          <button onClick={() => doGenerate(false)} disabled={busy === 'gen' || ungrouped === myTeams.length || !scheduleValid}
             className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700 flex-1`}>
             {busy === 'gen' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
             สร้างตารางแข่ง
           </button>
           {myMatches.length > 0 && (
-            <button onClick={() => {
-              if (window.confirm('สร้างใหม่ทั้งหมด?\nนัดที่ยังไม่แข่งจะถูกลบและสร้างใหม่ (นัดที่แข่งแล้วยังอยู่)')) doGenerate(true);
-            }} disabled={busy === 'gen'}
+            <button onClick={async () => {
+              const confirmed = await confirmAction('นัดที่ยังไม่แข่งจะถูกลบและสร้างใหม่ ส่วนนัดที่แข่งแล้วจะยังอยู่', { title: 'สร้างตารางใหม่ทั้งหมด?', dangerous: true, confirmText: 'สร้างใหม่' });
+              if (confirmed) doGenerate(true);
+            }} disabled={busy === 'gen' || !scheduleValid}
               className={`${btn} border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50`}>
               สร้างใหม่
             </button>

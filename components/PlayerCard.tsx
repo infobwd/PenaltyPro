@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Player, Team } from '../types';
 import { X, Download, RefreshCw, Share2, Shield, Loader2, MessageCircle } from 'lucide-react';
 import { sharePlayerCardFlex } from '../services/liffService';
+import { notifyUser } from '../services/uiService';
 
 interface PlayerCardProps {
   player: Player;
@@ -230,7 +231,7 @@ const PlayerCard: React.FC<PlayerCardProps> = ({ player, team, onClose }) => {
                     console.log('Share cancelled or failed', err);
                 }
             } else {
-                alert("อุปกรณ์นี้ไม่รองรับการแชร์โดยตรง กรุณาใช้ปุ่มบันทึกรูปภาพแทน");
+                notifyUser('ไม่รองรับการแชร์โดยตรง', 'กรุณาใช้ปุ่มบันทึกรูปภาพแทน', 'info');
             }
             setIsGenerating(false);
         }, 'image/jpeg', 0.9);
@@ -244,7 +245,7 @@ const PlayerCard: React.FC<PlayerCardProps> = ({ player, team, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[1400] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in zoom-in duration-200">
+    <div className="fixed inset-0 z-[1400] bg-black/80 backdrop-blur-md modal-sheet flex items-end xl:items-center justify-center p-0 xl:p-4 animate-in zoom-in duration-200">
         <div className="relative w-full max-w-sm">
             <button onClick={onClose} className="absolute -top-12 right-0 text-white hover:text-gray-300 p-2"><X className="w-8 h-8"/></button>
             
