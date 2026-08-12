@@ -172,7 +172,7 @@ const TeamEditModal: React.FC<TeamEditModalProps> = ({ isOpen, onClose, team, cu
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 overflow-y-auto" onClick={onClose}>
       <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
         
         {/* Header */}

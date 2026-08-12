@@ -143,7 +143,7 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
 
   if (isSuccess) {
       return (
-        <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200">
             <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-green-400 to-emerald-600"></div>
                 <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce border-4 border-green-100">
@@ -163,7 +163,7 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
   }
 
   return (
-    <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200 overflow-y-auto">
+    <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200 overflow-y-auto">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[90vh]">
         <button onClick={onClose} className="absolute top-3 right-3 p-1 rounded-full bg-white/20 hover:bg-white/40 transition text-white z-10">
             <X className="w-5 h-5" />

@@ -13,8 +13,10 @@ dist-ssr
 *.local
 
 # ค่าเชื่อมต่อฐานข้อมูลและ secret ของ API — ห้าม commit เด็ดขาด
-api/config.php
-api/config.local.php
+# ครอบทุกไฟล์ที่ขึ้นต้นด้วย config เพราะสำเนาที่ตั้งชื่อเอง (config-backup,
+# configaaaa, config.old) มีรหัสฐานข้อมูลและ secret เต็ม ๆ เหมือนกัน
+api/config*.php
+!api/config.example.php
 
 # ข้อมูลจริงจากการ migrate — มีรหัสผ่าน, เบอร์โทร, เลขผู้เสียภาษี, ที่อยู่ผู้บริจาค
 # สร้างใหม่ได้ทุกเมื่อด้วย tools/etl/

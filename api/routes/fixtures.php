@@ -1,0 +1,429 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * ตารางแข่ง — ประกบคู่อัตโนมัติ + จัดการรายนัด
+ *
+ * ของเดิมแอดมินต้องพิมพ์คู่แข่งทีละนัดเอง 57 นัด (สาย A-H + R16 + QF + SF + FINAL)
+ * ซึ่งกินเวลาและพลาดง่าย เช่น ลืมคู่ ใส่ทีมซ้ำในนัดเดียว หรือทีมหนึ่งแข่ง 2 สนาม
+ * พร้อมกัน ที่นี่จึงสร้างคู่ให้ทั้งสายในคำสั่งเดียว แล้วแอดมินค่อยปรับเวลา/สนาม
+ *
+ * ยังคงแก้ด้วยมือได้ทุกนัด — อัตโนมัติเป็นตัวช่วยตั้งต้น ไม่ใช่ตัวบังคับ
+ */
+
+function handle(string $action, array $cfg): void
+{
+    match ($action) {
+        'generateFixtures' => generate_fixtures(),
+        'saveMatch'        => save_match(),
+        'deleteMatch'      => delete_match(),
+        'autoAssignGroups' => auto_assign_groups(),
+        'deleteAllMatches' => delete_all_matches(),
+        default            => Response::fail("ไม่รองรับ action '$action'", 404),
+    };
+}
+
+/**
+ * สร้างคู่แข่งแบบพบกันหมดในแต่ละสาย (round-robin)
+ *
+ * ใช้วิธี circle method: ตรึงทีมแรกไว้ แล้วหมุนที่เหลือ ได้ตารางที่ทุกทีม
+ * ลงเล่นจำนวนนัดเท่ากันและไม่มีทีมไหนแข่งซ้อนกันเองในรอบเดียว
+ * สายที่มีทีมเป็นจำนวนคี่จะมี "ทีมพัก" 1 ทีมต่อรอบโดยอัตโนมัติ
+ */
+function generate_fixtures(): void
+{
+    Auth::requireLogin();
+
+    $tournamentId = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tournamentId);
+
+    $t = Db::one('SELECT tournament_id, name FROM tournaments WHERE tournament_id = :tid',
+        [':tid' => $tournamentId]);
+    if ($t === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+
+    $replace = Input::bool('replace');
+
+    // นัดที่แข่งไปแล้วห้ามถูกลบทิ้งโดยอัตโนมัติ — ผลการแข่งจะหาย
+    $played = (int) Db::value(
+        "SELECT COUNT(*) FROM matches
+          WHERE tournament_id = :tid2 AND status <> 'Scheduled'",
+        [':tid2' => $tournamentId]
+    );
+    $existing = (int) Db::value(
+        'SELECT COUNT(*) FROM matches WHERE tournament_id = :tid3',
+        [':tid3' => $tournamentId]
+    );
+    if ($existing > 0 && !$replace) {
+        Response::fail(
+            "รายการนี้มี $existing นัดอยู่แล้ว — ส่ง replace=true เพื่อสร้างใหม่ "
+            . ($played > 0 ? "(นัดที่แข่งไปแล้ว $played นัดจะถูกเก็บไว้)" : ''),
+            409, ['existing' => $existing, 'played' => $played]
+        );
+    }
+
+    // เฉพาะทีมที่อนุมัติแล้วและมีสายเท่านั้น
+    $teams = Db::all(
+        "SELECT team_id, name, group_name
+           FROM teams
+          WHERE tournament_id = :tid4 AND status = 'Approved'
+            AND group_name IS NOT NULL AND group_name <> ''
+          ORDER BY group_name, name",
+        [':tid4' => $tournamentId]
+    );
+    if ($teams === []) {
+        Response::fail(
+            'ยังไม่มีทีมที่อนุมัติและจัดสายแล้ว — อนุมัติทีมและแบ่งสายก่อนสร้างตารางแข่ง',
+            409
+        );
+    }
+
+    $byGroup = [];
+    foreach ($teams as $tm) {
+        $byGroup[$tm['group_name']][] = $tm;
+    }
+    ksort($byGroup);
+
+    $created = [];
+    $skipped = [];
+
+    Db::transaction(static function () use (
+        $tournamentId, $byGroup, $replace, &$created, &$skipped
+    ): void {
+        if ($replace) {
+            // ลบเฉพาะนัดที่ยังไม่ได้แข่ง — ผลที่บันทึกไปแล้วต้องอยู่ต่อ
+            Db::exec(
+                "DELETE FROM matches
+                  WHERE tournament_id = :tid AND status = 'Scheduled'",
+                [':tid' => $tournamentId]
+            );
+        }
+
+        foreach ($byGroup as $group => $list) {
+            $n = count($list);
+            if ($n < 2) {
+                $skipped[] = "สาย $group มีทีมเดียว ข้ามไป";
+                continue;
+            }
+
+            // circle method — ถ้าจำนวนคี่ เติม BYE เพื่อให้จับคู่ได้ลงตัว
+            $arr = $list;
+            if ($n % 2 === 1) {
+                $arr[] = null;   // BYE
+            }
+            $size = count($arr);
+            $rounds = $size - 1;
+            $half = intdiv($size, 2);
+
+            for ($r = 0; $r < $rounds; $r++) {
+                for ($i = 0; $i < $half; $i++) {
+                    $a = $arr[$i];
+                    $b = $arr[$size - 1 - $i];
+                    if ($a === null || $b === null) {
+                        continue;   // ทีมพักรอบนี้
+                    }
+
+                    // มีคู่นี้อยู่แล้วไหม (กรณี replace แล้วนัดเก่ายังอยู่เพราะแข่งไปแล้ว)
+                    $dup = Db::value(
+                        'SELECT match_id FROM matches
+                          WHERE tournament_id = :tid2
+                            AND ((team_a_id = :a1 AND team_b_id = :b1)
+                              OR (team_a_id = :b2 AND team_b_id = :a2))',
+                        [
+                            ':tid2' => $tournamentId,
+                            ':a1' => $a['team_id'], ':b1' => $b['team_id'],
+                            ':b2' => $b['team_id'], ':a2' => $a['team_id'],
+                        ]
+                    );
+                    if ($dup !== null) {
+                        $skipped[] = "{$a['name']} พบ {$b['name']} (มีอยู่แล้ว)";
+                        continue;
+                    }
+
+                    $mid = 'M_' . (int) (microtime(true) * 1000) . '_'
+                         . random_int(100, 999);
+                    Db::exec(
+                        'INSERT INTO matches
+                            (match_id, tournament_id, team_a_id, team_b_id,
+                             team_a_name, team_b_name, round_label, status)
+                         VALUES (:mid, :tid3, :ta, :tb, :tan, :tbn, :round, :st)',
+                        [
+                            ':mid'   => $mid,
+                            ':tid3'  => $tournamentId,
+                            ':ta'    => $a['team_id'],
+                            ':tb'    => $b['team_id'],
+                            ':tan'   => $a['name'],
+                            ':tbn'   => $b['name'],
+                            ':round' => "สาย $group นัดที่ " . ($r + 1),
+                            ':st'    => 'Scheduled',
+                        ]
+                    );
+                    $created[] = [
+                        'matchId' => $mid,
+                        'group'   => $group,
+                        'round'   => $r + 1,
+                        'teamA'   => $a['name'],
+                        'teamB'   => $b['name'],
+                    ];
+                }
+                // หมุนทีม (ตรึงตัวแรกไว้)
+                $fixed = array_shift($arr);
+                $last  = array_pop($arr);
+                array_unshift($arr, $last);
+                array_unshift($arr, $fixed);
+            }
+        }
+    });
+
+    Audit::log('tournament', $tournamentId, 'generate_fixtures', null,
+        ['created' => count($created), 'groups' => array_keys($byGroup)]);
+    Cache::flush();
+
+    Response::ok([
+        'created'  => count($created),
+        'matches'  => $created,
+        'skipped'  => $skipped,
+        'groups'   => array_map(static fn($g, $l): array => [
+            'group' => $g, 'teams' => count($l),
+        ], array_keys($byGroup), $byGroup),
+    ]);
+}
+
+/**
+ * สุ่มแบ่งสายให้ทีมที่อนุมัติแล้ว
+ *
+ * เป็น "ข้อเสนอ" ที่เขียนลงฐานเลย แต่แอดมินย้ายทีมทีหลังได้ทุกทีม
+ * พยายามไม่ให้โรงเรียนเดียวกันอยู่สายเดียวกัน (กรณีส่ง 2 ทีม)
+ */
+function auto_assign_groups(): void
+{
+    Auth::requireLogin();
+
+    $tournamentId = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tournamentId);
+
+    $groupCount = max(2, min(16, (int) (Input::int('groupCount') ?? 4)));
+
+    $teams = Db::all(
+        "SELECT team_id, name, school_id FROM teams
+          WHERE tournament_id = :tid AND status = 'Approved'
+          ORDER BY RAND()",
+        [':tid' => $tournamentId]
+    );
+    if (count($teams) < $groupCount) {
+        Response::fail(
+            'จำนวนทีมที่อนุมัติแล้วน้อยกว่าจำนวนสายที่ต้องการ',
+            422, ['approvedTeams' => count($teams), 'groupCount' => $groupCount]
+        );
+    }
+
+    $letters = range('A', 'Z');
+    $groups = array_fill(0, $groupCount, []);
+
+    // แจกแบบงู (snake) เพื่อให้แต่ละสายมีจำนวนใกล้เคียงกัน
+    // แล้วเลี่ยงไม่ให้โรงเรียนเดียวกันชนกันในสายเดียว
+    $i = 0;
+    foreach ($teams as $tm) {
+        $placed = false;
+        for ($try = 0; $try < $groupCount; $try++) {
+            $g = ($i + $try) % $groupCount;
+            $clash = false;
+            foreach ($groups[$g] as $x) {
+                if ($x['school_id'] === $tm['school_id']) { $clash = true; break; }
+            }
+            // เลือกสายที่ไม่ชนโรงเรียน และยังไม่ล้นเกินสายอื่น
+            if (!$clash && count($groups[$g]) <= count($groups[$i % $groupCount])) {
+                $groups[$g][] = $tm;
+                $placed = true;
+                break;
+            }
+        }
+        if (!$placed) {
+            $groups[$i % $groupCount][] = $tm;   // ยอมชนถ้าเลี่ยงไม่ได้จริง
+        }
+        $i++;
+    }
+
+    Db::transaction(static function () use ($groups, $letters): void {
+        foreach ($groups as $gi => $list) {
+            foreach ($list as $tm) {
+                Db::exec(
+                    'UPDATE teams SET group_name = :g, row_version = row_version + 1
+                      WHERE team_id = :tid',
+                    [':g' => $letters[$gi], ':tid' => $tm['team_id']]
+                );
+            }
+        }
+    });
+
+    Audit::log('tournament', $tournamentId, 'auto_assign_groups', null,
+        ['groups' => $groupCount, 'teams' => count($teams)]);
+    Cache::flush();
+
+    Response::ok([
+        'groups' => array_map(static fn($gi, $list): array => [
+            'group' => $letters[$gi],
+            'teams' => array_map(static fn($t): string => $t['name'], $list),
+        ], array_keys($groups), $groups),
+        'notice' => 'ผลการแบ่งสายบันทึกแล้ว — ย้ายทีมด้วยมือได้ที่หน้าจัดการทีม',
+    ]);
+}
+
+/** สร้าง/แก้ไขนัดเดียว — ใช้กับการจัดตารางด้วยมือ */
+function save_match(): void
+{
+    Auth::requireLogin();
+
+    $matchId = Input::str('matchId');
+    $tournamentId = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tournamentId);
+
+    // หน้าจัดตารางฝั่งแอดมินยังส่งชื่อทีมมา (สัญญาเดิมของ Apps Script)
+    // จึงรับได้ทั้ง id และชื่อ แล้วแปลงเป็น id ให้เสมอ ตารางคะแนนจะได้ไม่พังตอนเปลี่ยนชื่อทีม
+    $teamA = Input::str('teamAId') ?: team_id_by_name($tournamentId, Input::str('teamA'));
+    $teamB = Input::str('teamBId') ?: team_id_by_name($tournamentId, Input::str('teamB'));
+    if ($teamA !== null && $teamA === $teamB) {
+        Response::fail('ทีมเดียวกันแข่งกับตัวเองไม่ได้', 422);
+    }
+
+    // snapshot ชื่อ ณ เวลาจัดตาราง — ถ้าหา id ไม่เจอ ให้เก็บชื่อที่ส่งมาไว้ก่อน
+    // ดีกว่าปล่อยว่าง เพราะช่องคู่แข่งบนตารางจะกลายเป็นบรรทัดเปล่า
+    $fallback = [Input::str('teamA'), Input::str('teamB')];
+    $names = [];
+    foreach ([$teamA, $teamB] as $i => $tid) {
+        $names[] = $tid === null
+            ? $fallback[$i]
+            : (string) (Db::value('SELECT name FROM teams WHERE team_id = :tid',
+                [':tid' => $tid]) ?? $fallback[$i]);
+    }
+
+    $scheduled = Input::str('scheduledTime');
+    $sched = $scheduled === '' ? null : date('Y-m-d H:i:s', (int) strtotime($scheduled));
+
+    if ($matchId === '') {
+        $matchId = 'M_' . (int) (microtime(true) * 1000) . '_' . random_int(100, 999);
+        Db::exec(
+            'INSERT INTO matches
+                (match_id, tournament_id, team_a_id, team_b_id, team_a_name, team_b_name,
+                 round_label, venue, scheduled_time, status)
+             VALUES (:mid, :tid, :ta, :tb, :tan, :tbn, :round, :venue, :sched, :st)',
+            [
+                ':mid' => $matchId, ':tid' => $tournamentId,
+                ':ta' => $teamA, ':tb' => $teamB,
+                ':tan' => $names[0], ':tbn' => $names[1],
+                ':round' => Input::str('roundLabel'),
+                ':venue' => Input::str('venue'),
+                ':sched' => $sched,
+                ':st'    => 'Scheduled',
+            ]
+        );
+        Audit::log('match', $matchId, 'create');
+    } else {
+        Db::exec(
+            'UPDATE matches SET
+                team_a_id = :ta, team_b_id = :tb,
+                team_a_name = :tan, team_b_name = :tbn,
+                round_label = :round, venue = :venue, scheduled_time = :sched,
+                livestream_url = :live, row_version = row_version + 1
+              WHERE match_id = :mid AND tournament_id = :tid',
+            [
+                ':ta' => $teamA, ':tb' => $teamB,
+                ':tan' => $names[0], ':tbn' => $names[1],
+                ':round' => Input::str('roundLabel'),
+                ':venue' => Input::str('venue'),
+                ':sched' => $sched,
+                ':live'  => Input::str('livestreamUrl'),
+                ':mid' => $matchId, ':tid' => $tournamentId,
+            ]
+        );
+        Audit::log('match', $matchId, 'update');
+    }
+
+    Cache::flush();
+    Response::ok(['matchId' => $matchId]);
+}
+
+function delete_match(): void
+{
+    Auth::requireLogin();
+
+    $matchId = Input::require_str('matchId');
+    $m = Db::one('SELECT * FROM matches WHERE match_id = :mid', [':mid' => $matchId]);
+    if ($m === null) {
+        Response::fail('ไม่พบนัดนี้', 404);
+    }
+    Perm::requireTournamentManager($m['tournament_id']);
+
+    if ($m['status'] !== 'Scheduled' && !Input::bool('force')) {
+        Response::fail(
+            'นัดนี้แข่งไปแล้ว — ลบแล้วผลการแข่งและตารางคะแนนจะเปลี่ยน ส่ง force=true ถ้ายืนยัน',
+            409, ['status' => $m['status'], 'score' => "{$m['score_a']}-{$m['score_b']}"]
+        );
+    }
+
+    Audit::log('match', $matchId, 'delete', $m, null);
+    Db::exec('DELETE FROM matches WHERE match_id = :mid2', [':mid2' => $matchId]);
+    Cache::flush();
+    Response::ok();
+}
+
+/**
+ * ลบตารางแข่งทั้งหมดของรายการ
+ *
+ * แยกจาก generateFixtures(replace) เพราะเป็นคนละเจตนา — อันนั้นคือ "สร้างใหม่"
+ * อันนี้คือ "ล้างให้ว่าง" เพื่อเริ่มจัดใหม่ตั้งแต่ต้น
+ *
+ * นัดที่แข่งไปแล้วมีผลคะแนนอยู่ ถ้าลบไปตารางคะแนนจะเปลี่ยนทันที จึงต้องยืนยัน
+ * เพิ่มอีกชั้นและบอกจำนวนให้เห็นก่อน
+ */
+function delete_all_matches(): void
+{
+    Auth::requireLogin();
+
+    $tournamentId = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tournamentId);
+
+    $total = (int) Db::value(
+        'SELECT COUNT(*) FROM matches WHERE tournament_id = :tid', [':tid' => $tournamentId]);
+    $played = (int) Db::value(
+        "SELECT COUNT(*) FROM matches
+          WHERE tournament_id = :tid2 AND status <> 'Scheduled'",
+        [':tid2' => $tournamentId]);
+
+    if ($total === 0) {
+        Response::fail('รายการนี้ยังไม่มีนัดให้ลบ', 409);
+    }
+
+    $keepPlayed = Input::bool('keepPlayed');
+
+    if ($played > 0 && !$keepPlayed && !Input::bool('force')) {
+        Response::fail(
+            "มีนัดที่แข่งไปแล้ว $played นัดจากทั้งหมด $total นัด — ลบแล้วผลการแข่ง"
+            . 'และตารางคะแนนจะหายไปด้วย ส่ง force=true เพื่อลบทั้งหมด '
+            . 'หรือ keepPlayed=true เพื่อลบเฉพาะนัดที่ยังไม่แข่ง',
+            409, ['total' => $total, 'played' => $played]
+        );
+    }
+
+    if ($keepPlayed) {
+        $deleted = Db::exec(
+            "DELETE FROM matches WHERE tournament_id = :tid3 AND status = 'Scheduled'",
+            [':tid3' => $tournamentId]);
+    } else {
+        $deleted = Db::exec('DELETE FROM matches WHERE tournament_id = :tid4',
+            [':tid4' => $tournamentId]);
+    }
+
+    Audit::log('tournament', $tournamentId, 'delete_all_matches',
+        ['total' => $total, 'played' => $played], ['deleted' => $deleted]);
+    Cache::flush();
+
+    Response::ok([
+        'deleted'   => $deleted,
+        'keptPlayed' => $keepPlayed ? $played : 0,
+        'message'   => $keepPlayed
+            ? "ลบนัดที่ยังไม่แข่ง $deleted นัด (เก็บนัดที่แข่งแล้ว $played นัดไว้)"
+            : "ลบตารางแข่งทั้งหมด $deleted นัด",
+    ]);
+}

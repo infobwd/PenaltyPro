@@ -220,12 +220,26 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
 
   const uniqueRounds = Array.from(new Set(scheduledMatches.map(m => getRoundName(m.roundLabel || '')))).sort();
 
+  /**
+   * คีย์วันที่แบบไม่ throw
+   *
+   * นัดที่สร้างจากระบบประกบคู่อัตโนมัติยังไม่มีวันแข่ง (แอดมินมาใส่ทีหลัง)
+   * ค่าจึงเป็นค่าว่าง แล้ว `new Date('').toISOString()` โยน RangeError
+   * ทำให้หน้าตารางแข่งพังทั้งหน้า ไม่ใช่แค่นัดนั้น
+   */
+  const dateKey = (m: Match): string => {
+    const raw = m.scheduledTime || m.date;
+    if (!raw) return '';
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? '' : d.toISOString().split('T')[0];
+  };
+
   const filteredScheduled = scheduledMatches.filter(m => {
     const tA = resolveTeam(m.teamA).name.toLowerCase();
     const tB = resolveTeam(m.teamB).name.toLowerCase();
     const search = searchTerm.toLowerCase();
     const matchesSearch = !search || tA.includes(search) || tB.includes(search) || (m.venue || '').toLowerCase().includes(search);
-    const mDate = new Date(m.scheduledTime || m.date).toISOString().split('T')[0];
+    const mDate = dateKey(m);
     const matchesDate = !filterDate || mDate === filterDate;
     const mRound = getRoundName(m.roundLabel || '');
     const matchesRound = filterGroup === 'All' || mRound === filterGroup;
@@ -233,7 +247,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   });
 
   const groupedScheduled = filteredScheduled.reduce((acc, m) => {
-    const d = new Date(m.scheduledTime || m.date).toISOString().split('T')[0];
+    // นัดที่ยังไม่กำหนดวันไปรวมกลุ่มเดียวกัน แทนที่จะทำให้ทั้งหน้าพัง
+    const d = dateKey(m) || 'ยังไม่กำหนดวัน';
     if (!acc[d]) acc[d] = [];
     acc[d].push(m);
     return acc;
@@ -303,7 +318,11 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   
   const handleEditMatch = (e: React.MouseEvent, match: Match) => { 
       e.stopPropagation(); 
-      const dateObj = new Date(match.scheduledTime || match.date); 
+      // นัดจากระบบประกบคู่อัตโนมัติยังไม่มีวัน -> ตั้งเป็นวันนี้ให้แอดมินแก้ต่อ
+      // ไม่งั้น toISOString() ของ Invalid Date จะ throw ตอนกดปุ่มแก้ไข
+      const raw = match.scheduledTime || match.date;
+      const parsed = raw ? new Date(raw) : null;
+      const dateObj = parsed && !isNaN(parsed.getTime()) ? parsed : new Date();
       const label = match.roundLabel || '';
       let type: 'group' | 'knockout' | 'custom' = 'custom';
       let uiLabel = label;
@@ -631,7 +650,13 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                              <div className="flex items-center gap-2 mb-3 bg-indigo-50 px-3 py-1.5 rounded-lg w-fit border border-indigo-100 shadow-sm sticky top-20 z-10 backdrop-blur-sm">
                                 <Calendar className="w-4 h-4 text-indigo-600" />
                                 <span className="font-bold text-indigo-900 text-sm">
-                                    {new Date(dateKey).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                                    {/* กลุ่ม "ยังไม่กำหนดวัน" ไม่ใช่วันที่ — แปลงเป็นวันที่จะได้ Invalid Date */}
+                                    {(() => {
+                                        const d = new Date(dateKey);
+                                        return isNaN(d.getTime())
+                                            ? dateKey
+                                            : d.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                                    })()}
                                 </span>
                                 <span className="text-xs text-indigo-400 bg-white px-1.5 rounded-full ml-1 font-bold">{groupedScheduled[dateKey].length} คู่</span>
                             </div>

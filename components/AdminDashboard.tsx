@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest } from '../types';
+import AdminTools from './AdminTools';
+import AdminTournaments from './AdminTournaments';
+import SearchPicker, { PickerItem } from './SearchPicker';
+import AdminSchedule from './AdminSchedule';
+import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest, Match } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
+import { apiGet, apiPost } from '../services/apiConfig';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
 import confetti from 'canvas-confetti';
 
@@ -15,6 +20,10 @@ interface AdminDashboardProps {
   initialTeamId?: string | null;
   currentTournament?: Tournament;
   tournaments?: Tournament[];
+  /** ทีมทุกทัวร์นาเมนต์ — แผงเครื่องมือสลับรายการได้จึงต้องใช้ทั้งหมด */
+  allTeams?: Team[];
+  /** นัดแข่งทั้งหมด — หน้าจัดตารางต้องใช้ */
+  allMatches?: Match[];
   donations?: Donation[];
   isLoading?: boolean;
 }
@@ -33,11 +42,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   initialTeamId, 
   currentTournament, 
   tournaments = [], 
+  allTeams = [],
+  allMatches = [],
   donations = [], 
   isLoading 
 }) => {
   // Tab Persistence Logic
-  const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations' | 'contests'>(() => {
+  // ── เพิ่มทีมโดยแอดมิน ──────────────────────────────────────────────
+  // ต้องผูกกับโรงเรียนที่มีในระบบเสมอ ไม่ให้พิมพ์ชื่อโรงเรียนอิสระ ไม่งั้น
+  // พิมพ์ต่างกันนิดเดียวกลายเป็นคนละโรงเรียนแล้วรวมประวัติข้ามฤดูไม่ได้
+  const [addTeamOpen, setAddTeamOpen] = useState(false);
+  const [addTeamForm, setAddTeamForm] = useState({
+    schoolId: '', schoolName: '', name: '', shortName: '',
+    managerName: '', managerPhone: '', groupName: '', status: 'Approved',
+  });
+  const [addTeamBusy, setAddTeamBusy] = useState(false);
+
+  const submitAddTeam = async () => {
+    if (!addTeamForm.schoolId) {
+      showNotification?.('ยังเพิ่มไม่ได้', 'ต้องเลือกโรงเรียนก่อน', 'warning');
+      return;
+    }
+    setAddTeamBusy(true);
+    try {
+      const r = await apiPost('createTeam', {
+        tournamentId: currentTournament?.id || '',
+        schoolId: addTeamForm.schoolId,
+        name: addTeamForm.name.trim() || addTeamForm.schoolName,
+        shortName: addTeamForm.shortName.trim(),
+        managerName: addTeamForm.managerName.trim(),
+        managerPhone: addTeamForm.managerPhone.trim(),
+        groupName: addTeamForm.groupName.trim(),
+        status: addTeamForm.status,
+      });
+      showNotification?.('เพิ่มทีมแล้ว', r.name, 'success');
+      setAddTeamOpen(false);
+      setAddTeamForm({ schoolId: '', schoolName: '', name: '', shortName: '',
+        managerName: '', managerPhone: '', groupName: '', status: 'Approved' });
+      onRefresh();
+    } catch (e: any) {
+      // 409 = ชนเพดานทีมต่อโรงเรียน หรือชื่อซ้ำ — ระบบกันไว้ ไม่ใช่ระบบพัง
+      showNotification?.(e?.status === 409 ? 'เพิ่มไม่ได้' : 'ผิดพลาด',
+        e?.message ?? 'เพิ่มทีมไม่สำเร็จ', e?.status === 409 ? 'warning' : 'error');
+    } finally { setAddTeamBusy(false); }
+  };
+
+  const [activeTab, setActiveTab] = useState<'teams' | 'settings' | 'news' | 'users' | 'donations' | 'contests' | 'tools' | 'schedule' | 'tournaments'>(() => {
       const savedTab = localStorage.getItem('adminActiveTab');
       return (savedTab as any) || 'teams';
   });
@@ -899,11 +949,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setEditForm(null); 
       setSelectedTeam(null); // Deselect team
 
+      // updateTeamData ส่ง status/group/schoolId ไปด้วยแล้วในคำสั่งเดียว
+      // ถ้าเรียก updateTeamStatus ซ้ำอีกรอบ กรณี "ปฏิเสธ" จะไปเข้า reviewTeam
+      // ที่บังคับต้องมีเหตุผล แล้วขึ้น error ทั้งที่บันทึกสำเร็จไปแล้ว
       executeWithReload(async () => {
           await updateTeamData(updatedTeam, updatedPlayers);
-          if (updatedTeam.status !== selectedTeam?.status) {
-              await updateTeamStatus(updatedTeam.id, updatedTeam.status as any, updatedTeam.group, '');
-          }
       }, "อัปเดตข้อมูลและรีโหลดเรียบร้อย", "กำลังอัปเดตข้อมูลทีม...");
   };
   
@@ -1016,6 +1066,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return (u.displayName || '').toLowerCase().includes(s) || (u.username || '').toLowerCase().includes(s) || (u.phoneNumber || '').includes(s);
   });
 
+  /** รายชื่อโรงเรียนสำหรับตัวเลือก — โหลดครั้งเดียวแล้วใช้ซ้ำ */
+  const schoolCacheRef = React.useRef<PickerItem[] | null>(null);
+  const loadSchoolOptions = async (): Promise<PickerItem[]> => {
+      if (schoolCacheRef.current) return schoolCacheRef.current;
+      const r = await apiGet('listSchools');
+      const list = (r.schools ?? []).map((s: any): PickerItem => ({
+          id: s.schoolId,
+          label: s.schoolName,
+          sub: [s.district, s.province].filter(Boolean).join(' · '),
+          badge: s.hasAccessCode ? 'มีรหัส' : undefined,
+      }));
+      schoolCacheRef.current = list;
+      return list;
+  };
+
   const formData = editForm?.team;
 
   return (
@@ -1036,7 +1101,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Modals and Overlays */}
       {previewImage && (
-          <div className="fixed inset-0 z-[1400] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
+          <div className="fixed inset-0 z-[1400] bg-black/80 modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
               <div className="relative max-w-4xl max-h-[90vh]">
                   <img src={previewImage} className="max-w-full max-h-[90vh] rounded shadow-lg" />
                   <button className="absolute -top-4 -right-4 bg-white rounded-full p-2 text-slate-800" onClick={() => setPreviewImage(null)}><X className="w-6 h-6"/></button>
@@ -1046,7 +1111,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       
       {/* NEWS MODAL */}
       {isNewsModalOpen && (
-          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
                       <h3 className="font-bold text-lg text-slate-800">{newsForm.id ? 'แก้ไขข่าวสาร' : 'เพิ่มข่าวสาร'}</h3>
@@ -1114,7 +1179,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* DONATION DETAIL MODAL */}
       {selectedDonation && (
-          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedDonation(null)}>
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setSelectedDonation(null)}>
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col md:flex-row overflow-hidden animate-in zoom-in duration-200 max-h-[90vh]" onClick={e => e.stopPropagation()}>
                   {/* Left: Slip Image */}
                   <div className="w-full md:w-1/2 bg-slate-900 flex items-center justify-center p-4 relative group">
@@ -1224,7 +1289,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* CONFIRM REMOVE TEAM FROM LIVE DRAW */}
       {removeConfirmModal.isOpen && (
-          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
                   <div className="flex items-center gap-3 text-red-600 mb-4 border-b pb-2">
                       <Trash2 className="w-6 h-6" />
@@ -1242,7 +1307,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* CONFIRM RESET LIVE DRAW */}
       {resetConfirmModal && (
-          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[2200] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
                   <div className="flex items-center gap-3 text-orange-600 mb-4 border-b pb-2">
                       <RotateCcw className="w-6 h-6" />
@@ -1262,7 +1327,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* CONFIRM DELETE NEWS MODAL */}
       {newsToDelete && (
-          <div className="fixed inset-0 z-[1500] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[1500] bg-black/50 modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-xs w-full animate-in zoom-in duration-200 text-center">
                   <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Trash2 className="w-8 h-8 text-red-500" />
@@ -1318,7 +1383,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* DRAW SETUP MODAL */}
       {isDrawModalOpen && (
-          <div className="fixed inset-0 z-[1300] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[1300] bg-black/50 modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in duration-200">
                   <div className="flex items-center gap-3 text-indigo-600 mb-4 border-b pb-2">
                       <Shuffle className="w-6 h-6" />
@@ -1357,7 +1422,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {editForm && formData && (
-        <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
+        <div className="fixed inset-0 z-[1300] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 overflow-y-auto" onClick={() => { setEditForm(null); setSelectedTeam(null); }}>
             <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="bg-indigo-900 text-white p-4 flex justify-between items-center shrink-0">
@@ -1390,6 +1455,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อทีม/โรงเรียน</label>
                                     <input type="text" value={formData.name} onChange={e => handleEditFieldChange('name', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
                                 </div>
+                                <div className="col-span-2">
+                                    {/* ผูกทีมกับโรงเรียนในระบบ — ของเดิมเก็บชื่อโรงเรียนเป็นข้อความ
+                                        พิมพ์ต่างกันนิดเดียวก็กลายเป็นคนละโรงเรียน รวมประวัติข้ามฤดูไม่ได้
+                                        และออกรหัสเข้าใช้งานให้ถูกโรงเรียนไม่ได้ด้วย */}
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">
+                                        โรงเรียนที่สังกัด
+                                        {(formData as any).schoolName && (
+                                            <span className="ml-2 font-normal text-slate-400">
+                                                ปัจจุบัน: {(formData as any).schoolName}
+                                            </span>
+                                        )}
+                                    </label>
+                                    <SearchPicker
+                                        value={(formData as any).schoolId || ''}
+                                        onChange={id => handleEditFieldChange('schoolId' as any, id)}
+                                        load={loadSchoolOptions}
+                                        placeholder={(formData as any).schoolName || 'ค้นหาโรงเรียนในระบบ'}
+                                        emptyText="ไม่พบโรงเรียน"
+                                    />
+                                    <a href="/school" target="_blank" rel="noreferrer"
+                                       className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-indigo-600 hover:underline">
+                                        เปิดหน้าโรงเรียน (ให้ครูกรอกรายชื่อนักกีฬาเอง) →
+                                    </a>
+                                </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อย่อ</label>
                                     <input type="text" value={formData.shortName} onChange={e => handleEditFieldChange('shortName', e.target.value)} className="w-full p-3 border rounded-lg text-sm" />
@@ -1401,9 +1490,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                         onChange={e => handleEditFieldChange('status', e.target.value)} 
                                         className={`w-full p-3 border rounded-lg text-sm font-bold ${formData.status === 'Approved' ? 'text-green-600 bg-green-50 border-green-200' : formData.status === 'Rejected' ? 'text-red-600 bg-red-50 border-red-200' : 'text-yellow-600 bg-yellow-50 border-yellow-200'}`}
                                     >
-                                        <option value="Pending">Pending (รออนุมัติ)</option>
-                                        <option value="Approved">Approved (อนุมัติ)</option>
-                                        <option value="Rejected">Rejected (ปฏิเสธ)</option>
+                                        <option value="Invited">รอโรงเรียนยืนยัน</option>
+                                        <option value="Draft">โรงเรียนกำลังกรอก</option>
+                                        <option value="Submitted">รออนุมัติ</option>
+                                        <option value="Approved">อนุมัติแล้ว</option>
+                                        <option value="Rejected">ถูกตีกลับ</option>
+                                        <option value="Withdrawn">ไม่เข้าร่วม</option>
                                     </select>
                                 </div>
                                 <div>
@@ -1531,7 +1623,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* USER MANAGEMENT MODAL */}
       {isUserModalOpen && (
-          <div className="fixed inset-0 z-[1400] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[1400] bg-black/50 modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in duration-200">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
                       <h3 className="font-bold text-lg text-slate-800">{editingUser ? 'แก้ไขข้อมูลผู้ใช้' : 'เพิ่มผู้ใช้ใหม่'}</h3>
@@ -1583,7 +1675,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* CONTEST MODAL */}
       {isContestModalOpen && (
-          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in duration-200">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
                       <h3 className="font-bold text-lg text-slate-800">{contestForm.id ? 'แก้ไขกิจกรรม' : 'สร้างกิจกรรมใหม่'}</h3>
@@ -1631,7 +1723,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* REJECT MODAL */}
       {rejectModal.isOpen && (
-          <div className="fixed inset-0 z-[1300] bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[1300] bg-black/50 modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full animate-in zoom-in duration-200">
                   <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3 text-red-600">
@@ -1648,7 +1740,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* NEWS MODAL */}
       {isNewsModalOpen && (
-          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4">
               <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
                       <h3 className="font-bold text-lg text-slate-800">{newsForm.id ? 'แก้ไขข่าวสาร' : 'เพิ่มข่าวสาร'}</h3>
@@ -1716,7 +1808,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* DONATION DETAIL MODAL */}
       {selectedDonation && (
-          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedDonation(null)}>
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4" onClick={() => setSelectedDonation(null)}>
               <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col md:flex-row overflow-hidden animate-in zoom-in duration-200 max-h-[90vh]" onClick={e => e.stopPropagation()}>
                   {/* Left: Slip Image */}
                   <div className="w-full md:w-1/2 bg-slate-900 flex items-center justify-center p-4 relative group">
@@ -1836,6 +1928,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button onClick={() => setActiveTab('news')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'news' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Bell className="w-4 h-4" /> ข่าวสาร</button>
                 <button onClick={() => setActiveTab('donations')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'donations' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><DollarSign className="w-4 h-4" /> เงินบริจาค</button>
                 <button onClick={() => setActiveTab('contests')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'contests' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Camera className="w-4 h-4" /> ประกวดภาพ</button>
+                <button onClick={() => setActiveTab('schedule')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'schedule' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Calendar className="w-4 h-4" /> ตารางแข่ง</button>
+                <button onClick={() => setActiveTab('tournaments')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'tournaments' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Trophy className="w-4 h-4" /> รายการแข่งขัน</button>
+                <button onClick={() => setActiveTab('tools')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'tools' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Settings className="w-4 h-4" /> เครื่องมือผู้ดูแล</button>
                 <button onClick={() => setActiveTab('users')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><UserCog className="w-4 h-4" /> ผู้ใช้งาน</button>
                 <button onClick={() => setActiveTab('settings')} className={`px-4 py-2 rounded-lg font-medium transition flex items-center gap-2 ${activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50'}`}><Settings className="w-4 h-4" /> ตั้งค่า</button>
                 <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition border border-red-100"><LogOut className="w-4 h-4" /></button>
@@ -1852,14 +1947,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 sticky top-0 bg-white z-20">
                         <div className="flex items-center gap-3">
                             <h2 className="font-bold text-lg text-slate-800">รายชื่อทีมลงทะเบียน</h2>
+                            <button onClick={() => setAddTeamOpen(true)} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition font-bold shadow-md"><UserPlus className="w-4 h-4" /> เพิ่มทีม</button>
                             <button onClick={prepareLiveDraw} className="flex items-center gap-1 text-xs bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-purple-600 transition font-bold shadow-md transform hover:scale-105"><Shuffle className="w-4 h-4" /> Live Draw</button>
                         </div>
                         <div className="flex gap-2 w-full md:w-auto items-center">
                             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
                                 <option value="All">สถานะ: ทั้งหมด</option>
-                                <option value="Pending">รออนุมัติ</option>
+                                <option value="Invited">รอโรงเรียนยืนยัน</option>
+                                <option value="Draft">โรงเรียนกำลังกรอก</option>
+                                <option value="Submitted">รออนุมัติ</option>
                                 <option value="Approved">อนุมัติแล้ว</option>
-                                <option value="Rejected">ไม่อนุมัติ</option>
+                                <option value="Rejected">ถูกตีกลับ</option>
+                                <option value="Withdrawn">ไม่เข้าร่วม</option>
                             </select>
                             <div className="relative flex-1 md:flex-none">
                                 <input 
@@ -1960,6 +2059,156 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* --- CONTESTS TAB --- */}
+        {activeTab === 'schedule' && (
+            <div className="animate-in fade-in duration-300">
+                <AdminSchedule
+                    tournaments={tournaments || []}
+                    teams={allTeams.length ? allTeams : localTeams}
+                    matches={allMatches}
+                    currentTournamentId={currentTournament?.id || ''}
+                    onRefresh={onRefresh}
+                    notify={(title, msg = '', type = 'success') =>
+                        showNotification?.(title, msg, type)}
+                />
+            </div>
+        )}
+
+        {/* --- เพิ่มทีมโดยแอดมิน --- */}
+        {addTeamOpen && (
+          <div className="fixed inset-0 z-[1400] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4"
+            onClick={() => setAddTeamOpen(false)}>
+            <div className="bg-white w-full md:max-w-lg rounded-2xl max-h-[92vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}>
+              <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-3 flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-indigo-600" /> เพิ่มทีมเข้าแข่งขัน
+                </h3>
+                <button onClick={() => setAddTeamOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-800">
+                  เพิ่มเข้ารายการ <b>{currentTournament?.name ?? 'ยังไม่ได้เลือกรายการ'}</b>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    โรงเรียน <span className="text-rose-500">*</span>
+                  </label>
+                  <SearchPicker
+                    value={addTeamForm.schoolId}
+                    onChange={(id, item) => setAddTeamForm(f => ({
+                      ...f, schoolId: id, schoolName: item?.label ?? '',
+                      name: f.name || (item?.label ?? ''),
+                    }))}
+                    load={loadSchoolOptions}
+                    placeholder="พิมพ์ชื่อโรงเรียนเพื่อค้นหา..."
+                    emptyText="ไม่พบโรงเรียนนี้ในระบบ"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    ทีมต้องผูกกับโรงเรียนที่มีในระบบ เพื่อให้ตามประวัติข้ามรายการได้
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">ชื่อทีม</label>
+                    <input className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      placeholder={addTeamForm.schoolName || 'ใช้ชื่อโรงเรียน'}
+                      value={addTeamForm.name}
+                      onChange={e => setAddTeamForm(f => ({ ...f, name: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">ชื่อย่อ</label>
+                    <input className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      placeholder="เช่น T01" value={addTeamForm.shortName}
+                      onChange={e => setAddTeamForm(f => ({ ...f, shortName: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">ผู้จัดการทีม</label>
+                    <input className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      value={addTeamForm.managerName}
+                      onChange={e => setAddTeamForm(f => ({ ...f, managerName: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">เบอร์ติดต่อ</label>
+                    <input className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      value={addTeamForm.managerPhone}
+                      onChange={e => setAddTeamForm(f => ({ ...f, managerPhone: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">สาย (ไม่บังคับ)</label>
+                    <input className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      placeholder="A" value={addTeamForm.groupName}
+                      onChange={e => setAddTeamForm(f => ({ ...f, groupName: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">สถานะ</label>
+                    <select className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                      value={addTeamForm.status}
+                      onChange={e => setAddTeamForm(f => ({ ...f, status: e.target.value }))}>
+                      <option value="Approved">อนุมัติแล้ว (ลงแข่งได้ทันที)</option>
+                      <option value="Invited">รอโรงเรียนยืนยัน</option>
+                      <option value="Draft">โรงเรียนกำลังกรอก</option>
+                      <option value="Submitted">รออนุมัติ</option>
+                    </select>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-400">
+                  เพิ่มทีมแล้วรายชื่อนักกีฬายังว่าง ให้โรงเรียนกรอกเองผ่านหน้า /school
+                  ด้วยรหัสเข้าใช้งาน หรือกดปุ่มจัดการที่การ์ดทีมเพื่อกรอกแทน
+                </p>
+              </div>
+
+              <div className="sticky bottom-0 bg-white border-t border-slate-100 p-4 flex gap-2 safe-area-bottom">
+                <button onClick={() => setAddTeamOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border-2 border-slate-300 font-bold text-slate-700">
+                  ยกเลิก
+                </button>
+                <button onClick={submitAddTeam}
+                  disabled={addTeamBusy || !addTeamForm.schoolId || !currentTournament?.id}
+                  className="flex-[2] py-2.5 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                  {addTeamBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                  เพิ่มทีม
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'tournaments' && (
+            <AdminTournaments
+                tournaments={tournaments || []}
+                teams={allTeams.length ? allTeams : localTeams}
+                matches={allMatches || []}
+                onRefresh={onRefresh}
+                notify={(title, msg = '', type = 'success') =>
+                    showNotification?.(title, msg, type)}
+            />
+        )}
+
+        {activeTab === 'tools' && (
+            <div className="animate-in fade-in duration-300">
+                <AdminTools
+                    tournaments={tournaments || []}
+                    teams={allTeams.length ? allTeams : localTeams}
+                    currentTournamentId={currentTournament?.id || ''}
+                    onRefresh={onRefresh}
+                    notify={(title, msg = '', type = 'success') =>
+                        showNotification?.(title, msg, type)}
+                />
+            </div>
+        )}
+
         {activeTab === 'contests' && (
             <div className="animate-in fade-in duration-300">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

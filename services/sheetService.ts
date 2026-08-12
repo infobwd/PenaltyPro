@@ -2,121 +2,50 @@
 // ... existing imports ...
 import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction, Sponsor, MusicTrack, TickerMessage } from '../types';
 
-import { LEGACY_API, apiGet } from './apiConfig';
+import { DB_API, apiGet, apiPost, apiUpload, setToken } from './apiConfig';
 
-// ส่วนที่ยังไม่ได้ย้ายมา PHP/MySQL ยังวิ่งไป Apps Script ตามเดิม
-// รายการที่ย้ายแล้วดูได้ที่ MIGRATED_ACTIONS ใน apiConfig.ts
-const API_URL = LEGACY_API;
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
 const CACHE_KEY_TIMESTAMP = 'penalty_pro_db_timestamp';
-const CACHE_DURATION = 5 * 60 * 1000; // 5 Minutes Cache Duration
+// เดิม 5 นาที ซึ่งซ้อนกับ cache ฝั่ง server อีก 5 นาที = ข้อมูลเก่าค้างได้ถึง
+// 10 นาที ทำให้ "แก้ในฐานข้อมูลแล้วหน้าเว็บไม่เปลี่ยน" ลดเหลือ 60 วินาที
+// เพื่อให้ยังช่วยเรื่องเปิดแอปซ้ำเร็ว ๆ แต่ไม่หน่วงจนดูเหมือนระบบพัง
+//
+// การแก้ผ่าน API จะล้าง cache ฝั่ง server ให้เองอยู่แล้ว ส่วนการแก้ฐานข้อมูล
+// ตรง ๆ (phpMyAdmin) ต้องสั่ง ?action=flushCache เพราะ API ไม่มีทางรู้
+const CACHE_DURATION = 60 * 1000;
 
-export const getStoredScriptUrl = (): string | null => {
-  return API_URL;
-};
+/** ปลายทาง API ปัจจุบัน — ใช้แสดงในหน้าตั้งค่าเพื่อให้ตรวจได้ว่าชี้ไปที่ไหน */
+export const getStoredScriptUrl = (): string | null => DB_API;
 
 // ... existing functions ...
 
 // --- TICKER FUNCTIONS ---
 
-export const fetchTickerMessages = async (): Promise<TickerMessage[]> => {
-    try {
-        const response = await fetch(`${API_URL}?action=getTickerMessages&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-        if (!response.ok) return [];
-        const data = await response.json();
-        return data.messages || [];
-    } catch (error) {
-        return [];
-    }
-};
 
-export const manageTickerMessage = async (data: { subAction: 'add' | 'delete' | 'toggle', id?: string, message?: string, type?: string, isActive?: boolean }): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'manageTickerMessage', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
-};
 
 // ... existing functions submitDonation, submitPrediction etc ...
 
 export const submitDonation = async (data: any): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'submitDonation', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
+    await apiPost('submitDonation', data);
+    return true;
 };
 
 export const submitPrediction = async (data: { matchId: string, userId: string, userDisplayName: string, userPic: string, prediction: 'A' | 'B', tournamentId: string }): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'submitPrediction', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
+    await apiPost('submitPrediction', data);
+    return true;
 };
 
 // ... existing functions ...
 
-export const verifyDonation = async (donationId: string, status: 'Verified' | 'Rejected'): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            redirect: 'follow',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'verifyDonation', donationId, status })
-        });
-        return true;
-    } catch (e) { return false; }
-}
 
-export const updateDonationDetails = async (donationId: string, updates: any): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            redirect: 'follow',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'updateDonationDetails', donationId, ...updates })
-        });
-        return true;
-    } catch (e) { return false; }
-}
 
-export const deleteTeam = async (teamId: string): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            redirect: 'follow',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'deleteTeam', teamId })
-        });
-        return true;
-    } catch (e) { return false; }
-}
 
 // CONTEST FUNCTIONS
 
 export const fetchContests = async (): Promise<{ contests: Contest[], entries: ContestEntry[] }> => {
     try {
-        const response = await fetch(`${API_URL}?action=getContests&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-        if (!response.ok) throw new Error("Failed to fetch contests");
-        const data = await response.json();
-        return data;
+        const d = await apiGet('getContests');
+        return { contests: d.contests ?? [], entries: d.entries ?? [] };
     } catch (error) {
         console.error("fetchContests error", error);
         return { contests: [], entries: [] };
@@ -124,144 +53,59 @@ export const fetchContests = async (): Promise<{ contests: Contest[], entries: C
 };
 
 export const submitContestEntry = async (data: { contestId: string, userId: string, userDisplayName: string, userPic: string, photoFile?: string, photoUrl?: string, caption: string }): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'submitContestEntry', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
+    await apiPost('submitContestEntry', data);
+    return true;
 };
 
 export const deleteContestEntry = async (entryId: string, userId: string): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'deleteContestEntry', entryId, userId })
-        });
-        return true;
-    } catch (e) { return false; }
+    await apiPost('deleteContestEntry', { entryId, userId });
+    return true;
 };
 
 export const toggleEntryLike = async (entryId: string, userId: string): Promise<{ status: string, newCount?: number, likedBy?: string[] }> => {
     try {
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            redirect: 'follow',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'toggleEntryLike', entryId, userId })
-        });
-        if (response.ok) {
-            return await response.json();
-        }
+        const r = await apiPost('toggleEntryLike', { entryId, userId });
+        return { status: 'success', newCount: r.newCount, likedBy: r.likedBy };
+    } catch (e) {
         return { status: 'error' };
-    } catch (e) { return { status: 'error' }; }
+    }
 };
 
 export const manageContest = async (data: any): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'manageContest', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
+    await apiPost('manageContest', data);
+    return true;
 };
 
 export const fetchContestComments = async (entryId: string): Promise<ContestComment[]> => {
     try {
-        const response = await fetch(`${API_URL}?action=getComments&entryId=${entryId}&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-        if (!response.ok) return [];
-        const data = await response.json();
-        return data.comments || [];
+        const d = await apiGet('getComments', { entryId });
+        return d.comments ?? [];
     } catch (error) {
         return [];
     }
 };
 
 export const submitContestComment = async (data: { entryId: string, userId: string, userDisplayName: string, userPic: string, message: string }): Promise<string | null> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'submitContestComment', ...data })
-        });
-        // Since no-cors, assume success and return a temp ID or true
-        return "CMT_" + Date.now();
-    } catch (e) { return null; }
+    const r = await apiPost('submitContestComment', data);
+    return r.commentId ?? null;
 };
 
 export const incrementShareCount = async (entryId: string): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'incrementShareCount', entryId })
-        });
-        return true;
-    } catch (e) { return false; }
+    await apiPost('incrementShareCount', { entryId });
+    return true;
 };
 
 // --- SPONSOR FUNCTIONS ---
 
-export const fetchSponsors = async (): Promise<Sponsor[]> => {
-    try {
-        const response = await fetch(`${API_URL}?action=getSponsors&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-        if (!response.ok) return [];
-        const data = await response.json();
-        return data.sponsors || [];
-    } catch (error) {
-        return [];
-    }
-};
 
-export const manageSponsor = async (data: { subAction: 'add' | 'delete' | 'edit', id?: string, name?: string, logoFile?: string, type?: string }): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'manageSponsor', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
-};
 
 // --- MUSIC TRACK FUNCTIONS ---
 
-export const fetchMusicTracks = async (): Promise<MusicTrack[]> => {
-    try {
-        const response = await fetch(`${API_URL}?action=getMusicTracks&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-        if (!response.ok) return [];
-        const data = await response.json();
-        return data.tracks || [];
-    } catch (error) {
-        return [];
-    }
-};
 
-export const manageMusicTrack = async (data: { subAction: 'add' | 'delete' | 'edit', id?: string, name?: string, url?: string, type?: string }): Promise<boolean> => {
-    try {
-        await fetch(API_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'manageMusicTrack', ...data })
-        });
-        return true;
-    } catch (e) { return false; }
-};
 
 // RE-EXPORT all existing functions to maintain file integrity
-export const setStoredScriptUrl = (url: string) => { console.warn("URL is hardcoded in this version. Setting ignored."); };
+/** ปลายทางถูกกำหนดตอน build แล้ว (path สัมพัทธ์ /api/) แก้จากหน้าเว็บไม่ได้ */
+export const setStoredScriptUrl = (_url: string) => {};
 
 export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ teams: Team[], players: Player[], matches: any[], config: AppSettings, schools: School[], news: NewsItem[], tournaments: Tournament[], donations: Donation[], predictions: Prediction[] } | null> => {
   try {
@@ -309,28 +153,264 @@ export const fetchDatabase = async (forceRefresh: boolean = false): Promise<{ te
   }
 };
 
-export const fetchUsers = async (): Promise<UserProfile[]> => {
-    try { const response = await fetch(`${API_URL}?action=getUsers&t=${Date.now()}`, { method: 'GET', redirect: 'follow' }); if (!response.ok) return []; const data = await response.json(); return data.users || []; } catch (e) { return []; }
-}
-export const updateUserRole = async (userId: string, role: string): Promise<boolean> => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'updateUserRole', userId, role }) }); return true; } catch (e) { return false; } }
-export const createUser = async (data: any): Promise<boolean> => { try { const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'createUser', ...data }) }); if (response.ok) { const result = await response.json(); return result.status === 'success'; } return false; } catch (e) { return false; } };
-export const updateUserDetails = async (data: any): Promise<boolean> => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'updateUserDetails', ...data }) }); return true; } catch (e) { return false; } };
-export const deleteUser = async (userId: string): Promise<boolean> => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'deleteUser', userId }) }); return true; } catch (e) { return false; } };
-export const createTournament = async (name: string, type: string): Promise<string | null> => { try { const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'createTournament', name, type }) }); if (response.ok) { const result = await response.json(); return result.tournamentId; } return null; } catch (error) { return null; } };
-export const updateTournament = async (tournament: Tournament): Promise<boolean> => { try { const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'updateTournament', tournament }) }); if (response.ok) { const result = await response.json(); return result.status === 'success'; } return false; } catch (error) { return false; } };
-export const authenticateUser = async (data: any): Promise<UserProfile | null> => { const payload = { action: 'auth', ...data }; try { const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); if (response.ok) { const result = await response.json(); if (result.status === 'error') throw new Error(result.message); return { userId: result.userId, username: result.username, displayName: result.displayName, pictureUrl: result.pictureUrl, type: data.authType === 'line' ? 'line' : 'credentials', phoneNumber: result.phoneNumber, role: result.role, lineUserId: result.lineUserId }; } throw new Error("Network response was not ok"); } catch (error: any) { throw error; } };
+export const createTournament = async (name: string, type: string): Promise<string | null> => {
+  const r = await apiPost('createTournament', { name, type });
+  return r.tournamentId ?? null;
+};
+export const updateTournament = async (tournament: Tournament): Promise<boolean> => {
+  // เดิมยิงไป Apps Script (เขียนลงชีต) ทั้งที่หน้าเว็บอ่านจาก MySQL
+  // แก้ชื่อรายการแล้วจึงไม่มีทางเห็นผล — ตอนนี้เขียนลงฐานเดียวกับที่อ่าน
+  await apiPost('updateTournament', { tournament });
+  return true;
+};
+
+export const deleteTournament = async (
+  tournamentId: string, confirmName: string, force = false,
+): Promise<any> => apiPost('deleteTournament', { tournamentId, confirmName, force });
+export const authenticateUser = async (data: any): Promise<UserProfile | null> => {
+  // ย้ายมา PHP/MySQL แล้ว — และเก็บ token ไว้ใช้กับทุก endpoint ที่ต้องมีสิทธิ์
+  // ถ้าไม่เก็บ การกดปุ่มในหน้าแอดมินจะได้ 401 ทั้งหมดทั้งที่ล็อกอินแล้ว
+  const payload = data.authType === 'line'
+    ? { authType: 'line', idToken: data.idToken }
+    : { authType: 'login', username: data.username, password: data.password };
+
+  const r = await apiPost('auth', payload);
+  setToken(r.token);
+  return {
+    userId: r.userId,
+    username: r.username,
+    displayName: r.displayName,
+    pictureUrl: r.pictureUrl,
+    type: data.authType === 'line' ? 'line' : 'credentials',
+    phoneNumber: r.phoneNumber,
+    role: r.role,
+    lineUserId: r.lineUserId,
+  };
+};
 export const generateGeminiContent = async (prompt: string, initialModel: string = 'gemini-1.5-flash'): Promise<string> => { return "AI Response Placeholder"; };
 export const registerTeam = async (data: RegistrationData, tournamentId: string = 'default', creatorId: string = ''): Promise<string | null> => {
-  const payload = { action: 'register', schoolName: data.schoolName, shortName: data.shortName, color: data.color, logoFile: data.logoFile, documentFile: data.documentFile, slipFile: data.slipFile, district: data.district, province: data.province, phone: data.phone, directorName: data.directorName, managerName: data.managerName, managerPhone: data.managerPhone, coachName: data.coachName, coachPhone: data.coachPhone, registrationTime: data.registrationTime, tournamentId, creatorId, lineUserId: data.lineUserId, players: data.players.map(p => ({ name: p.name, number: p.sequence, position: 'Player', birthDate: p.birthDate, photoFile: p.photoFile })) };
-  try { const response = await fetch(API_URL, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); if (response.ok) { const result = await response.json(); if (result.status === 'error') { throw new Error(result.message); } return result.teamId || null; } return null; } catch (error: any) { console.error(error); throw error; }
+  const r = await apiPost('register', {
+    tournamentId,
+    creatorId,
+    schoolName: data.schoolName,
+    teamName: data.schoolName,
+    shortName: data.shortName,
+    color: data.color,
+    logoFile: data.logoFile,
+    documentFile: data.documentFile,
+    slipFile: data.slipFile,
+    district: data.district,
+    province: data.province,
+    phone: data.phone,
+    directorName: data.directorName,
+    managerName: data.managerName,
+    managerPhone: data.managerPhone,
+    coachName: data.coachName,
+    coachPhone: data.coachPhone,
+    lineUserId: data.lineUserId,
+    players: data.players.map(p => ({
+      name: p.name,
+      number: p.number ?? String(p.sequence ?? ''),
+      position: 'Player',
+      birthDate: p.birthDate,
+      photoFile: p.photoFile,
+    })),
+  });
+  // ไฟล์ที่แนบไม่ผ่านจะไม่ทำให้ใบสมัครหาย แต่ต้องบอกให้รู้ว่าต้องแนบใหม่
+  if (Array.isArray(r.warnings) && r.warnings.length > 0) {
+    console.warn('register: แนบไฟล์ไม่ครบ', r.warnings);
+  }
+  return r.teamId ?? null;
 };
-export const updateMyTeam = async (team: Partial<Team>, players: Partial<Player>[], userId: string) => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'updateTeamData', team, players, requestUserId: userId }) }); return true; } catch (error) { return false; } };
-export const updateTeamData = async (team: Partial<Team>, players: Partial<Player>[]) => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'updateTeamData', team, players }) }); return true; } catch (error) { return false; } };
-export const updateTeamStatus = async (teamId: string, status: string, group?: string, reason?: string) => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'updateStatus', teamId, status, group, reason }) }); return true; } catch (error) { return false; } };
-export const saveMatchToSheet = async (matchState: any, summary: string, skipKicks: boolean = false, tournamentId: string = 'default') => { const kicksPayload = (matchState.kicks || []).map((k: any) => ({ ...k, matchId: k.matchId || matchState.matchId || matchState.id, tournamentId: k.tournamentId || tournamentId })); const payload = { action: 'saveMatch', matchId: matchState.matchId || matchState.id, teamA: typeof matchState.teamA === 'string' ? matchState.teamA : matchState.teamA.name, teamB: typeof matchState.teamB === 'string' ? matchState.teamB : matchState.teamB.name, scoreA: matchState.scoreA, scoreB: matchState.scoreB, winner: matchState.winner, status: matchState.isFinished ? 'Finished' : 'Live', summary: summary, kicks: skipKicks ? [] : kicksPayload, roundLabel: matchState.roundLabel, tournamentId: tournamentId, livestreamUrl: matchState.livestreamUrl, livestreamCover: matchState.livestreamCover }; try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) }); return true; } catch (error) { console.error("Error saving match:", error); return false; } };
-export const saveMatchEventsToSheet = async (events: MatchEvent[]) => { if (!events || events.length === 0) return true; try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'saveMatchEvents', events: events }) }); return true; } catch (error) { return false; } }
-export const manageNews = async (actionType: 'add' | 'delete' | 'edit', newsItem: Partial<NewsItem>) => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'manageNews', subAction: actionType, newsItem }) }); return true; } catch (error) { return false; } };
-export const saveSettings = async (settings: AppSettings) => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'saveSettings', settings }) }); return true; } catch (error) { return false; } };
-export const scheduleMatch = async (matchId: string, teamA: string, teamB: string, roundLabel: string, venue?: string, scheduledTime?: string, livestreamUrl?: string, livestreamCover?: string, tournamentId: string = 'default') => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'scheduleMatch', matchId, teamA, teamB, roundLabel, venue, scheduledTime, livestreamUrl, livestreamCover, tournamentId }) }); return true; } catch (error) { return false; } };
-export const deleteMatch = async (matchId: string) => { try { await fetch(API_URL, { method: 'POST', mode: 'no-cors', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'deleteMatch', matchId }) }); return true; } catch (error) { return false; } };
+/**
+ * บันทึกผลการแข่งขัน (สกอร์ + ลูกจุดโทษ) ลง MySQL
+ *
+ * ของเดิมยิงด้วย mode:'no-cors' ทำให้ตรวจผลไม่ได้เลย — หน้าเว็บขึ้น
+ * "บันทึกสำเร็จ" ทุกครั้งแม้เซิร์ฟเวอร์ล้ม ซึ่งเป็นที่มาของอาการ
+ * "บันทึกแล้วผลหาย" ตรงนี้ throw ออกมาให้ผู้เรียกแจ้งผู้ใช้ได้จริง
+ */
+export const saveMatchToSheet = async (
+  matchState: any,
+  summary: string,
+  skipKicks: boolean = false,
+  tournamentId: string = 'default',
+): Promise<boolean> => {
+  const matchId = matchState.matchId || matchState.id;
+  if (!matchId) throw new Error('ไม่มีรหัสนัดแข่ง (matchId)');
+
+  const name = (v: any) => (typeof v === 'string' ? v : v?.name ?? '');
+
+  await apiPost('saveMatchResult', {
+    matchId,
+    tournamentId,
+    teamA: name(matchState.teamA),
+    teamB: name(matchState.teamB),
+    scoreA: matchState.scoreA,
+    scoreB: matchState.scoreB,
+    winner: matchState.winner,
+    status: matchState.isFinished ? 'Finished' : 'Live',
+    summary,
+    roundLabel: matchState.roundLabel,
+    venue: matchState.venue,
+    livestreamUrl: matchState.livestreamUrl,
+    livestreamCover: matchState.livestreamCover,
+    skipKicks,
+    kicks: skipKicks ? [] : (matchState.kicks || []),
+  });
+  return true;
+};
+
+/** เหตุการณ์ในเกม (ประตู/ใบเหลือง/เปลี่ยนตัว) — ใช้กับ 7v7 และ 11v11 */
+export const saveMatchEventsToSheet = async (events: MatchEvent[]): Promise<boolean> => {
+  if (!events || events.length === 0) return true;
+  await apiPost('saveMatchEvents', { events });
+  return true;
+};
+
+/** จัดตาราง: สร้าง/แก้คู่แข่ง วันเวลา และสนาม (ยังไม่มีผลการแข่ง) */
+export const scheduleMatch = async (
+  matchId: string, teamA: string, teamB: string, roundLabel: string,
+  venue?: string, scheduledTime?: string,
+  livestreamUrl?: string, livestreamCover?: string,
+  tournamentId: string = 'default',
+): Promise<boolean> => {
+  await apiPost('saveMatch', {
+    matchId, teamA, teamB, roundLabel, venue, scheduledTime,
+    livestreamUrl, livestreamCover, tournamentId,
+  });
+  return true;
+};
+
+export const deleteMatch = async (matchId: string): Promise<boolean> => {
+  // force=true เพราะแอดมินยืนยันบนหน้าจอแล้ว ไม่งั้นนัดที่แข่งไปแล้วจะลบไม่ออก
+  await apiPost('deleteMatch', { matchId, force: true });
+  return true;
+};
+/**
+ * บันทึกข้อมูลทีม + รายชื่อผู้เล่น (ฝั่งแอดมิน)
+ *
+ * เดิมใช้ mode:'no-cors' ยิงไป Apps Script แล้ว return true เสมอ — แอดมินเห็น
+ * "บันทึกสำเร็จ" ทุกครั้งทั้งที่เขียนลงชีตคนละที่กับที่หน้าเว็บอ่าน
+ */
+export const updateTeamData = async (
+  team: Partial<Team> & { status?: string; groupName?: string; schoolId?: string },
+  players: Partial<Player>[],
+) => {
+  await apiPost('saveTeam', {
+    teamId: team.id,
+    name: team.name,
+    shortName: team.shortName,
+    managerName: team.managerName,
+    managerPhone: team.managerPhone,
+    coachName: team.coachName,
+    coachPhone: team.coachPhone,
+    directorName: team.directorName,
+    status: team.status,
+    groupName: team.groupName ?? team.group,
+    schoolId: team.schoolId,
+    players: players.map(p => ({
+      name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
+    })),
+  });
+  return true;
+};
+
+export const updateTeamStatus = async (
+  teamId: string, status: string, group?: string, reason?: string,
+) => {
+  if (status === 'Approved' || status === 'Rejected') {
+    await apiPost('reviewTeam', {
+      teamId, decision: status === 'Approved' ? 'approve' : 'reject', reason: reason ?? '',
+    });
+    if (group !== undefined) await apiPost('setTeamMeta', { teamId, groupName: group });
+  } else {
+    await apiPost('setTeamMeta', { teamId, groupName: group });
+  }
+  return true;
+};
+
+export const deleteTeam = async (teamId: string, force = false) => {
+  await apiPost('deleteTeam', { teamId, force });
+  return true;
+};
+
+export const createTeam = async (data: {
+  tournamentId: string; schoolId: string; name?: string; groupName?: string;
+}) => apiPost('createTeam', data);
+
+export const setTeamMeta = async (data: {
+  teamId: string; schoolId?: string; groupName?: string | null;
+}) => apiPost('setTeamMeta', data);
+
+export const listSchools = async (tournamentId?: string) =>
+  apiGet('listSchools', { tournamentId });
+
+export const searchUsers = async (q: string) => apiGet('searchUsers', { q });
+
 export const fileToBase64 = (file: File): Promise<string> => { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.readAsDataURL(file); reader.onload = () => resolve(reader.result as string); reader.onerror = error => reject(error); }); };
+
+// ── งานหลังบ้าน (ย้ายมา PHP/MySQL แล้ว) ───────────────────────────────────
+// ทั้งหมดนี้เคยใช้ mode:'no-cors' ซึ่งตอบ "สำเร็จ" เสมอแล้วเขียนลงชีต
+// คนละที่กับที่หน้าเว็บอ่าน — ตอนนี้เขียนลงฐานเดียวกับที่อ่านและตรวจผลจริง
+
+export const fetchUsers = async (): Promise<UserProfile[]> => {
+  const r = await apiGet('getUsers');
+  return r.users ?? [];
+};
+
+export const createUser = async (data: any) => { await apiPost('createUser', data); return true; };
+export const updateUserDetails = async (data: any) => { await apiPost('updateUserDetails', data); return true; };
+export const updateUserRole = async (userId: string, role: string) => {
+  await apiPost('updateUserRole', { userId, role }); return true;
+};
+export const deleteUser = async (userId: string) => { await apiPost('deleteUser', { userId }); return true; };
+
+export const manageNews = async (actionType: 'add' | 'delete' | 'edit', newsItem: Partial<NewsItem>) => {
+  await apiPost('manageNews', { subAction: actionType, newsItem }); return true;
+};
+
+export const saveSettings = async (settings: AppSettings) => {
+  await apiPost('saveSettings', { settings }); return true;
+};
+
+export const verifyDonation = async (donationId: string, status: 'Verified' | 'Rejected') => {
+  await apiPost('verifyDonation', { donationId, status }); return true;
+};
+export const updateDonationDetails = async (donationId: string, updates: any) => {
+  await apiPost('updateDonationDetails', { donationId, ...updates }); return true;
+};
+
+export const fetchSponsors = async (): Promise<Sponsor[]> => (await apiGet('getSponsors')).sponsors ?? [];
+export const manageSponsor = async (data: any) => { await apiPost('manageSponsor', data); return true; };
+export const fetchMusicTracks = async (): Promise<MusicTrack[]> => (await apiGet('getMusicTracks')).tracks ?? [];
+export const manageMusicTrack = async (data: any) => { await apiPost('manageMusicTrack', data); return true; };
+export const fetchTickerMessages = async (): Promise<TickerMessage[]> => (await apiGet('getTickerMessages')).messages ?? [];
+export const manageTickerMessage = async (data: any) => { await apiPost('manageTickerMessage', data); return true; };
+
+/** โรงเรียนแก้ทีมตัวเอง — ใช้ session รหัสโรงเรียน ไม่ใช่ token แอดมิน */
+export const updateMyTeam = async (team: Partial<Team>, players: Partial<Player>[], _userId?: string) => {
+  await apiPost('saveTeam', {
+    teamId: team.id, name: team.name, shortName: team.shortName,
+    managerName: team.managerName, managerPhone: team.managerPhone,
+    coachName: team.coachName, coachPhone: team.coachPhone,
+    directorName: team.directorName, logoUrl: team.logoUrl,
+    docUrl: team.docUrl, slipUrl: team.slipUrl,
+    players: players.map(p => ({
+      name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
+    })),
+  });
+  return true;
+};
+
+/**
+ * อัปโหลดไฟล์ขึ้นโฮสต์แล้วคืน URL
+ *
+ * ส่งเป็น multipart ไม่ใช่ base64 — เล็กกว่า 33% และมี progress จริง
+ */
+export const uploadFile = async (file: File, kind: 'player' | 'logo' | 'doc' | 'slip' | 'general' = 'general'): Promise<string> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('kind', kind);
+  const r = await apiUpload('uploadFile', fd);
+  return r.url;
+};

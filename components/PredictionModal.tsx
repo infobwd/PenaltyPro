@@ -33,7 +33,7 @@ const PredictionModal: React.FC<PredictionModalProps> = ({ match, teamA, teamB, 
   };
 
   return (
-    <div className="fixed inset-0 z-[1600] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200" onClick={onClose}>
+    <div className="fixed inset-0 z-[1600] bg-black/70 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200" onClick={onClose}>
       <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden relative" onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-4 right-4 bg-slate-100 p-2 rounded-full hover:bg-slate-200 z-10">
             <X className="w-5 h-5 text-slate-500" />

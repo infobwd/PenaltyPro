@@ -46,7 +46,11 @@ function handle(string $action, array $cfg): void
                 if (!$isAdmin && (int) $r['is_public'] !== 1) {
                     continue;
                 }
-                $c[snake_to_camel($r['setting_key'])] = $r['setting_value'];
+                $key = snake_to_camel($r['setting_key']);
+                $c[$key] = str_contains($r['setting_key'], 'logo')
+                    || str_contains($r['setting_key'], 'image')
+                    || str_contains($r['setting_key'], 'qr_url')
+                    ? drive_img($r['setting_value']) : $r['setting_value'];
             }
             foreach (['registrationFee', 'fundraisingGoal', 'locationLat', 'locationLng'] as $k) {
                 if (isset($c[$k])) {
@@ -102,7 +106,7 @@ function handle(string $action, array $cfg): void
                         'docUrl'      => $t['objective_doc_url'],
                         'images'      => array_map(static fn(array $im): array => [
                             'id'      => (string) $im['id'],
-                            'url'     => $im['url'],
+                            'url'     => drive_img($im['url']),
                             'type'    => $im['image_type'],
                             'caption' => $im['caption'],
                         ], $images[$tid] ?? []),
@@ -144,7 +148,7 @@ function handle(string $action, array $cfg): void
                         'color'      => json_encode(
                             [$t['color_primary'], $t['color_secondary']],
                             JSON_UNESCAPED_SLASHES),
-                        'logoUrl'    => $t['logo_url'],
+                        'logoUrl'    => drive_img($t['logo_url']),
                         'status'     => $t['status'],
                         'group'      => (string) $t['group_name'],
                         'district'   => $t['district'],
@@ -154,8 +158,8 @@ function handle(string $action, array $cfg): void
                         'managerPhone' => $mine ? $t['manager_phone'] : '',
                         'coachName'    => $t['coach_name'],
                         'coachPhone'   => $mine ? $t['coach_phone'] : '',
-                        'docUrl'     => $mine ? $t['doc_url'] : '',
-                        'slipUrl'    => $mine ? $t['slip_url'] : '',
+                        'docUrl'     => $mine ? drive_img($t['doc_url']) : '',
+                        'slipUrl'    => $mine ? drive_img($t['slip_url']) : '',
                         'rejectReason' => $t['reject_reason'],
                         'registrationTime' => iso($t['created_at']),
                         'tournamentId' => $t['tournament_id'],
@@ -183,7 +187,7 @@ function handle(string $action, array $cfg): void
                 'name'      => $p['name'],
                 'number'    => (string) ($p['shirt_number'] ?? ''),
                 'position'  => $p['position'],
-                'photoUrl'  => $p['photo_url'],
+                'photoUrl'  => drive_img($p['photo_url']),
                 'birthDate' => $p['birth_date'] === null
                     ? '' : date('d/m/Y', strtotime((string) $p['birth_date'])),
                 'tournamentId' => $p['tournament_id'],
@@ -224,7 +228,7 @@ function handle(string $action, array $cfg): void
                     'venue'  => $m['venue'],
                     'scheduledTime'   => iso($m['scheduled_time']),
                     'livestreamUrl'   => $m['livestream_url'],
-                    'livestreamCover' => $m['livestream_cover'],
+                    'livestreamCover' => drive_img($m['livestream_cover']),
                     'tournamentId'    => $m['tournament_id'],
                     'rowVersion'      => (int) $m['row_version'],
                     'kicks' => array_map(static fn(array $k): array => [
@@ -262,8 +266,8 @@ function handle(string $action, array $cfg): void
                 'id'      => $n['news_id'],
                 'title'   => $n['title'],
                 'content' => (string) $n['content'],
-                'imageUrl' => $n['image_url'],
-                'documentUrl' => $n['document_url'],
+                'imageUrl' => drive_img($n['image_url']),
+                'documentUrl' => drive_img($n['document_url']),
                 'timestamp'   => strtotime((string) $n['published_at']) * 1000,
                 'tournamentId' => $n['tournament_id'] ?? 'global',
             ],
@@ -290,8 +294,8 @@ function handle(string $action, array $cfg): void
                     'phone'   => $isAdmin ? $d['phone'] : '',
                     'taxId'   => $isAdmin ? $d['tax_id'] : '',
                     'address' => $isAdmin ? $d['address'] : '',
-                    'slipUrl' => $isAdmin ? $d['slip_url'] : '',
-                    'taxFileUrl'  => $isAdmin ? $d['tax_file_url'] : '',
+                    'slipUrl' => $isAdmin ? drive_img($d['slip_url']) : '',
+                    'taxFileUrl'  => $isAdmin ? drive_img($d['tax_file_url']) : '',
                     'lineUserId'  => $isAdmin ? $d['line_user_id'] : '',
                 ], $rows);
             });
@@ -305,7 +309,7 @@ function handle(string $action, array $cfg): void
                 'matchId' => $p['match_id'],
                 'userId'  => $p['user_id'],
                 'userDisplayName' => (string) $p['display_name'],
-                'userPictureUrl'  => (string) $p['picture_url'],
+                'userPictureUrl'  => drive_img($p['picture_url']),
                 'prediction' => $p['prediction'],
                 'timestamp'  => iso($p['created_at']),
                 'tournamentId' => $p['tournament_id'],
@@ -330,6 +334,7 @@ function snake_to_camel(string $s): string
 {
     return lcfirst(str_replace(' ', '', ucwords(str_replace('_', ' ', $s))));
 }
+
 
 /** DATETIME ของ MySQL -> ISO ที่ frontend เข้าใจ (เวลาไทย) */
 function iso(?string $dt): string

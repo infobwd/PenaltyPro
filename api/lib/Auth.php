@@ -77,8 +77,15 @@ final class Auth
         );
         if ($row !== null) {
             self::$user = $row;
-            Db::exec('UPDATE user_sessions SET last_seen_at = NOW() WHERE token_hash = :h2',
-                [':h2' => $hash]);
+            // ต่ออายุแบบ sliding — ใช้งานอยู่ก็ไม่หลุดกลางคัน
+            // (เดิมหมดอายุตายตัวจากเวลาที่ล็อกอิน ทำให้แอดมินถูกเตะออกกลางงาน)
+            Db::exec(
+                'UPDATE user_sessions
+                    SET last_seen_at = NOW(),
+                        expires_at = DATE_ADD(NOW(), INTERVAL :ttl SECOND)
+                  WHERE token_hash = :h2',
+                [':ttl' => self::$ttl, ':h2' => $hash]
+            );
             return;
         }
 

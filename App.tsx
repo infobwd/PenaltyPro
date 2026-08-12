@@ -21,10 +21,13 @@ import SupportDialog from './components/SupportDialog';
 import TeamEditModal from './components/TeamEditModal';
 import ContestGallery from './components/ContestGallery';
 import LiveWall from './components/LiveWall';
+import SchoolPortal from './components/SchoolPortal';
+import LoginPage from './components/LoginPage';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam } from './services/sheetService';
-import { initializeLiff, sharePrizeSummary } from './services/liffService';
+import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
+import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
 import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -94,6 +97,7 @@ const LoadingScreen = () => {
 export default function App() {
   const [currentView, setCurrentView] = useState<string>('home');
   const [viewKey, setViewKey] = useState<number>(0); 
+  const [authReason, setAuthReason] = useState<string>('');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isUserLoginOpen, setIsUserLoginOpen] = useState(false);
   const [initialMatchId, setInitialMatchId] = useState<string | null>(null);
@@ -247,7 +251,12 @@ export default function App() {
             if (liffUser) {
                 try {
                     if (liffUser.type === 'line') {
-                        const backendUser = await authenticateUser({ authType: 'line', lineUserId: liffUser.userId, displayName: liffUser.displayName, pictureUrl: liffUser.pictureUrl });
+                        const idToken = getLineIdToken();
+                        // server ไม่รับ lineUserId ดิบ ๆ อีกแล้ว (ปลอมได้) ถ้าไม่มี
+                        // idToken ก็ใช้โปรไฟล์จาก LIFF แสดงผลไปก่อน แต่จะไม่มีสิทธิ์ใด ๆ
+                        const backendUser = idToken
+                            ? await authenticateUser({ authType: 'line', idToken })
+                            : null;
                         if (backendUser) { setCurrentUser(backendUser); if (backendUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
                     } else if (liffUser.role) { setCurrentUser(liffUser); if (liffUser.role === 'admin') setIsAdmin(true); } else { setCurrentUser(liffUser); }
                 } catch (e) { console.warn("Backend Auth Sync Failed", e); setCurrentUser(liffUser); }
@@ -283,27 +292,86 @@ export default function App() {
               setCurrentTournamentId(tournamentIdParam);
           } else if (view === 'match_detail' && id) { 
               setInitialMatchId(id); 
-              setCurrentView('schedule'); 
+              goTo('schedule'); 
           } else if (view === 'news' && id) { 
               setInitialNewsId(id); 
-              setCurrentView('home'); 
+              goTo('home'); 
+          } else if (view === 'school') {
+              goTo('school');
           } else if (view === 'schedule') { 
-              setCurrentView('schedule'); 
+              goTo('schedule'); 
           } else if (view === 'standings') { 
-              setCurrentView('standings'); 
+              goTo('standings'); 
           } else if (view === 'tournament') { 
-              setCurrentView('tournament'); 
+              goTo('tournament'); 
           } else if (view === 'admin' && teamId) { 
               setInitialTeamId(teamId); 
               if (!isAdmin) { 
                   setIsLoginOpen(true); 
-                  setCurrentView('admin'); 
+                  goTo('admin'); 
               } else { 
-                  setCurrentView('admin'); 
+                  goTo('admin'); 
               } 
           } 
       } 
   }, [isLoadingData, availableTeams.length, isAdmin]);
+
+  /**
+   * เปลี่ยนหน้าพร้อมเปลี่ยน URL — แต่ละหน้าจึงมี URL ของตัวเองและรีเฟรชได้
+   *
+   * เดิมทุกหน้าคือ URL เดียวกัน (state ล้วน) กด F5 แล้วเด้งกลับหน้าแรกเสมอ
+   * และแชร์ลิงก์หน้าใดหน้าหนึ่งไม่ได้ — .htaccess ทำ SPA fallback ไว้แล้ว
+   * ทุก path จึงเสิร์ฟ index.html ได้โดยไม่ 404
+   */
+  const goTo = (view: string, replace = false) => {
+    setCurrentView(view);
+    const path = view === 'home' ? '/' : `/${view}`;
+    const url = path + window.location.search.replace(/[?&]view=[^&]*/g, '').replace(/^&/, '?');
+    if (window.location.pathname !== path) {
+      replace ? window.history.replaceState({ view }, '', url)
+              : window.history.pushState({ view }, '', url);
+    }
+  };
+
+  // ปุ่มย้อนกลับของเบราว์เซอร์/มือถือต้องพากลับหน้าก่อนหน้า ไม่ใช่ออกจากแอป
+  useEffect(() => {
+    const onPop = () => {
+      const seg = window.location.pathname.replace(/^\/+|\/+$/g, '');
+      setCurrentView(seg === '' ? 'home' : seg);
+    };
+    window.addEventListener('popstate', onPop);
+    onPop();
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  /**
+   * session หมดอายุ = บอกให้รู้ทันที ไม่ใช่ปล่อยให้กดบันทึกแล้วเงียบ
+   *
+   * ของเดิม UI ถือสถานะ isAdmin ของตัวเองแยกจาก token จริง พอ token หมดอายุ
+   * ปุ่มยังกดได้แต่ server ตอบ 401 แล้วข้อมูล "หายไปเฉย ๆ" โดยไม่มีอะไรแจ้ง
+   */
+  useEffect(() => {
+    setUnauthorizedHandler((msg) => {
+      setIsAdmin(false);
+      setAuthReason(`${msg} — กรุณาเข้าสู่ระบบใหม่ แล้วทำรายการเดิมอีกครั้ง`);
+      showNotification('เซสชันหมดอายุ', 'กรุณาเข้าสู่ระบบใหม่', 'error');
+      // ส่งไปหน้า /login ที่มี URL จริง — รีเฟรชแล้วยังอยู่ ต่างจากโมดัลที่หายไป
+      goTo('login');
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  const handleAdminLogin = (user: UserProfile) => {
+    setCurrentUser(user);
+    const admin = user.role === 'admin' || user.role === 'staff';
+    setIsAdmin(admin);
+    localStorage.setItem('penalty_pro_user', JSON.stringify(user));
+    showNotification('เข้าสู่ระบบแล้ว', `สวัสดีคุณ ${user.displayName}`, 'success');
+    if (!admin) {
+      showNotification('สิทธิ์จำกัด',
+        'บัญชีนี้ไม่มีสิทธิ์ผู้ดูแล จะเข้าถึงหน้าจัดการไม่ได้', 'warning');
+    }
+  };
 
   const showNotification = (title: string, message: string = '', type: ToastType = 'success') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, title, message, type }]); };
   const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
@@ -328,7 +396,7 @@ export default function App() {
     } catch (e: any) { console.warn("Database Error", e); setConnectionError(e.message); showNotification("เชื่อมต่อไม่ได้", e.message, 'error'); } finally { setIsLoadingData(false); }
   };
 
-  const handleRegisterClick = () => { if (isRegistrationFull) { showNotification("ขออภัย", "การลงทะเบียนเต็มจำนวนแล้ว", "info"); return; } setEditingTeamData(null); if (currentUser) setCurrentView('register'); else setIsUserLoginOpen(true); };
+  const handleRegisterClick = () => { if (isRegistrationFull) { showNotification("ขออภัย", "การลงทะเบียนเต็มจำนวนแล้ว", "info"); return; } setEditingTeamData(null); if (currentUser) goTo('register'); else setIsUserLoginOpen(true); };
   
   const handleEditMyTeam = (team: Team) => { 
       if (registrationDeadline) { 
@@ -372,7 +440,7 @@ export default function App() {
           winner: null, 
           tournamentId: currentTournamentId || 'default' 
       }); 
-      setCurrentView('match'); 
+      goTo('match'); 
       showNotification("เริ่มการแข่งขัน", "เข้าสู่โหมดบันทึกผล", "success"); 
   };
 
@@ -415,15 +483,18 @@ export default function App() {
   const handleDeleteKick = (kickId: string) => { setMatchState(prev => { if (!prev) return null; const newKicks = prev.kicks.filter(k => k.id !== kickId); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; let tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); setEditingKick(null); showNotification("ลบรายการเรียบร้อย", "", "warning"); };
   const requestUndoLastKick = () => { if (!matchState || matchState.kicks.length === 0) return; setConfirmModal({ isOpen: true, title: "ยกเลิกการยิงล่าสุด", message: "ต้องการลบผลการยิงลูกล่าสุดใช่หรือไม่?", onConfirm: () => { handleUndoLastKick(); setConfirmModal(null); } }); };
   const handleUndoLastKick = () => { setMatchState(prev => { if (!prev) return null; const newKicks = [...prev.kicks]; newKicks.pop(); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; const tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); showNotification("ย้อนกลับรายการล่าสุดแล้ว", "", "info"); };
-  const resetMatch = () => { setConfirmModal({ isOpen: true, title: "เริ่มแมตช์ใหม่?", message: "ข้อมูลการแข่งขันปัจจุบันจะหายไป ต้องการเริ่มใหม่หรือไม่?", isDangerous: true, onConfirm: () => { setCurrentView('home'); setMatchState(null); setConfirmModal(null); } }); };
-  const handleNavClick = (view: string) => { if (view === 'schedule') setInitialMatchId(null); if (currentView === view) setViewKey(prev => prev + 1); else setCurrentView(view); };
+  const resetMatch = () => { setConfirmModal({ isOpen: true, title: "เริ่มแมตช์ใหม่?", message: "ข้อมูลการแข่งขันปัจจุบันจะหายไป ต้องการเริ่มใหม่หรือไม่?", isDangerous: true, onConfirm: () => { goTo('home'); setMatchState(null); setConfirmModal(null); } }); };
+  const handleNavClick = (view: string) => { if (view === 'schedule') setInitialMatchId(null); if (currentView === view) setViewKey(prev => prev + 1); else goTo(view); };
   const BottomNav = () => ( <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 flex justify-around items-center z-[100] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] safe-area-bottom"> <NavButton view="home" icon={Home} label="หน้าหลัก" /> <NavButton view="schedule" icon={CalendarDays} label="ตาราง" /> <NavButton view="standings" icon={ListChecks} label="คะแนน" /> <NavButton view="tournament" icon={Trophy} label="ผังแข่ง" /> <NavButton view="admin" icon={isAdmin ? Settings : Lock} label="ระบบ" onClick={isAdmin ? undefined : () => setIsLoginOpen(true)} /> </div> );
   const NavButton = ({ view, icon: Icon, label, onClick }: { view: string, icon: any, label: string, onClick?: () => void }) => { const isActive = currentView === view; const handleClick = onClick || (() => handleNavClick(view)); return ( <button onClick={handleClick} className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all w-16 ${isActive ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}><Icon className={`w-6 h-6 mb-1 ${isActive ? 'fill-indigo-200' : ''}`} /><span className="text-[10px] font-bold">{label}</span></button> ) };
-  const showBottomNav = currentView !== 'match' && currentView !== 'live_wall';
+  // หน้าโรงเรียนมีแถบปุ่ม "บันทึกร่าง / ยืนยันและส่ง" ตรึงอยู่ล่างจอของตัวเอง
+  // ถ้าโชว์เมนูหลักด้วย เมนู (z-100) จะทับปุ่มจนกดไม่ได้บนมือถือ
+  const showBottomNav = currentView !== 'match' && currentView !== 'live_wall'
+    && currentView !== 'school' && currentView !== 'login';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
-  const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(true); setCurrentView('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
+  const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(true); goTo('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
   const handleUpdateRegularMatchState = (state: MatchState) => { };
 
   const handleSharePrizeSummary = () => {
@@ -442,9 +513,39 @@ export default function App() {
               players={activePlayers} 
               config={effectiveSettings} 
               predictions={activePredictions}
-              onClose={() => setCurrentView('tournament')} 
+              onClose={() => goTo('tournament')} 
               onRefresh={(silent) => loadData(true, silent)}
               currentUser={currentUser}
+          />
+      );
+  }
+
+  /**
+   * หน้าที่เข้าได้โดยไม่ต้องเลือกรายการแข่งขันก่อน
+   *
+   * ครูที่ได้ลิงก์ /school มาพร้อมรหัส 8 ตัว เปิดจากมือถือเครื่องใหม่จะยังไม่มี
+   * รายการที่เลือกไว้ใน localStorage ถ้าไม่ยกเว้นตรงนี้จะเด้งไปหน้าเลือกรายการ
+   * ทั้งที่หน้าโรงเรียนหารายการของตัวเองจากรหัสได้อยู่แล้ว (และ /login ก็ไม่ต้องใช้)
+   */
+  if (!currentTournamentId && currentView === 'school') {
+      return (
+          <SchoolPortal
+              onExit={() => goTo('home')}
+              notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
+          />
+      );
+  }
+
+  if (!currentTournamentId && currentView === 'login') {
+      return (
+          <LoginPage
+              reason={authReason}
+              onBack={() => { setAuthReason(''); goTo('home'); }}
+              onLogin={(u) => {
+                  handleAdminLogin(u);
+                  setAuthReason('');
+                  goTo(u.role === 'admin' || u.role === 'staff' ? 'admin' : 'home');
+              }}
           />
       );
   }
@@ -452,7 +553,7 @@ export default function App() {
   if (!currentTournamentId) {
       return (
           <div className="bg-slate-50 min-h-screen font-sans" style={{ fontFamily: "'Kanit', sans-serif" }}>
-              <TournamentSelector 
+              <TournamentSelector
                   tournaments={tournaments} 
                   teams={availableTeams} 
                   donations={donations} 
@@ -464,7 +565,7 @@ export default function App() {
                   defaultFee={appConfig.registrationFee} 
               />
               {!isAdmin && tournaments.length === 0 && (<div className="fixed bottom-4 right-4"><button onClick={() => setIsLoginOpen(true)} className="bg-white/50 p-2 rounded-full hover:bg-white transition text-slate-400"><Lock className="w-4 h-4"/></button></div>)}
-              <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={() => { setIsAdmin(true); showNotification('เข้าสู่ระบบผู้ดูแลแล้ว'); }} />
+              <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={handleAdminLogin} />
           </div>
       );
   }
@@ -473,7 +574,7 @@ export default function App() {
       return (
           <RegistrationForm 
             key={viewKey} 
-            onBack={() => { loadData(true); setCurrentView('home'); setEditingTeamData(null); }} 
+            onBack={() => { loadData(true); goTo('home'); setEditingTeamData(null); }} 
             schools={schools} 
             config={effectiveSettings} 
             showNotification={showNotification} 
@@ -488,7 +589,7 @@ export default function App() {
     <div className="bg-slate-50 min-h-screen text-slate-900 font-sans pb-24" style={{ fontFamily: "'Kanit', sans-serif" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       <SettingsDialog isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onSave={() => loadData(true)} currentSettings={appConfig} />
-      <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={() => { setIsAdmin(true); if(currentView !== 'tournament') setCurrentView('admin'); showNotification('เข้าสู่ระบบผู้ดูแลแล้ว'); }} />
+      <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
       <UserLoginDialog isOpen={isUserLoginOpen} onClose={() => setIsUserLoginOpen(false)} onLoginSuccess={handleUserLoginSuccess} />
       <DonationDialog 
@@ -508,7 +609,10 @@ export default function App() {
         onRefresh={() => loadData(true)}
       />
 
-      {/* Floating Support Button - Adjusted Position */}
+      {/* Floating Support Button - Adjusted Position
+          ซ่อนในหน้าโรงเรียน เพราะไปบังช่องกรอกรายชื่อและปุ่มส่งบนมือถือ
+          ครูกำลังกรอกข้อมูล 7-9 คน ไม่ใช่จังหวะที่ควรชวนบริจาค */}
+      {currentView !== 'school' && (
       <button
         onClick={() => setIsSupportOpen(true)}
         className="fixed bottom-24 right-4 md:right-8 md:bottom-24 z-[90] bg-gradient-to-r from-orange-500 to-pink-500 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform duration-300 group border-4 border-white/20 animate-in slide-in-from-bottom-10"
@@ -518,7 +622,8 @@ export default function App() {
           Support Us
         </span>
       </button>
-      
+      )}
+
       {/* Team Edit Modal for Users */}
       {isTeamEditModalOpen && teamToEdit && (
           <TeamEditModal
@@ -573,14 +678,14 @@ export default function App() {
               teams={activeTeams} 
               matches={activeMatches} 
               onSelectMatch={handleStartMatchRequest} 
-              onBack={() => setCurrentView('home')} 
+              onBack={() => goTo('home')} 
               isAdmin={isAdmin} 
               onRefresh={() => loadData(true)} 
               onLoginClick={() => setIsLoginOpen(true)} 
               isLoading={isLoadingData} 
               showNotification={showNotification} 
               tournamentId={currentTournamentId} 
-              onOpenLiveWall={() => setCurrentView('live_wall')}
+              onOpenLiveWall={() => goTo('live_wall')}
           />
       )}
       
@@ -590,7 +695,7 @@ export default function App() {
             matches={activeMatches} 
             teams={activeTeams} 
             players={activePlayers} 
-            onBack={() => setCurrentView('home')} 
+            onBack={() => goTo('home')} 
             isAdmin={isAdmin} 
             isLoading={isLoadingData} 
             onRefresh={() => loadData(true)} 
@@ -605,9 +710,28 @@ export default function App() {
         /> 
       )}
       
-      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => setCurrentView('home')} isLoading={isLoadingData} predictions={activePredictions} />}
+      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} onBack={() => goTo('home')} isLoading={isLoadingData} predictions={activePredictions} />}
       {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
-      {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); setCurrentView('home'); }} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} donations={donations} isLoading={isLoadingData} /> )}
+      {currentView === 'login' && (
+        <LoginPage
+          reason={authReason}
+          onBack={() => { setAuthReason(''); goTo('home'); }}
+          onLogin={(u) => {
+            handleAdminLogin(u);
+            setAuthReason('');
+            goTo(u.role === 'admin' || u.role === 'staff' ? 'admin' : 'home');
+          }}
+        />
+      )}
+
+      {currentView === 'school' && (
+        <SchoolPortal
+          onExit={() => goTo('home')}
+          notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
+        />
+      )}
+
+      {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); goTo('home'); }} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} tournaments={tournaments} allTeams={availableTeams} allMatches={matchesLog} donations={donations} isLoading={isLoadingData} /> )}
 
       {currentView === 'match' && matchState && (
         <div className="min-h-screen bg-slate-900 pb-20">
@@ -638,7 +762,7 @@ export default function App() {
                                 ผู้ชนะคือ <span className="font-bold text-indigo-600">{matchState.winner === 'A' ? matchState.teamA.name : matchState.teamB.name}</span>
                             </p>
                             <button 
-                                onClick={() => { setCurrentView('home'); setMatchState(null); loadData(true); }} 
+                                onClick={() => { goTo('home'); setMatchState(null); loadData(true); }} 
                                 className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition"
                             >
                                 กลับหน้าหลัก
@@ -674,7 +798,7 @@ export default function App() {
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                   <button 
-                    onClick={() => setCurrentView('contest')} 
+                    onClick={() => goTo('contest')} 
                     className="flex items-center gap-1 text-[10px] sm:text-xs text-white bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 px-2 py-1.5 rounded-full transition shadow-sm font-bold"
                   >
                       <Camera className="w-3 h-3 sm:w-3 sm:h-3 sm:mr-1"/> <span className="hidden sm:inline">ประกวดภาพ</span>
@@ -692,6 +816,15 @@ export default function App() {
                       ) : (
                           <><UserPlus className="w-3 h-3 sm:w-3 sm:h-3" /> <span className="hidden sm:inline">สมัครแข่ง</span></>
                       )}
+                  </button>
+                  {/* ทางเข้าสำหรับโรงเรียนที่ถูกเชิญเข้าร่วมแล้ว — เดิมไม่มีช่องทางเข้าเลย
+                      ครูต้องรู้ URL /school เองซึ่งไม่มีใครรู้ */}
+                  <button
+                    onClick={() => goTo('school')}
+                    title="สำหรับโรงเรียนที่ส่งทีมเข้าแข่งขัน — เข้าด้วยรหัส 8 ตัว"
+                    className="text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1.5 rounded-full text-[10px] sm:text-xs font-bold flex items-center gap-1 hover:bg-indigo-100 transition"
+                  >
+                      <Lock className="w-3 h-3" /> <span className="hidden sm:inline">โรงเรียน</span>
                   </button>
                   {currentUser ? (
                       <div className="flex items-center gap-1 pl-1 ml-1 border-l border-slate-200">
@@ -847,7 +980,7 @@ export default function App() {
                               const tA = resolveTeam(m.teamA);
                               const tB = resolveTeam(m.teamB);
                               return (
-                                  <div key={m.id} onClick={() => { setInitialMatchId(m.id); setCurrentView('schedule'); }} className="min-w-[280px] bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden cursor-pointer hover:shadow-md transition snap-center">
+                                  <div key={m.id} onClick={() => { setInitialMatchId(m.id); goTo('schedule'); }} className="min-w-[280px] bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden cursor-pointer hover:shadow-md transition snap-center">
                                       <div className="relative h-32 bg-black">
                                           {m.livestreamCover ? <img src={m.livestreamCover} className="w-full h-full object-cover opacity-80" /> : <div className="w-full h-full flex items-center justify-center text-white/20"><Video className="w-12 h-12"/></div>}
                                           <div className="absolute inset-0 flex items-center justify-center"><div className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg"><Play className="w-3 h-3 fill-white" /> ดูถ่ายทอดสด</div></div>
@@ -947,7 +1080,7 @@ export default function App() {
                               <ListChecks className="w-5 h-5 text-green-600" />
                               <h3 className="font-bold text-slate-800">ผลการแข่งขันล่าสุด</h3>
                           </div>
-                          <button onClick={() => setCurrentView('schedule')} className="text-xs text-indigo-500 font-bold hover:underline">ดูทั้งหมด</button>
+                          <button onClick={() => goTo('schedule')} className="text-xs text-indigo-500 font-bold hover:underline">ดูทั้งหมด</button>
                       </div>
                       <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x scrollbar-hide">
                           {recentFinishedMatches.map(m => {
@@ -956,7 +1089,7 @@ export default function App() {
                               return (
                                   <div 
                                       key={m.id} 
-                                      onClick={() => { setInitialMatchId(m.id); setCurrentView('schedule'); }} 
+                                      onClick={() => { setInitialMatchId(m.id); goTo('schedule'); }} 
                                       className="min-w-[260px] bg-white rounded-xl shadow-sm border border-slate-200 p-3 snap-center cursor-pointer hover:shadow-md transition active:scale-95 flex flex-col justify-between"
                                   >
                                       <div className="flex justify-between items-center text-[10px] text-slate-400 mb-2 border-b border-slate-50 pb-2">

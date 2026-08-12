@@ -195,14 +195,47 @@ function do_team_login(array $cfg): void
         Response::fail('รหัสไม่ถูกต้อง', 401);
     }
 
-    // ไม่ระบุทัวร์นาเมนต์มา -> ใช้รายการที่เปิดใช้งานอยู่
-    if ($tournamentId === '') {
-        $tournamentId = (string) (Db::value(
-            "SELECT tournament_id FROM tournaments
-              WHERE status = 'Active' ORDER BY created_at DESC LIMIT 1") ?? '');
+    // ── เลือกรายการแข่งขันที่จะเข้า ────────────────────────────────────
+    //
+    // ⚠️ เดิมเลือก "รายการ Active ที่สร้างล่าสุด" โดยไม่ดูว่าโรงเรียนนี้มีทีม
+    // อยู่ในรายการนั้นหรือเปล่า พอเดาผิดโรงเรียนจะเห็นหน้าว่างเปล่าว่า
+    // "ยังไม่มีทีมของโรงเรียนนี้" ทั้งที่มีทีมที่โอนมาจากรายการเดิมอยู่จริง
+    // ยิ่งไปกว่านั้น ETL ตั้ง created_at ของทุกรายการเป็นเวลาเดียวกัน
+    // การเรียงจึงไม่ได้ให้ผลที่คาดเดาได้เลย
+    //
+    // ตอนนี้เลือกจาก "รายการที่โรงเรียนนี้มีทีมอยู่จริง" เท่านั้น
+    $mine = Db::all(
+        "SELECT t.tournament_id, t.name, t.status, t.registration_deadline,
+                COUNT(tm.team_id) AS team_count
+           FROM tournaments t
+           JOIN teams tm ON tm.tournament_id = t.tournament_id
+          WHERE tm.school_id = :sid_t AND tm.status <> 'Withdrawn'
+          GROUP BY t.tournament_id
+          ORDER BY FIELD(t.status,'Active','Upcoming','Archived'),
+                   t.registration_deadline IS NULL,
+                   t.registration_deadline DESC",
+        [':sid_t' => $school['school_id']]
+    );
+
+    if ($mine === []) {
+        Response::fail(
+            'รหัสถูกต้อง แต่ยังไม่มีทีมของโรงเรียนนี้ในรายการแข่งขันใด — '
+            . 'กรุณาแจ้งผู้จัดการแข่งขันให้เพิ่มทีมหรือคัดลอกทีมจากรายการก่อนหน้า',
+            409, ['schoolName' => $school['school_name']]
+        );
     }
-    if ($tournamentId === '') {
-        Response::fail('ยังไม่มีรายการแข่งขันที่เปิดใช้งาน', 409);
+
+    if ($tournamentId !== '') {
+        // ระบุมาเอง -> ต้องเป็นรายการที่โรงเรียนนี้มีทีมอยู่จริง
+        $ok = false;
+        foreach ($mine as $m) {
+            if ($m['tournament_id'] === $tournamentId) { $ok = true; break; }
+        }
+        if (!$ok) {
+            Response::fail('โรงเรียนนี้ไม่มีทีมในรายการแข่งขันที่เลือก', 409);
+        }
+    } else {
+        $tournamentId = (string) $mine[0]['tournament_id'];
     }
 
     Db::exec('INSERT INTO access_attempts (school_id, ip_hash, succeeded)
@@ -234,6 +267,13 @@ function do_team_login(array $cfg): void
             'group'       => (string) $t['group_name'],
             'playerCount' => (int) $t['player_count'],
         ], $teams),
+        // ถ้าโรงเรียนมีทีมหลายรายการ ให้เลือกสลับได้ ไม่ใช่ล็อกไว้รายการเดียว
+        'availableTournaments' => array_map(static fn(array $m): array => [
+            'id'        => $m['tournament_id'],
+            'name'      => $m['name'],
+            'status'    => $m['status'],
+            'teamCount' => (int) $m['team_count'],
+        ], $mine),
         'token'     => $session['token'],
         'expiresAt' => $session['expiresAt'],
     ]);

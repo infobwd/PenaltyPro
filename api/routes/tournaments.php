@@ -15,6 +15,10 @@ function handle(string $action, array $cfg): void
         'updateTournament'      => update_tournament(),
         'deleteTournament'      => delete_tournament(),
         'setRegistrationWindow' => set_registration_window(),
+        'setTournamentHost'     => set_tournament_host(),
+        'assignTournamentManager' => assign_tournament_manager(),
+        'listTournamentManagers'  => list_tournament_managers(),
+        'flushCache'            => flush_cache(),
         default                 => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -23,7 +27,8 @@ function handle(string $action, array $cfg): void
 
 function create_tournament(): void
 {
-    Auth::requireAdmin();
+    // สร้างรายการใหม่ = แอดมินส่วนกลางเท่านั้น เจ้าภาพขอให้สร้างแล้วค่อยมอบสิทธิ์
+    Perm::requireGlobalAdmin();
 
     $name = Input::require_str('name');
     $type = Input::enum('type', ['penalty', '7v7', '11v11'], 'penalty');
@@ -43,13 +48,15 @@ function create_tournament(): void
 
 function update_tournament(): void
 {
-    Auth::requireAdmin();
+    Auth::requireLogin();
 
     $t = Input::arr('tournament');
     $id = trim((string) ($t['id'] ?? ''));
     if ($id === '') {
         Response::fail('ต้องระบุ tournament.id', 422);
     }
+    // โรงเรียนเจ้าภาพตั้งค่ารายการของตัวเองได้ แต่แตะรายการอื่นไม่ได้
+    Perm::requireTournamentManager($id);
     $before = Db::one('SELECT * FROM tournaments WHERE tournament_id = :id', [':id' => $id]);
     if ($before === null) {
         Response::fail('ไม่พบรายการแข่งขันนี้', 404);
@@ -170,7 +177,8 @@ function update_tournament(): void
  */
 function delete_tournament(): void
 {
-    Auth::requireAdmin();
+    // ลบรายการพาข้อมูลหายทั้งชุด — ไม่ให้เจ้าภาพทำเอง
+    Perm::requireGlobalAdmin();
 
     $id = Input::require_str('tournamentId');
     $t = Db::one('SELECT * FROM tournaments WHERE tournament_id = :id', [':id' => $id]);
@@ -235,9 +243,10 @@ function delete_tournament(): void
  */
 function set_registration_window(): void
 {
-    Auth::requireAdmin();
+    Auth::requireLogin();
 
     $id = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($id);
     $t = Db::one('SELECT tournament_id, name, registration_deadline, max_teams
                     FROM tournaments WHERE tournament_id = :id', [':id' => $id]);
     if ($t === null) {
@@ -308,4 +317,148 @@ function to_dt($v): ?string
     }
     $ts = strtotime((string) $v);
     return $ts === false ? null : date('Y-m-d H:i:s', $ts);
+}
+
+// ── ผู้ดูแลประจำรายการ (โรงเรียนเจ้าภาพ) ──────────────────────────────────
+
+/** กำหนดว่ารายการนี้โรงเรียนไหนเป็นเจ้าภาพ */
+function set_tournament_host(): void
+{
+    Perm::requireGlobalAdmin();
+
+    $id = Input::require_str('tournamentId');
+    $schoolId = Input::str('hostSchoolId');
+
+    $t = Db::one('SELECT tournament_id, name, host_school_id FROM tournaments
+                   WHERE tournament_id = :tid', [':tid' => $id]);
+    if ($t === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+    if ($schoolId !== '' && Db::value(
+            'SELECT 1 FROM schools WHERE school_id = :sid', [':sid' => $schoolId]) === null) {
+        Response::fail('ไม่พบโรงเรียนนี้', 404);
+    }
+
+    Db::exec('UPDATE tournaments SET host_school_id = :host WHERE tournament_id = :tid2',
+        [':host' => $schoolId !== '' ? $schoolId : null, ':tid2' => $id]);
+
+    Audit::log('tournament', $id, 'set_host',
+        ['host' => $t['host_school_id']], ['host' => $schoolId]);
+    Cache::flush();
+    Response::ok(['tournamentId' => $id, 'hostSchoolId' => $schoolId ?: null]);
+}
+
+/**
+ * มอบ/ถอนสิทธิ์ผู้ดูแลประจำรายการ
+ *
+ * แอดมินส่วนกลางเท่านั้นที่ทำได้ — ผู้ดูแลรายการมอบสิทธิ์ต่อไม่ได้
+ * ไม่งั้นสิทธิ์จะกระจายจนตามไม่ทันว่าใครแก้อะไรได้
+ */
+function assign_tournament_manager(): void
+{
+    Perm::requireGlobalAdmin();
+
+    $id = Input::require_str('tournamentId');
+    $userId = Input::require_str('userId');
+    $remove = Input::bool('remove');
+
+    if (Db::value('SELECT 1 FROM tournaments WHERE tournament_id = :tid',
+            [':tid' => $id]) === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+    $u = Db::one('SELECT user_id, display_name, role FROM users WHERE user_id = :uid',
+        [':uid' => $userId]);
+    if ($u === null) {
+        Response::fail('ไม่พบผู้ใช้นี้', 404);
+    }
+
+    if ($remove) {
+        Db::exec('DELETE FROM tournament_managers
+                   WHERE tournament_id = :tid2 AND user_id = :uid2',
+            [':tid2' => $id, ':uid2' => $userId]);
+        Audit::log('tournament', $id, 'revoke_manager', ['userId' => $userId], null);
+        Cache::flush();
+        Response::ok(['removed' => true, 'userId' => $userId]);
+    }
+
+    // ผู้ดูแลรายการต้องล็อกอินด้วย username/password ได้ จึงต้องเป็น staff ขึ้นไป
+    // (บัญชี LINE ล้วนไม่มีรหัสผ่าน จะเข้ามาจัดการหลังบ้านไม่ได้)
+    if ($u['role'] === 'user') {
+        Db::exec("UPDATE users SET role = 'staff' WHERE user_id = :uid3",
+            [':uid3' => $userId]);
+        Response::warn('USER_PROMOTED_TO_STAFF');
+    }
+
+    Db::exec(
+        'INSERT INTO tournament_managers
+            (tournament_id, user_id, school_id, note, granted_by)
+         VALUES (:tid3, :uid4, :sid, :note, :by)
+         ON DUPLICATE KEY UPDATE school_id = VALUES(school_id), note = VALUES(note)',
+        [
+            ':tid3' => $id,
+            ':uid4' => $userId,
+            ':sid'  => Input::str('schoolId') ?: null,
+            ':note' => Input::str('note'),
+            ':by'   => Auth::userId(),
+        ]
+    );
+
+    Audit::log('tournament', $id, 'grant_manager', null,
+        ['userId' => $userId, 'name' => $u['display_name']]);
+    Cache::flush();
+    Response::ok(['userId' => $userId, 'displayName' => $u['display_name']]);
+}
+
+function list_tournament_managers(): void
+{
+    $id = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($id);
+
+    $rows = Db::all(
+        'SELECT tm.user_id, tm.school_id, tm.note, tm.created_at,
+                u.display_name, u.username, u.role, s.school_name
+           FROM tournament_managers tm
+           JOIN users u  ON u.user_id = tm.user_id
+           LEFT JOIN schools s ON s.school_id = tm.school_id
+          WHERE tm.tournament_id = :tid
+          ORDER BY u.display_name',
+        [':tid' => $id]
+    );
+    $host = Db::one(
+        'SELECT t.host_school_id, s.school_name
+           FROM tournaments t
+           LEFT JOIN schools s ON s.school_id = t.host_school_id
+          WHERE t.tournament_id = :tid2',
+        [':tid2' => $id]
+    );
+
+    Response::ok([
+        'tournamentId' => $id,
+        'hostSchoolId'   => $host['host_school_id'] ?? null,
+        'hostSchoolName' => $host['school_name'] ?? null,
+        'managers' => array_map(static fn(array $m): array => [
+            'userId'      => $m['user_id'],
+            'displayName' => $m['display_name'],
+            'username'    => $m['username'],
+            'role'        => $m['role'],
+            'schoolId'    => $m['school_id'],
+            'schoolName'  => $m['school_name'],
+            'note'        => $m['note'],
+            'grantedAt'   => $m['created_at'],
+        ], $rows),
+    ]);
+}
+
+/**
+ * ล้าง cache ด้วยมือ
+ *
+ * จำเป็นเมื่อมีการแก้ข้อมูลนอกระบบ (เช่น แก้ผ่าน phpMyAdmin โดยตรง) ซึ่ง API
+ * ไม่รู้จึงไม่ได้ล้าง cache ให้ ผลคือหน้าเว็บยังแสดงข้อมูลเก่าจนกว่า TTL จะหมด
+ */
+function flush_cache(): void
+{
+    Auth::requireStaff();
+    Cache::flush();
+    Audit::log('system', 'cache', 'flush');
+    Response::ok(['message' => 'ล้าง cache แล้ว — โหลดหน้าเว็บใหม่เพื่อดูข้อมูลล่าสุด']);
 }

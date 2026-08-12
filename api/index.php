@@ -15,6 +15,10 @@ require __DIR__ . '/lib/Auth.php';
 require __DIR__ . '/lib/Cache.php';
 require __DIR__ . '/lib/Input.php';
 require __DIR__ . '/lib/Audit.php';
+require __DIR__ . '/lib/Perm.php';
+require __DIR__ . '/lib/Media.php';
+require __DIR__ . '/lib/Lookup.php';
+require __DIR__ . '/lib/Secret.php';
 
 // config.local.php ใช้ทับตอนพัฒนาในเครื่อง (อยู่ใน .gitignore เหมือน config.php)
 $configPath = is_file(__DIR__ . '/config.local.php')
@@ -35,6 +39,7 @@ $cfg = require $configPath;
 date_default_timezone_set($cfg['timezone'] ?? 'Asia/Bangkok');
 
 Db::configure($cfg['db']);
+Secret::configure((string) ($cfg['app_secret'] ?? ''));
 Cache::configure($cfg['cache']);
 Auth::configure(
     (int) ($cfg['session_ttl'] ?? 43200),
@@ -65,11 +70,17 @@ $routes = [
     'updateTournament'   => 'tournaments.php',
     'deleteTournament'   => 'tournaments.php',   // ใหม่ — เดิมลบไม่ได้เลย
     'setRegistrationWindow' => 'tournaments.php', // ใหม่ — กำหนดวันรับสมัคร
+    'setTournamentHost'       => 'tournaments.php',  // โรงเรียนเจ้าภาพของรายการ
+    'assignTournamentManager' => 'tournaments.php',  // มอบสิทธิ์ผู้ดูแลประจำรายการ
+    'listTournamentManagers'  => 'tournaments.php',
+    'flushCache'              => 'tournaments.php',  // ล้าง cache หลังแก้ DB ตรง
 
     // --- โรงเรียนและรหัสเข้าใช้งาน ----------------------------------------
     'issueAccessCodes'     => 'schools.php',
     'regenerateAccessCode' => 'schools.php',
     'listSchools'          => 'schools.php',
+    'searchUsers'          => 'schools.php',  // ตัวเลือกผู้ดูแลประจำรายการ
+    'revealAccessCode'     => 'schools.php',  // ผู้ดูแลเปิดดูรหัสเดิมได้
 
     // --- ทีม ---------------------------------------------------------------
     'cloneTeams'  => 'teams.php',   // คัดลอกทีมเดิมมาแข่งฤดูใหม่
@@ -77,6 +88,55 @@ $routes = [
     'saveTeam'    => 'teams.php',
     'submitTeam'  => 'teams.php',
     'reviewTeam'  => 'teams.php',   // แอดมินอนุมัติ/ปฏิเสธ
+    'createTeam'  => 'teams.php',   // แอดมินเพิ่มทีม (ผูกโรงเรียนในระบบ)
+    'deleteTeam'  => 'teams.php',
+    'setTeamMeta' => 'teams.php',   // ย้ายสาย / เปลี่ยนโรงเรียนที่ผูก
+
+    // --- ตารางแข่ง ---------------------------------------------------------
+    'generateFixtures' => 'fixtures.php',  // ประกบคู่อัตโนมัติทั้งสาย
+    'autoAssignGroups' => 'fixtures.php',  // สุ่มแบ่งสาย
+    'saveMatch'        => 'fixtures.php',
+    'deleteMatch'      => 'fixtures.php',
+    'deleteAllMatches' => 'fixtures.php',  // ล้างตารางทั้งรายการ
+
+    // --- ผลการแข่งขันสด ----------------------------------------------------
+    'saveMatchResult'  => 'live.php',   // สกอร์ + ลูกจุดโทษ (เขียนทับทั้งนัด)
+    'saveMatchEvents'  => 'live.php',   // ประตู/ใบเหลือง/เปลี่ยนตัว
+
+    // --- ไฟล์ -------------------------------------------------------------
+    'uploadFile'       => 'upload.php',
+
+    // --- ผู้ใช้ทั่วไป (ไม่ต้องล็อกอินด้วยรหัสผ่าน) --------------------------
+    'register'         => 'public.php',   // สมัครทีมจากหน้าเว็บ
+    'submitDonation'   => 'public.php',
+    'submitPrediction' => 'public.php',
+
+    // --- ประกวดภาพ ---------------------------------------------------------
+    'getContests'          => 'contests.php',
+    'submitContestEntry'   => 'contests.php',
+    'deleteContestEntry'   => 'contests.php',
+    'toggleEntryLike'      => 'contests.php',
+    'manageContest'        => 'contests.php',
+    'getComments'          => 'contests.php',
+    'submitContestComment' => 'contests.php',
+    'incrementShareCount'  => 'contests.php',
+
+    // --- งานหลังบ้านที่เหลือ (ย้ายมาจาก Apps Script) -----------------------
+    'getUsers'          => 'admin.php',
+    'createUser'        => 'admin.php',
+    'updateUserDetails' => 'admin.php',
+    'updateUserRole'    => 'admin.php',
+    'deleteUser'        => 'admin.php',
+    'manageNews'        => 'admin.php',
+    'saveSettings'      => 'admin.php',
+    'verifyDonation'        => 'admin.php',
+    'updateDonationDetails' => 'admin.php',
+    'getSponsors'       => 'admin.php',
+    'manageSponsor'     => 'admin.php',
+    'getMusicTracks'    => 'admin.php',
+    'manageMusicTrack'  => 'admin.php',
+    'getTickerMessages' => 'admin.php',
+    'manageTickerMessage' => 'admin.php',
 ];
 
 $action = (string) ($_GET['action'] ?? Input::str('action'));

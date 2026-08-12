@@ -120,7 +120,7 @@ const SupportDialog: React.FC<SupportDialogProps> = ({ isOpen, onClose, config, 
   const coffeeQrUrl = `https://promptpay.io/${coffeePhone}/${amount || ''}`;
 
   return (
-    <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in zoom-in duration-200">
+    <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 animate-in zoom-in duration-200">
       <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden relative flex flex-col max-h-[90vh]">
         
         {/* Header Actions */}

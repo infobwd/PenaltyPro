@@ -25,6 +25,9 @@ function handle(string $action, array $cfg): void
         'saveTeam'    => save_team(),
         'submitTeam'  => submit_team(),
         'reviewTeam'  => review_team(),
+        'createTeam'  => create_team(),
+        'deleteTeam'  => delete_team(),
+        'setTeamMeta' => set_team_meta(),
         default       => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -69,7 +72,7 @@ function team_payload(array $t, array $players): array
         'shortName'  => $t['short_name'],
         'colorPrimary'   => $t['color_primary'],
         'colorSecondary' => $t['color_secondary'],
-        'logoUrl'    => $t['logo_url'],
+        'logoUrl'    => drive_img($t['logo_url']),
         'status'     => $t['status'],
         'group'      => (string) $t['group_name'],
         'rejectReason' => $t['reject_reason'],
@@ -78,15 +81,15 @@ function team_payload(array $t, array $players): array
         'managerPhone' => $t['manager_phone'],
         'coachName'    => $t['coach_name'],
         'coachPhone'   => $t['coach_phone'],
-        'docUrl'     => $t['doc_url'],
-        'slipUrl'    => $t['slip_url'],
+        'docUrl'     => drive_img($t['doc_url']),
+        'slipUrl'    => drive_img($t['slip_url']),
         'rowVersion' => (int) $t['row_version'],
         'players'    => array_map(static fn(array $p): array => [
             'id'        => $p['player_id'],
             'name'      => $p['name'],
             'number'    => (string) ($p['shirt_number'] ?? ''),
             'position'  => $p['position'],
-            'photoUrl'  => $p['photo_url'],
+            'photoUrl'  => drive_img($p['photo_url']),
             'birthDate' => $p['birth_date'],
         ], $players),
     ];
@@ -102,10 +105,12 @@ function team_payload(array $t, array $players): array
  */
 function clone_teams(): void
 {
-    Auth::requireAdmin();
+    Auth::requireLogin();
 
     $from = Input::require_str('fromTournamentId');
     $to   = Input::require_str('toTournamentId');
+    // เจ้าภาพคัดลอกทีมเข้ารายการของตัวเองได้ แต่ต้องมีสิทธิ์ในรายการปลายทาง
+    Perm::requireTournamentManager($to);
     if ($from === $to) {
         Response::fail('ต้นทางกับปลายทางต้องเป็นคนละรายการ', 422);
     }
@@ -293,9 +298,15 @@ function save_team(): void
             ['currentRowVersion' => (int) $team['row_version']]);
     }
 
-    $players = Input::arr('players');
+    // แยก "ไม่ส่ง players มา" ออกจาก "ส่งมาเป็นรายการว่าง"
+    //
+    // หน้าแอดมินแก้เฉพาะข้อมูลทีม ไม่ได้ส่งรายชื่อมาด้วย ถ้าตีความว่าเป็น
+    // รายการว่างจะลบผู้เล่นทิ้งทั้งทีมโดยไม่มีใครตั้งใจ — และกู้ไม่ได้
+    $touchPlayers = array_key_exists('players', Input::body());
+    $players = $touchPlayers ? Input::arr('players') : [];
+
     $limit = (int) $t['players_per_team'] + (int) $t['max_subs'];
-    if (count($players) > $limit) {
+    if ($touchPlayers && count($players) > $limit) {
         Response::fail("รายชื่อผู้เล่นเกินกำหนด (สูงสุด $limit คน)", 422,
             ['limit' => $limit, 'given' => count($players)]);
     }
@@ -319,7 +330,7 @@ function save_team(): void
         Response::fail('ต้องระบุชื่อทีม', 422);
     }
 
-    Db::transaction(static function () use ($teamId, $team, $name, $players): void {
+    Db::transaction(static function () use ($teamId, $team, $name, $players, $touchPlayers): void {
         Db::exec(
             'UPDATE teams SET
                 name = :name, short_name = :short,
@@ -350,6 +361,9 @@ function save_team(): void
             ]
         );
 
+        if (!$touchPlayers) {
+            return;   // แก้เฉพาะข้อมูลทีม ไม่แตะรายชื่อ
+        }
         // แทนที่รายชื่อทั้งชุด — ง่ายและถูกต้องกว่าไล่ diff ทีละคน
         Db::exec('DELETE FROM players WHERE team_id = :tid2', [':tid2' => $teamId]);
         foreach ($players as $i => $p) {
@@ -376,6 +390,35 @@ function save_team(): void
             );
         }
     });
+
+    // แอดมินแก้สถานะ/สาย/โรงเรียนได้ในการบันทึกครั้งเดียวกัน (โรงเรียนแก้ไม่ได้)
+    if ($schoolId === null) {
+        $newStatus = Input::str('status');
+        $newGroup  = Input::get('groupName', null);
+        $newSchool = Input::str('schoolId');
+        $valid = ['Invited', 'Draft', 'Submitted', 'Approved', 'Rejected', 'Withdrawn'];
+        if ($newSchool !== '' && Db::value('SELECT 1 FROM schools WHERE school_id = :sid_chk',
+                [':sid_chk' => $newSchool]) === null) {
+            Response::fail('ไม่พบโรงเรียนนี้ในระบบ', 404);
+        }
+        if ($newStatus !== '' || $newGroup !== null || $newSchool !== '') {
+            Db::exec(
+                'UPDATE teams SET
+                    status     = CASE WHEN :has_st = 1 THEN :st ELSE status END,
+                    group_name = CASE WHEN :has_gr = 1 THEN :gr ELSE group_name END,
+                    school_id  = COALESCE(:sch, school_id)
+                  WHERE team_id = :tid_meta',
+                [
+                    ':has_st'   => ($newStatus !== '' && in_array($newStatus, $valid, true)) ? 1 : 0,
+                    ':st'       => in_array($newStatus, $valid, true) ? $newStatus : 'Draft',
+                    ':has_gr'   => $newGroup === null ? 0 : 1,
+                    ':gr'       => ($newGroup === null || $newGroup === '') ? null : (string) $newGroup,
+                    ':sch'      => $newSchool !== '' ? $newSchool : null,
+                    ':tid_meta' => $teamId,
+                ]
+            );
+        }
+    }
 
     Audit::log('team', $teamId, 'save',
         ['name' => $team['name']], ['name' => $name, 'players' => count($players)]);
@@ -435,7 +478,7 @@ function submit_team(): void
 
 function review_team(): void
 {
-    Auth::requireStaff();
+    Auth::requireLogin();
 
     $teamId = Input::require_str('teamId');
     $decision = Input::enum('decision', ['approve', 'reject'], null);
@@ -447,6 +490,8 @@ function review_team(): void
     if ($team === null) {
         Response::fail('ไม่พบทีมนี้', 404);
     }
+    // อนุมัติทีมได้เฉพาะผู้ดูแลของรายการนั้น
+    Perm::requireTournamentManager($team['tournament_id']);
     $t = load_tournament($team['tournament_id']);
 
     if ($decision === 'reject') {
@@ -504,4 +549,164 @@ function review_team(): void
     Cache::flush();
 
     Response::ok(['status' => 'Approved', 'approvedCount' => $approved + 1]);
+}
+
+// ── CRUD ฝั่งแอดมิน ───────────────────────────────────────────────────────
+
+/**
+ * สร้างทีมใหม่โดยแอดมิน — ต้องผูกกับ "โรงเรียนที่มีในระบบ" เสมอ
+ *
+ * ไม่เปิดให้พิมพ์ชื่อโรงเรียนอิสระ เพราะข้อมูลเดิมเคยเก็บชื่อโรงเรียนเป็น
+ * ข้อความในทุกทีม ทำให้พิมพ์ต่างกันนิดเดียวก็กลายเป็นคนละโรงเรียน แล้วรวม
+ * ประวัติข้ามฤดูไม่ได้
+ */
+function create_team(): void
+{
+    Auth::requireLogin();
+
+    $tournamentId = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tournamentId);
+    $t = load_tournament($tournamentId);
+
+    $schoolId = Input::require_str('schoolId');
+    $school = Db::one('SELECT school_id, school_name FROM schools WHERE school_id = :sid',
+        [':sid' => $schoolId]);
+    if ($school === null) {
+        Response::fail('ไม่พบโรงเรียนนี้ในระบบ', 404);
+    }
+
+    $name = trim((string) Input::get('name', $school['school_name']));
+    if ($name === '') {
+        $name = $school['school_name'];
+    }
+
+    // เพดานทีมต่อโรงเรียน — ตรวจก่อนเขียน เพื่อให้ข้อความผิดพลาดอ่านรู้เรื่อง
+    $perSchool = (int) Db::value(
+        "SELECT COUNT(*) FROM teams
+          WHERE tournament_id = :tid AND school_id = :sid2 AND status <> 'Withdrawn'",
+        [':tid' => $tournamentId, ':sid2' => $schoolId]
+    );
+    $maxPer = (int) $t['max_teams_per_school'];
+    if ($perSchool >= $maxPer) {
+        Response::fail(
+            "โรงเรียนนี้มี $perSchool ทีมแล้ว เกินเพดาน $maxPer ทีมต่อโรงเรียน "
+            . '(ปรับเพดานได้ที่ตั้งค่ารายการแข่งขัน)',
+            409, ['current' => $perSchool, 'max' => $maxPer]
+        );
+    }
+
+    $dup = Db::value(
+        'SELECT team_id FROM teams WHERE tournament_id = :tid2 AND name = :name',
+        [':tid2' => $tournamentId, ':name' => $name]
+    );
+    if ($dup !== null) {
+        Response::fail("มีทีมชื่อ \"$name\" ในรายการนี้แล้ว", 409);
+    }
+
+    $teamId = 'T_' . (int) (microtime(true) * 1000) . '_' . random_int(100, 999);
+    Db::exec(
+        'INSERT INTO teams (team_id, tournament_id, school_id, name, short_name,
+                            status, group_name, manager_name, manager_phone,
+                            coach_name, coach_phone, director_name)
+         VALUES (:id, :tid3, :sid3, :name2, :short, :status, :grp,
+                 :mgr, :mgrp, :coach, :coachp, :dir)',
+        [
+            ':id'     => $teamId,
+            ':tid3'   => $tournamentId,
+            ':sid3'   => $schoolId,
+            ':name2'  => $name,
+            ':short'  => (string) Input::get('shortName', ''),
+            ':status' => Input::str('status') ?: 'Draft',
+            ':grp'    => Input::str('groupName') ?: null,
+            ':mgr'    => (string) Input::get('managerName', ''),
+            ':mgrp'   => (string) Input::get('managerPhone', ''),
+            ':coach'  => (string) Input::get('coachName', ''),
+            ':coachp' => (string) Input::get('coachPhone', ''),
+            ':dir'    => (string) Input::get('directorName', ''),
+        ]
+    );
+
+    Audit::log('team', $teamId, 'create', null,
+        ['name' => $name, 'school' => $school['school_name']]);
+    Cache::flush();
+
+    Response::ok(['teamId' => $teamId, 'name' => $name,
+                  'schoolName' => $school['school_name']]);
+}
+
+/** ลบทีม — ผู้เล่นหายตาม (FK CASCADE) จึงต้องยืนยันชื่อ */
+function delete_team(): void
+{
+    Auth::requireLogin();
+
+    $teamId = Input::require_str('teamId');
+    $team = Db::one('SELECT * FROM teams WHERE team_id = :tid', [':tid' => $teamId]);
+    if ($team === null) {
+        Response::fail('ไม่พบทีมนี้', 404);
+    }
+    Perm::requireTournamentManager($team['tournament_id']);
+
+    $players = (int) Db::value('SELECT COUNT(*) FROM players WHERE team_id = :tid2',
+        [':tid2' => $teamId]);
+    $matches = (int) Db::value(
+        'SELECT COUNT(*) FROM matches WHERE team_a_id = :tid3 OR team_b_id = :tid4',
+        [':tid3' => $teamId, ':tid4' => $teamId]);
+
+    if ($matches > 0 && !Input::bool('force')) {
+        // ลบทีมที่ลงแข่งไปแล้ว = ผลการแข่งกลายเป็นนัดที่ไม่มีทีม
+        Response::fail(
+            "ทีมนี้มี $matches นัดในตารางแข่งแล้ว — ลบแล้วผลการแข่งจะอ้างทีมไม่ได้ "
+            . 'ส่ง force=true ถ้ายืนยัน',
+            409, ['matches' => $matches, 'players' => $players]
+        );
+    }
+
+    Audit::log('team', $teamId, 'delete',
+        ['name' => $team['name'], 'players' => $players, 'matches' => $matches], null);
+    Db::exec('DELETE FROM teams WHERE team_id = :tid5', [':tid5' => $teamId]);
+    Cache::flush();
+
+    Response::ok(['deleted' => ['players' => $players, 'matchesAffected' => $matches]]);
+}
+
+/** ย้ายทีมเข้าสาย / เปลี่ยนโรงเรียนที่ผูก — แอดมินเท่านั้น */
+function set_team_meta(): void
+{
+    Auth::requireLogin();
+
+    $teamId = Input::require_str('teamId');
+    $team = Db::one('SELECT * FROM teams WHERE team_id = :tid', [':tid' => $teamId]);
+    if ($team === null) {
+        Response::fail('ไม่พบทีมนี้', 404);
+    }
+    Perm::requireTournamentManager($team['tournament_id']);
+
+    $schoolId = Input::str('schoolId');
+    if ($schoolId !== '' && Db::value('SELECT 1 FROM schools WHERE school_id = :sid',
+            [':sid' => $schoolId]) === null) {
+        Response::fail('ไม่พบโรงเรียนนี้ในระบบ', 404);
+    }
+
+    $group = Input::get('groupName', null);
+
+    Db::exec(
+        'UPDATE teams
+            SET school_id  = COALESCE(:sid2, school_id),
+                group_name = CASE WHEN :has_grp = 1 THEN :grp ELSE group_name END,
+                row_version = row_version + 1
+          WHERE team_id = :tid2',
+        [
+            ':sid2'    => $schoolId !== '' ? $schoolId : null,
+            ':has_grp' => $group === null ? 0 : 1,
+            ':grp'     => ($group === null || $group === '') ? null : (string) $group,
+            ':tid2'    => $teamId,
+        ]
+    );
+
+    Audit::log('team', $teamId, 'set_meta',
+        ['school' => $team['school_id'], 'group' => $team['group_name']],
+        ['school' => $schoolId ?: $team['school_id'], 'group' => $group]);
+    Cache::flush();
+
+    Response::ok();
 }

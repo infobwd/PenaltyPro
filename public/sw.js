@@ -1,7 +1,7 @@
 
 // bump ทุกครั้งที่ deploy ที่เปลี่ยนโครงไฟล์ — ไม่งั้นเครื่องที่เคยเปิดเว็บแล้ว
 // จะถูกเสิร์ฟ shell เก่าที่ยังชี้ asset ไปที่ /PenaltyPro/ ต่อไป
-const CACHE_NAME = 'penalty-pro-v3';
+const CACHE_NAME = 'penalty-pro-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -28,10 +28,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API Calls (Google Script): Handle in Application Logic (sheetService.ts), not here.
-  // We just let them pass through or fail naturally so the App can handle the error.
-  if (event.request.url.includes('script.google.com')) {
-    return; 
+  // คำขอไปยัง API ต้องไม่ผ่าน service worker เด็ดขาด — ปล่อยให้แอปจัดการเอง
+  //
+  // ⚠️ ตอน API ยังอยู่ที่ script.google.com (คนละโดเมน) ข้อนี้ไม่สำคัญนัก แต่พอ
+  // ย้ายมาเป็น /api/ บนโดเมนเดียวกัน คำขอจะกลายเป็น type 'basic' + status 200
+  // ซึ่งเข้าเงื่อนไข stale-while-revalidate ด้านล่างพอดี ผลคือ:
+  //   - ข้อมูลเก่าถูกเสิร์ฟจาก cache ทั้งที่ฐานข้อมูลเปลี่ยนไปแล้ว
+  //   - response ของแอดมิน (ที่มีเบอร์โทร/ข้อมูลผู้บริจาค) ถูกแคชไว้ใน
+  //     เครื่องแล้วเสิร์ฟซ้ำให้คำขอถัดไป
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api/') || event.request.url.includes('script.google.com')) {
+    return;
   }
 
   // Static Assets: Stale-While-Revalidate

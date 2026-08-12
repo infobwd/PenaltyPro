@@ -387,3 +387,20 @@ export const shareContestEntry = async (entry: ContestEntry, contestTitle: strin
 
     try { await window.liff.shareTargetPicker([flexMessage]); } catch (error: any) { alert(`แชร์ไม่สำเร็จ: ${error.message}`); }
 };
+
+/**
+ * ดึง ID token จาก LIFF เพื่อส่งให้ server ตรวจสอบ
+ *
+ * ระบบใหม่ไม่รับ `lineUserId` ที่ client ส่งมาตรง ๆ อีกแล้ว เพราะปลอมได้
+ * (ใครก็ส่ง lineUserId ของแอดมินแล้วได้สิทธิ์แอดมิน) server จะ verify token นี้
+ * กับเซิร์ฟเวอร์ LINE แล้วเชื่อเฉพาะ `sub` ที่ได้กลับมา
+ */
+export const getLineIdToken = (): string | null => {
+  try {
+    if (!window.liff || !window.liff.isLoggedIn()) return null;
+    return window.liff.getIDToken() || null;
+  } catch (e) {
+    console.warn('getIDToken failed', e);
+    return null;
+  }
+};

@@ -75,7 +75,12 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
   const [editStep, setEditStep] = useState<'general' | 'rules' | 'location' | 'objective' | 'prizes' | 'summary'>('general');
 
   // FILTER LOGIC: Show only Active or Upcoming tournaments
-  const visibleTournaments = tournaments.filter(t => t.status === 'Active' || t.status === 'Upcoming');
+  // ผู้ชมทั่วไปเห็นเฉพาะรายการที่กำลังแข่ง/กำลังจะแข่ง แต่แอดมินต้องเห็น
+  // รายการที่เก็บถาวรด้วย ไม่งั้นพอปิดรายการเก่าเป็น Archived แล้วข้อมูลทั้งชุด
+  // (ทีม ผลการแข่ง ตารางคะแนน) จะหายไปจากหน้าจอโดยที่ยังอยู่ในฐานข้อมูลครบ
+  const visibleTournaments = tournaments.filter(
+    t => t.status === 'Active' || t.status === 'Upcoming' || (isAdmin && t.status === 'Archived')
+  );
 
   // Available Teams for selection in Prize Winner dropdown (Only for editing tournament)
   const availableTeamsForEditing = editingTournament ? teams.filter(t => t.tournamentId === editingTournament.id && t.status === 'Approved') : [];
@@ -363,7 +368,7 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
                                             
                                             {/* Status Badge Overlay */}
                                             <div className="absolute top-3 left-3 flex gap-2">
-                                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm flex items-center gap-1 border border-white/20 backdrop-blur-sm ${t.status === 'Active' ? 'bg-green-500/80 text-white' : 'bg-blue-500/80 text-white'}`}>
+                                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm flex items-center gap-1 border border-white/20 backdrop-blur-sm ${t.status === 'Active' ? 'bg-green-500/80 text-white' : t.status === 'Archived' ? 'bg-slate-600/80 text-white' : 'bg-blue-500/80 text-white'}`}>
                                                     <span className={`w-1.5 h-1.5 rounded-full bg-white ${t.status === 'Active' ? 'animate-pulse' : ''}`}></span>
                                                     {t.status}
                                                 </span>
@@ -498,7 +503,7 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
 
         {/* Create Modal */}
         {isCreating && (
-            <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-md flex items-center justify-center p-4" style={{ fontFamily: "'Kanit', sans-serif" }}>
+            <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-md modal-sheet flex items-end md:items-center justify-center p-0 md:p-4" style={{ fontFamily: "'Kanit', sans-serif" }}>
                 <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm animate-in zoom-in duration-300 border border-white/20 relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
                     <h3 className="font-black text-2xl text-slate-800 mb-6">สร้างทัวร์นาเมนต์ใหม่</h3>
@@ -538,7 +543,7 @@ const TournamentSelector: React.FC<TournamentSelectorProps> = ({ tournaments, on
 
         {/* Edit Modal */}
         {isEditing && editingTournament && (
-            <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-md flex items-center justify-center p-4" style={{ fontFamily: "'Kanit', sans-serif" }}>
+            <div className="fixed inset-0 z-[1500] bg-black/60 backdrop-blur-md modal-sheet flex items-end md:items-center justify-center p-0 md:p-4" style={{ fontFamily: "'Kanit', sans-serif" }}>
                 <div className="bg-white rounded-3xl shadow-2xl p-0 w-full max-w-2xl animate-in zoom-in duration-300 relative overflow-hidden flex flex-col max-h-[90vh]">
                     {/* Modal Header */}
                     <div className="bg-slate-900 p-6 text-white flex justify-between items-center shrink-0">

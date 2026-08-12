@@ -1,50 +1,25 @@
 /**
  * ปลายทาง API และตัวช่วยเรียก
  *
- * ระบบกำลังย้ายจาก Google Apps Script -> PHP/MySQL ทีละส่วน
- * ช่วงเปลี่ยนผ่านจึงมี 2 ปลายทางอยู่พร้อมกัน:
- *
- *   DB_API   = PHP/MySQL  (ปลายทางใหม่ — ย้ายมาแล้วบางส่วน)
- *   LEGACY_API = Apps Script (ของเดิม — ส่วนที่ยังไม่ได้ย้าย)
- *
- * ⚠️ ข้อควรระวังระหว่างเปลี่ยนผ่าน: ส่วนที่ยัง "เขียน" ลง Apps Script จะไม่ไป
- * โผล่ในข้อมูลที่อ่านจาก MySQL จนกว่าจะย้ายเสร็จ — ดูรายการใน MIGRATION_STATUS
+ * ทุก action วิ่งไป PHP/MySQL บนโฮสต์เดียวกับหน้าเว็บแล้ว — ไม่มีอะไรเหลืออยู่
+ * บน Google Apps Script อีก ปิดชีตทิ้งได้โดยระบบไม่กระทบ
  */
 
 const isDev = import.meta.env?.DEV === true;
 
+/**
+ * production ใช้ path สัมพัทธ์ `/api/` โดยตั้งใจ ไม่ใช่ URL เต็ม
+ *
+ * ถ้า hardcode เป็น https://kickoff.bwd.ac.th/api/ แล้วผู้ใช้เปิดเว็บผ่าน
+ * https://www.kickoff.bwd.ac.th จะกลายเป็นคนละ origin ทันที -> เบราว์เซอร์
+ * บล็อกด้วย CORS ทั้งที่เป็นเซิร์ฟเวอร์เครื่องเดียวกัน
+ *
+ * path สัมพัทธ์ทำให้เรียก API ที่ origin เดียวกับหน้าเว็บเสมอ ไม่ว่าจะเข้ามา
+ * ทาง www หรือไม่ก็ตาม — ไม่ต้องพึ่ง CORS เลย
+ */
 export const DB_API =
   (import.meta.env?.VITE_API_URL as string | undefined)
-  ?? (isDev ? 'http://127.0.0.1:8899/' : 'https://kickoff.bwd.ac.th/api/');
-
-export const LEGACY_API =
-  'https://script.google.com/macros/s/AKfycbztQtSLYW3wE5j-g2g7OMDxKL6WFuyUymbGikt990wn4gCpwQN_MztGCcBQJgteZQmvyg/exec';
-
-/** action ที่ย้ายมา PHP/MySQL แล้ว — ที่เหลือยังวิ่งไป Apps Script */
-export const MIGRATED_ACTIONS = new Set([
-  'getData',
-  'health',
-  'auth',
-  'login',
-  'logout',
-  'me',
-  'teamLogin',
-  'changePassword',
-  'createTournament',
-  'updateTournament',
-  'deleteTournament',
-  'setRegistrationWindow',
-  // โรงเรียนและรหัสเข้าใช้งาน
-  'issueAccessCodes',
-  'regenerateAccessCode',
-  'listSchools',
-  // ทีม
-  'cloneTeams',
-  'myTeams',
-  'saveTeam',
-  'submitTeam',
-  'reviewTeam',
-]);
+  ?? (isDev ? 'http://127.0.0.1:8899/' : '/api/');
 
 const TOKEN_KEY = 'penalty_pro_token';
 
@@ -55,6 +30,20 @@ export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 const authHeaders = (): Record<string, string> => {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
+};
+
+/**
+ * ตัวจับ session หมดอายุระดับแอป
+ *
+ * ที่ต้องมี: UI เคยถือสถานะ "เข้าสู่ระบบแล้ว" ของตัวเองแยกจาก token จริง
+ * พอ token หมดอายุ ปุ่มยังกดได้แต่ server ตอบ 401 แล้วผู้ใช้เห็นแค่ "บันทึกหาย"
+ * โดยไม่มีอะไรบอก — ตรงนี้ทำให้ 401 ทุกที่ในระบบแจ้งเตือนแบบเดียวกันเสมอ
+ */
+type UnauthorizedHandler = (message: string) => void;
+let onUnauthorized: UnauthorizedHandler | null = null;
+
+export const setUnauthorizedHandler = (fn: UnauthorizedHandler | null) => {
+  onUnauthorized = fn;
 };
 
 export class ApiError extends Error {
@@ -75,7 +64,8 @@ export async function apiGet<T = any>(
   action: string,
   params: Record<string, string | number | undefined> = {},
 ): Promise<T> {
-  const url = new URL(DB_API);
+  // ต้องส่ง base เพราะ DB_API เป็น path สัมพัทธ์บน production
+  const url = new URL(DB_API, window.location.origin);
   url.searchParams.set('action', action);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
@@ -94,13 +84,20 @@ export async function apiGet<T = any>(
     throw new ApiError(`เซิร์ฟเวอร์ตอบกลับไม่ใช่ JSON (HTTP ${res.status})`, res.status);
   }
   if (!res.ok || data?.status === 'error') {
-    throw new ApiError(data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
+    const err = new ApiError(
+      data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
+    if (res.status === 401) {
+      clearToken();
+      onUnauthorized?.(err.message);
+    }
+    throw err;
   }
   return data as T;
 }
 
 export async function apiPost<T = any>(action: string, body: any = {}): Promise<T> {
-  const url = new URL(DB_API);
+  // ต้องส่ง base เพราะ DB_API เป็น path สัมพัทธ์บน production
+  const url = new URL(DB_API, window.location.origin);
   url.searchParams.set('action', action);
 
   const res = await fetch(url.toString(), {
@@ -118,7 +115,41 @@ export async function apiPost<T = any>(action: string, body: any = {}): Promise<
     throw new ApiError(`เซิร์ฟเวอร์ตอบกลับไม่ใช่ JSON (HTTP ${res.status})`, res.status);
   }
   if (!res.ok || data?.status === 'error') {
-    throw new ApiError(data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
+    const err = new ApiError(
+      data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
+    if (res.status === 401) {
+      clearToken();
+      onUnauthorized?.(err.message);
+    }
+    throw err;
+  }
+  return data as T;
+}
+
+/**
+ * อัปโหลดไฟล์แบบ multipart
+ *
+ * ห้ามตั้ง Content-Type เอง — เบราว์เซอร์ต้องใส่ boundary ให้ ถ้าตั้งทับ
+ * ฝั่ง PHP จะแยก field ไม่ออกและได้ $_FILES ว่างเปล่า
+ */
+export async function apiUpload<T = any>(action: string, form: FormData): Promise<T> {
+  const url = new URL(DB_API, window.location.origin);
+  url.searchParams.set('action', action);
+
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { ...authHeaders() },
+    body: form,
+  });
+
+  const text = await res.text();
+  let data: any;
+  try { data = JSON.parse(text); }
+  catch { throw new ApiError(`เซิร์ฟเวอร์ตอบกลับไม่ใช่ JSON (HTTP ${res.status})`, res.status); }
+  if (!res.ok || data?.status === 'error') {
+    const err = new ApiError(data?.message ?? `อัปโหลดไม่สำเร็จ (HTTP ${res.status})`, res.status, data);
+    if (res.status === 401) { clearToken(); onUnauthorized?.(err.message); }
+    throw err;
   }
   return data as T;
 }
