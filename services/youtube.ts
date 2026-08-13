@@ -36,7 +36,13 @@ export const youTubeId = (raw?: string): string => {
  */
 export const youTubeEmbed = (
   raw?: string,
-  opts: { autoplay?: boolean; muted?: boolean; loop?: boolean } = {},
+  opts: {
+    autoplay?: boolean; muted?: boolean; loop?: boolean;
+    /** ตัดช่วงที่จะเล่น (วินาที) — ใช้ตอนคลิปที่เจ้าภาพให้มายาวกว่าที่จอมีเวลาให้ */
+    start?: number; end?: number;
+    /** ซ่อนแถบควบคุม — สำหรับคลิปที่เล่นเป็นพื้นหลัง ไม่ได้ให้ใครกด */
+    controls?: boolean;
+  } = {},
 ): string => {
   const id = youTubeId(raw);
   if (id === '') return '';
@@ -45,9 +51,14 @@ export const youTubeEmbed = (
     modestbranding: '1',
     playsinline: '1',      // iOS ไม่เด้งเป็นเต็มจอเอง
   });
-  if (opts.autoplay) q.set('autoplay', '1');
-  if (opts.muted) q.set('mute', '1');
+  // ⚠️ autoplay ที่ไม่ mute ถูกเบราว์เซอร์บล็อกเงียบ ๆ ทุกตัว — บนจอโปรเจกเตอร์
+  // อาการคือขึ้นจอดำค้างโดยไม่มีข้อความอะไรบอก จึงบังคับ mute ให้เลยเมื่อสั่ง autoplay
+  if (opts.autoplay) { q.set('autoplay', '1'); q.set('mute', '1'); }
+  else if (opts.muted) q.set('mute', '1');
   if (opts.loop) { q.set('loop', '1'); q.set('playlist', id); }
+  if (opts.start !== undefined) q.set('start', String(Math.max(0, Math.floor(opts.start))));
+  if (opts.end !== undefined) q.set('end', String(Math.max(1, Math.floor(opts.end))));
+  if (opts.controls === false) q.set('controls', '0');
   return `https://www.youtube-nocookie.com/embed/${id}?${q.toString()}`;
 };
 

@@ -84,10 +84,10 @@ function create_user(): void
     $username = Input::require_str('username');
     $password = Input::str('password');
     $role = Input::str('role') ?: 'user';
-    if (!in_array($role, ['admin', 'staff', 'user'], true)) {
+    if (!in_array($role, ['admin', 'staff', 'referee', 'user'], true)) {
         $role = 'user';
     }
-    if (in_array($role, ['admin', 'staff'], true) && strlen($password) < 8) {
+    if (in_array($role, ['admin', 'staff', 'referee'], true) && strlen($password) < 8) {
         // chk_staff_has_password ใน schema บังคับอยู่แล้ว แต่บอกให้เข้าใจก่อนชน
         Response::fail('บัญชีผู้ดูแล/เจ้าหน้าที่ต้องตั้งรหัสผ่านอย่างน้อย 8 ตัวอักษร', 422);
     }
@@ -139,11 +139,11 @@ function update_user(): void
 
     $password = Input::str('password');
     $role = Input::str('role') ?: $before['role'];
-    if (!in_array($role, ['admin', 'staff', 'user'], true)) {
+    if (!in_array($role, ['admin', 'staff', 'referee', 'user'], true)) {
         $role = $before['role'];
     }
     // เลื่อนเป็นแอดมิน/สตาฟ ต้องมีรหัสผ่าน ไม่งั้นเข้าหลังบ้านไม่ได้เลย
-    if (in_array($role, ['admin', 'staff'], true)
+    if (in_array($role, ['admin', 'staff', 'referee'], true)
         && $before['password_hash'] === null && $password === '') {
         Response::fail('ต้องตั้งรหัสผ่านให้บัญชีนี้ก่อนเลื่อนเป็นผู้ดูแล/เจ้าหน้าที่', 422);
     }
@@ -199,14 +199,14 @@ function update_user_role(): void
     Auth::requireAdmin();
     $uid = Input::require_str('userId');
     $role = Input::str('role');
-    if (!in_array($role, ['admin', 'staff', 'user'], true)) {
+    if (!in_array($role, ['admin', 'staff', 'referee', 'user'], true)) {
         Response::fail('บทบาทไม่ถูกต้อง', 422);
     }
     $u = Db::one('SELECT role, password_hash FROM users WHERE user_id = :uid', [':uid' => $uid]);
     if ($u === null) {
         Response::fail('ไม่พบผู้ใช้นี้', 404);
     }
-    if (in_array($role, ['admin', 'staff'], true) && $u['password_hash'] === null) {
+    if (in_array($role, ['admin', 'staff', 'referee'], true) && $u['password_hash'] === null) {
         Response::fail('บัญชีนี้ยังไม่มีรหัสผ่าน — ตั้งรหัสผ่านก่อนจึงจะเลื่อนสิทธิ์ได้', 422);
     }
     Db::exec('UPDATE users SET role = :role WHERE user_id = :uid2',

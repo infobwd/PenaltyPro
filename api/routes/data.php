@@ -154,6 +154,10 @@ function handle(string $action, array $cfg): void
                             [$t['color_primary'], $t['color_secondary']],
                             JSON_UNESCAPED_SLASHES),
                         'logoUrl'    => drive_img($t['logo_url']),
+                        // สื่อสำหรับผังตัวนักกีฬา — เปิดให้ทุกคนเห็น เป็นของที่
+                        // ตั้งใจฉายขึ้นจอในสนามอยู่แล้ว ไม่ใช่ข้อมูลส่วนบุคคล
+                        'introVideoUrl' => (string) ($t['intro_video_url'] ?? ''),
+                        'hypeText'      => (string) ($t['hype_text'] ?? ''),
                         'status'     => $t['status'],
                         'group'      => (string) $t['group_name'],
                         'district'   => $t['district'],
@@ -203,6 +207,7 @@ function handle(string $action, array $cfg): void
                 'number'    => (string) ($p['shirt_number'] ?? ''),
                 'position'  => $p['position'],
                 'photoUrl'  => drive_img($p['photo_url']),
+                'introVideoUrl' => (string) ($p['intro_video_url'] ?? ''),
                 'birthDate' => $p['birth_date'] === null
                     ? '' : date('d/m/Y', strtotime((string) $p['birth_date'])),
                 'tournamentId' => $p['tournament_id'],
@@ -224,7 +229,15 @@ function handle(string $action, array $cfg): void
             $kicks = group_by(Db::all(
                 'SELECT * FROM kicks ORDER BY match_id, round_no, team_side'), 'match_id');
 
-            return array_map(static function (array $m) use ($kicks): array {
+            // เหตุการณ์ในเกม (ประตู/ใบเหลือง/เปลี่ยนตัว) ของแบบ 7v7 และ 11v11
+            //
+            // เดิมไม่เคยส่งออกมาเลย ฝั่งเว็บจึงมองไม่เห็นว่าใครยิงประตูหรือโดนใบเหลือง
+            // ทั้งที่บันทึกลงฐานไว้แล้ว — ทุกอย่างที่ไม่ใช่จุดโทษจึงแสดงได้แค่สกอร์รวม
+            $events = group_by(Db::all(
+                'SELECT * FROM match_events ORDER BY match_id, minute_no, created_at'),
+                'match_id');
+
+            return array_map(static function (array $m) use ($kicks, $events): array {
                 $mid = $m['match_id'];
                 return [
                     // ชื่อปัจจุบันก่อน แล้วค่อย fallback ไป snapshot ตอนแข่ง
@@ -257,6 +270,16 @@ function handle(string $action, array $cfg): void
                         'result'  => $k['result'],
                         'timestamp' => strtotime((string) $k['kicked_at']) * 1000,
                     ], $kicks[$mid] ?? []),
+                    'events' => array_map(static fn(array $e): array => [
+                        'id'      => (string) $e['event_id'],
+                        'matchId' => $e['match_id'],
+                        'minute'  => (int) $e['minute_no'],
+                        'type'    => $e['event_type'],
+                        'teamId'  => $e['team_side'],
+                        'player'  => $e['player_name'],
+                        'relatedPlayer' => $e['related_player'],
+                        'timestamp' => strtotime((string) $e['created_at']) * 1000,
+                    ], $events[$mid] ?? []),
                 ];
             }, $rows);
         });

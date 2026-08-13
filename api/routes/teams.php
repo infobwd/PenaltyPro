@@ -29,6 +29,7 @@ function handle(string $action, array $cfg): void
         'createTeam'  => create_team(),
         'deleteTeam'  => delete_team(),
         'setTeamMeta' => set_team_meta(),
+        'setLineupMedia' => set_lineup_media(),
         default       => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -1100,4 +1101,81 @@ function set_team_meta(): void
     Cache::flush();
 
     Response::ok();
+}
+
+/**
+ * สื่อสำหรับผังตัวนักกีฬา — คลิปแนะนำทีม/รายคน และคำโปรยประจำทีม
+ *
+ * ทำไมเป็น endpoint แยกแทนที่จะรวมใน saveTeam:
+ *   1. คนละคนทำ — saveTeam คือครูที่โรงเรียนกรอกรายชื่อ ส่วนคลิปแนะนำเป็นงาน
+ *      เตรียมออกอากาศของเจ้าภาพ ซึ่งทำหลังปิดรับรายชื่อไปแล้ว (assert_window_open
+ *      จะปิดกั้น) และไม่ควรทำให้ทีมที่อนุมัติแล้วถูกถอนอนุมัติเพราะแก้ลิงก์คลิป
+ *   2. saveTeam มี diff รายชื่อผู้เล่นที่ละเอียดมาก (จับคู่ ปลดเบอร์ ล้างผลรายงานตัว)
+ *      การแทรกช่องใหม่เข้าไปเสี่ยงพังทางเดินที่ใช้งานจริงอยู่แล้วโดยไม่ได้อะไรเพิ่ม
+ *
+ * เขียนเฉพาะช่องสื่อ ไม่แตะชื่อ เบอร์เสื้อ รูป หรือสถานะทีมเลย
+ */
+function set_lineup_media(): void
+{
+    Auth::requireLogin();
+
+    $teamId = Input::require_str('teamId');
+    $team = Db::one('SELECT team_id, tournament_id, name FROM teams WHERE team_id = :tid',
+        [':tid' => $teamId]);
+    if ($team === null) {
+        Response::fail('ไม่พบทีมนี้', 404);
+    }
+    Perm::requireTournamentManager((string) $team['tournament_id']);
+
+    // ส่งช่องไหนมาก็แก้ช่องนั้น ไม่ส่ง = ไม่แตะ
+    // (ต่างจากการเช็คค่าว่าง เพราะ "ล้างคลิปทิ้ง" ก็คือการส่งค่าว่างมาโดยตั้งใจ)
+    $body = Input::body();
+    $hasTeamVideo = array_key_exists('introVideoUrl', $body);
+    $hasHype      = array_key_exists('hypeText', $body);
+
+    if ($hasTeamVideo || $hasHype) {
+        Db::exec(
+            'UPDATE teams SET
+                intro_video_url = CASE WHEN :has_v = 1 THEN :video ELSE intro_video_url END,
+                hype_text       = CASE WHEN :has_h = 1 THEN :hype  ELSE hype_text END,
+                row_version = row_version + 1
+              WHERE team_id = :tid2',
+            [
+                ':has_v' => $hasTeamVideo ? 1 : 0,
+                ':video' => mb_substr((string) Input::str('introVideoUrl'), 0, 500),
+                ':has_h' => $hasHype ? 1 : 0,
+                ':hype'  => mb_substr((string) Input::str('hypeText'), 0, 200),
+                ':tid2'  => $teamId,
+            ]
+        );
+    }
+
+    /**
+     * คลิปรายคน
+     *
+     * ผูก player_id กับ team_id ในเงื่อนไข WHERE เสมอ — ไม่งั้นคนที่ดูแลรายการ
+     * หนึ่งจะยิง player_id ของอีกรายการเข้ามาแก้ได้ ทั้งที่ตรวจสิทธิ์ที่ระดับทีมไปแล้ว
+     */
+    $saved = 0;
+    foreach (Input::arr('players') as $p) {
+        $pid = (string) ($p['id'] ?? '');
+        if ($pid === '' || !array_key_exists('introVideoUrl', $p)) {
+            continue;
+        }
+        $saved += Db::exec(
+            'UPDATE players SET intro_video_url = :vid
+              WHERE player_id = :pid AND team_id = :tid3',
+            [
+                ':vid' => mb_substr((string) $p['introVideoUrl'], 0, 500),
+                ':pid' => $pid,
+                ':tid3' => $teamId,
+            ]
+        );
+    }
+
+    Audit::log('team', $teamId, 'set_lineup_media', null,
+        ['team' => $hasTeamVideo || $hasHype, 'players' => $saved]);
+    Cache::flush();
+
+    Response::ok(['playersUpdated' => $saved]);
 }

@@ -307,6 +307,14 @@ export const deleteMatch = async (matchId: string): Promise<boolean> => {
 export const updateTeamData = async (
   team: Partial<Team> & { status?: string; groupName?: string; schoolId?: string },
   players: Partial<Player>[],
+  /**
+   * URL ไฟล์ที่เพิ่งอัปใหม่ — ส่งเฉพาะตัวที่เปลี่ยนจริง
+   *
+   * ห้ามส่งคีย์ที่ไม่ได้แก้: ฝั่ง server ตีความ slipUrl ที่เปลี่ยนว่าเป็นสลิปใบใหม่
+   * แล้วรีเซ็ตสถานะการชำระเงินกลับไปรอตรวจ การส่งค่าเดิมซ้ำจึงทำให้สลิปที่
+   * ยืนยันไปแล้วกลับมารอตรวจใหม่โดยไม่มีใครตั้งใจ
+   */
+  files: { logoUrl?: string; docUrl?: string; slipUrl?: string } = {},
 ) => {
   await apiPost('saveTeam', {
     teamId: team.id,
@@ -320,6 +328,7 @@ export const updateTeamData = async (
     status: team.status,
     groupName: team.groupName ?? team.group,
     schoolId: team.schoolId,
+    ...files,
     // ส่ง id กลับไปด้วยเสมอ — server ใช้จับคู่ว่าใครเป็นคนเดิม
     // ถ้าไม่ส่ง แถวเดิมจะถูกลบแล้วสร้างใหม่ สถิติยิงจุดโทษและผลรายงานตัวหายตาม
     players: players.map(p => ({
@@ -355,6 +364,19 @@ export const createTeam = async (data: {
 export const setTeamMeta = async (data: {
   teamId: string; schoolId?: string; groupName?: string | null;
 }) => apiPost('setTeamMeta', data);
+
+/**
+ * คลิปแนะนำทีม/รายคน สำหรับผังตัวนักกีฬา
+ *
+ * แยกจาก saveTeam โดยตั้งใจ — ส่งเฉพาะช่องที่ต้องการแก้ ช่องที่ไม่ส่งจะไม่ถูกแตะ
+ * และไม่กระทบสถานะอนุมัติทีมหรือรายชื่อนักกีฬาเลย (ดู set_lineup_media ใน teams.php)
+ */
+export const setLineupMedia = async (data: {
+  teamId: string;
+  introVideoUrl?: string;
+  hypeText?: string;
+  players?: { id: string; introVideoUrl: string }[];
+}) => apiPost('setLineupMedia', data);
 
 export const listSchools = async (tournamentId?: string) =>
   apiGet('listSchools', { tournamentId });

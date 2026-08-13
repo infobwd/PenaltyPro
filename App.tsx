@@ -33,6 +33,8 @@ import CheckInPage from './components/CheckInPage';
 import LineupWall from './components/LineupWall';
 import PaymentInfoCard from './components/PaymentInfoCard';
 import LivePage from './components/LivePage';
+import CommentaryDesk from './components/CommentaryDesk';
+import MatchRecorderPanel from './components/MatchRecorderPanel';
 import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
@@ -41,7 +43,7 @@ import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToShe
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -155,7 +157,6 @@ export default function App() {
   const [pendingMatchSetup, setPendingMatchSetup] = useState<{teamA: Team, teamB: Team, matchId?: string} | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [editingKick, setEditingKick] = useState<Kick | null>(null);
   const [isLoginOpen, setIsLoginOpen] = useState(false); 
   const [isPinOpen, setIsPinOpen] = useState(false); 
   const [isAdmin, setIsAdmin] = useState(false);
@@ -468,13 +469,18 @@ export default function App() {
   const handleAdminLogin = (user: UserProfile) => {
     setCurrentUser(user);
     const admin = user.role === 'admin' || user.role === 'staff';
+    const referee = user.role === 'referee';
     setIsAdmin(admin);
     // ผู้ใช้ทั่วไปที่เข้าทางหน้า /login ก็ต้องถูกถามโรงเรียนเหมือนกัน
     // (server ไม่ตั้ง needsSchool ให้แอดมิน/เจ้าหน้าที่อยู่แล้ว)
     if (user.needsSchool) setAskSchool(true);
     localStorage.setItem('penalty_pro_user', JSON.stringify(user));
     showNotification('เข้าสู่ระบบแล้ว', `สวัสดีคุณ ${user.displayName}`, 'success');
-    if (!admin) {
+    // กรรมการไม่ใช่ "สิทธิ์จำกัด" — เขามีงานของเขาชัดเจน บอกทางไปหน้างานเลย
+    if (referee) {
+      showNotification('บัญชีกรรมการ',
+        'เลือกคู่แข่งขันจากหน้าตารางแข่งเพื่อเริ่มบันทึกผลได้เลย', 'info');
+    } else if (!admin) {
       showNotification('สิทธิ์จำกัด',
         'บัญชีนี้ไม่มีสิทธิ์ผู้ดูแล จะเข้าถึงหน้าจัดการไม่ได้', 'warning');
     }
@@ -650,7 +656,7 @@ export default function App() {
       showNotification("เริ่มการแข่งขัน", "เข้าสู่โหมดบันทึกผล", "success"); 
   };
 
-  const handleStartMatchRequest = (teamA: Team, teamB: Team, matchId?: string) => { if (isAdmin || (currentUser && currentUser.role === 'staff')) { startMatchSession(teamA, teamB, matchId); } else { setPendingMatchSetup({ teamA, teamB, matchId }); setIsPinOpen(true); } };
+  const handleStartMatchRequest = (teamA: Team, teamB: Team, matchId?: string) => { if (isAdmin || (currentUser && (currentUser.role === 'staff' || currentUser.role === 'referee'))) { startMatchSession(teamA, teamB, matchId); } else { setPendingMatchSetup({ teamA, teamB, matchId }); setIsPinOpen(true); } };
   const handlePinSuccess = () => { if (pendingMatchSetup) { const { teamA, teamB, matchId } = pendingMatchSetup; startMatchSession(teamA, teamB, matchId); setPendingMatchSetup(null); setIsPinOpen(false); } };
   const checkWinCondition = (state: MatchState): MatchState => { const kicksA = state.kicks.filter(k => k.teamId === 'A'); const kicksB = state.kicks.filter(k => k.teamId === 'B'); const scoreA = kicksA.filter(k => k.result === KickResult.GOAL).length; const scoreB = kicksB.filter(k => k.result === KickResult.GOAL).length; const roundsPlayedA = kicksA.length; const roundsPlayedB = kicksB.length; let newState = { ...state, scoreA, scoreB, winner: null, isFinished: false }; if (roundsPlayedA <= 5 && roundsPlayedB <= 5) { const remainingKicksA = 5 - roundsPlayedA; const remainingKicksB = 5 - roundsPlayedB; if (scoreA > scoreB + remainingKicksB) { newState.winner = 'A'; newState.isFinished = true; } else if (scoreB > scoreA + remainingKicksA) { newState.winner = 'B'; newState.isFinished = true; } } else { if (roundsPlayedA === roundsPlayedB && roundsPlayedA >= 5) { if (scoreA !== scoreB) { newState.winner = scoreA > scoreB ? 'A' : 'B'; newState.isFinished = true; } } } return newState; };
   
@@ -684,11 +690,59 @@ export default function App() {
       setIsProcessing(false); 
   };
 
-  const handleUpdateOldKick = (kickId: string, newResult: KickResult, newPlayerName: string) => { setMatchState(prev => { if (!prev) return null; const updatedKicks = prev.kicks.map(k => k.id === kickId ? { ...k, result: newResult, player: newPlayerName } : k); let nextState = { ...prev, kicks: updatedKicks }; nextState = checkWinCondition(nextState); return nextState; }); setEditingKick(null); showNotification("แก้ไขผลการยิงเรียบร้อย", "", "success"); };
-  const confirmDeleteKick = (kickId: string) => { setConfirmModal({ isOpen: true, title: "ลบรายการนี้?", message: "ยืนยันการลบผลการยิงนี้?", isDangerous: true, onConfirm: () => { handleDeleteKick(kickId); setConfirmModal(null); } }); };
-  const handleDeleteKick = (kickId: string) => { setMatchState(prev => { if (!prev) return null; const newKicks = prev.kicks.filter(k => k.id !== kickId); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; let tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); setEditingKick(null); showNotification("ลบรายการเรียบร้อย", "", "warning"); };
   const requestUndoLastKick = () => { if (!matchState || matchState.kicks.length === 0) return; setConfirmModal({ isOpen: true, title: "ยกเลิกการยิงล่าสุด", message: "ต้องการลบผลการยิงลูกล่าสุดใช่หรือไม่?", onConfirm: () => { handleUndoLastKick(); setConfirmModal(null); } }); };
   const handleUndoLastKick = () => { setMatchState(prev => { if (!prev) return null; const newKicks = [...prev.kicks]; newKicks.pop(); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; const tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); showNotification("ย้อนกลับรายการล่าสุดแล้ว", "", "info"); };
+  /**
+   * คำนวณลำดับรอบ/ตาใหม่จากรายการลูกยิงที่เหลือ
+   *
+   * ต้องเรียงเลขรอบใหม่ทุกครั้งที่ลบลูกกลางทาง เพราะฝั่งฐานข้อมูลมี
+   * UNIQUE(match_id, round_no, team_side) ถ้าเลขรอบขาดหรือซ้ำ การบันทึกจะทิ้งลูก
+   * ที่ชนกันไปเงียบ ๆ (live.php ข้ามคีย์ที่เห็นซ้ำ)
+   */
+  const renumberKicks = (list: Kick[]): Kick[] => {
+    const seq = [...list].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+    const per: Record<'A' | 'B', number> = { A: 0, B: 0 };
+    return seq.map(k => {
+      const side = k.teamId as 'A' | 'B';
+      per[side] += 1;
+      return { ...k, round: per[side] };
+    });
+  };
+
+  const recomputeAfterKickChange = (prev: MatchState, kicks: Kick[]): MatchState => {
+    const fixed = renumberKicks(kicks);
+    const a = fixed.filter(k => k.teamId === 'A').length;
+    const b = fixed.filter(k => k.teamId === 'B').length;
+    // ฝั่งที่ยิงน้อยกว่าเป็นคนยิงต่อ เท่ากันให้ A เริ่มรอบใหม่
+    const currentTurn: 'A' | 'B' = a <= b ? 'A' : 'B';
+    const currentRound = Math.min(a, b) + 1;
+    return checkWinCondition({ ...prev, kicks: fixed, currentTurn, currentRound });
+  };
+
+  /**
+   * แก้ผลหรือผู้ยิงของลูกใดก็ได้ ไม่ใช่แค่ลูกล่าสุด
+   *
+   * กรรมการกดผิดคนหรือผิดผลเกิดขึ้นจริงและบ่อย เดิมมีแต่ปุ่มย้อนลูกล่าสุด
+   * ถ้ารู้ตัวตอนยิงไป 6 ลูกแล้วต้องย้อนทิ้งทั้ง 6 ลูกแล้วกดใหม่หมด
+   * ระหว่างนั้นคะแนนบนจอถ่ายทอดก็เพี้ยนตามไปด้วย
+   */
+  const handleEditKick = (kickId: string, patch: { result?: KickResult; player?: string }) => {
+    setMatchState(prev => {
+      if (!prev) return null;
+      const next = prev.kicks.map(k => k.id === kickId ? { ...k, ...patch } : k);
+      return recomputeAfterKickChange(prev, next);
+    });
+    showNotification('แก้ไขลูกยิงแล้ว', 'คะแนนคำนวณใหม่เรียบร้อย', 'info');
+  };
+
+  const handleDeleteKick = (kickId: string) => {
+    setMatchState(prev => {
+      if (!prev) return null;
+      return recomputeAfterKickChange(prev, prev.kicks.filter(k => k.id !== kickId));
+    });
+    showNotification('ลบลูกยิงแล้ว', 'ลำดับรอบและคะแนนถูกจัดใหม่', 'info');
+  };
+
   const requestExitMatchWithoutSaving = () => {
     setConfirmModal({
       isOpen: true,
@@ -714,6 +768,8 @@ export default function App() {
     && currentView !== 'programme'
     // ผังตัวผู้เล่นใช้ขึ้นจอโปรเจกเตอร์ และมีแถบควบคุมของตัวเองอยู่ล่างสุด
     && currentView !== 'lineup'
+    // โต๊ะพากย์ต้องใช้พื้นที่จอทั้งหมด ผู้พากย์อ่านสามคอลัมน์พร้อมกันระหว่างพูด
+    && currentView !== 'commentary'
     && currentView !== 'checkin';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
@@ -788,6 +844,34 @@ export default function App() {
               config={effectiveSettings}
               onBack={() => goTo('home')}
               onOpenWall={isAdmin ? () => goTo('live_wall') : undefined}
+          />
+      );
+  }
+
+  /**
+   * โต๊ะพากย์ — เต็มจอ ไม่ต้องเข้าระบบ
+   *
+   * ดึงผลสดเองผ่าน useLiveBoard ไม่ได้พึ่ง loadData ของหน้าหลัก ส่วนข้อมูลนิ่ง
+   * (ทีม/นักกีฬา/นัดย้อนหลัง) ส่งจากที่โหลดไว้แล้ว จึงไม่มีคำขอซ้ำซ้อน
+   *
+   * allMatches ต้องเป็น matchesLog ทั้งก้อน ไม่ใช่ activeMatches — สถิติการเจอกัน
+   * นับข้ามรายการแข่งขัน ถ้าส่งเฉพาะรายการปัจจุบันไปจะไม่เห็นประวัติปีก่อนเลย
+   */
+  if (currentView === 'commentary') {
+      const scoped = currentTournamentId
+          ? { teams: activeTeams, players: activePlayers, name: activeTournament?.name }
+          : { teams: programmeScope.teams, players: programmeScope.players,
+              name: programmeScope.tournament?.name };
+      return (
+          <CommentaryDesk
+              tournamentId={currentTournamentId || programmeScope.tournament?.id}
+              tournamentName={scoped.name}
+              teams={scoped.teams}
+              players={scoped.players}
+              allMatches={matchesLog}
+              allTeams={availableTeams}
+              config={effectiveSettings}
+              onBack={() => goTo('home')}
           />
       );
   }
@@ -1099,25 +1183,6 @@ export default function App() {
       )}
 
       <TeamOverviewDialog team={selectedHomeTeam} players={activePlayers} onClose={() => setSelectedHomeTeam(null)} />
-      {editingKick && activeTournament?.type === 'Penalty' && (
-        <div className="fixed inset-0 bg-black/60 modal-sheet flex items-end xl:items-center justify-center z-[1100] p-0 xl:p-4 backdrop-blur-sm" onClick={() => setEditingKick(null)}>
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="font-bold text-lg text-slate-800">แก้ไขผลการยิง</h3>
-              <button onClick={() => confirmDeleteKick(editingKick.id)} className="text-red-500 hover:bg-red-50 p-1 rounded transition" title="ลบรายการนี้"><Trash2 className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-4">
-              <div><label className="block text-sm text-slate-500 mb-1">ชื่อผู้เล่น</label><input type="text" className="w-full p-2 border rounded-lg" defaultValue={editingKick.player} id="edit-player-name" /></div>
-              <div><label className="block text-sm text-slate-500 mb-1">ผลการยิง</label><select className="w-full p-2 border rounded-lg" defaultValue={editingKick.result} id="edit-kick-result"><option value={KickResult.GOAL}>เข้าประตู (GOAL)</option><option value={KickResult.SAVED}>เซฟได้ (SAVED)</option><option value={KickResult.MISSED}>ยิงพลาด (MISSED)</option></select></div>
-              <div className="flex gap-2 pt-4">
-                <button onClick={() => setEditingKick(null)} className="flex-1 py-2 border rounded-lg text-slate-600 hover:bg-slate-50">ยกเลิก</button>
-                <button onClick={() => { const name = (document.getElementById('edit-player-name') as HTMLInputElement).value; const res = (document.getElementById('edit-kick-result') as HTMLSelectElement).value as KickResult; handleUpdateOldKick(editingKick.id, res, name); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold">บันทึก</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {currentView === 'tournament' && (
           <TournamentView 
               key={viewKey} 
@@ -1139,7 +1204,9 @@ export default function App() {
         <ScheduleList 
             key={viewKey} 
             matches={activeMatches} 
-            teams={activeTeams} 
+            teams={activeTeams}
+            allMatches={matchesLog}
+            allTeams={availableTeams} 
             players={activePlayers} 
             onBack={() => goTo('home')} 
             isAdmin={isAdmin} 
@@ -1221,7 +1288,9 @@ export default function App() {
       {currentView === 'match' && matchState && (
         <div className="min-h-screen bg-slate-900 pb-20">
             {activeTournament?.type === 'Penalty' ? (
-                <div className="p-4 space-y-6 max-w-md mx-auto">
+                // space-y-3 ไม่ใช่ 6 — ระยะห่าง 24px คูณ 4 ช่องคือ ~100px
+                // ที่กรรมการต้องเลื่อนผ่านก่อนถึงปุ่มยิง บนจอ 640px นั่นคือครึ่งจอ
+                <div className="p-3 space-y-3 max-w-md mx-auto">
                     <div className="grid grid-cols-[2.5rem_1fr_2.5rem] items-center text-white">
                         <button onClick={requestExitMatchWithoutSaving} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition" aria-label="ออกโดยไม่บันทึก"><ArrowLeft className="w-5 h-5"/></button>
                         <h2 className="font-bold text-lg">การดวลจุดโทษ</h2>
@@ -1230,6 +1299,7 @@ export default function App() {
                     
                     <ScoreVisualizer kicks={matchState.kicks} teamId="A" team={matchState.teamA} />
                     <ScoreVisualizer kicks={matchState.kicks} teamId="B" team={matchState.teamB} />
+
                     
                     {!matchState.isFinished ? (
                         <PenaltyInterface 
@@ -1254,6 +1324,19 @@ export default function App() {
                             </button>
                         </div>
                     )}
+                    {/* แผงคนจดอยู่ "ใต้" ปุ่มยิงเสมอ
+                        กรรมการยืนถือมือถือข้างสนาม ปุ่มที่กดสิบกว่าครั้งต่อนัด
+                        ต้องอยู่ในระยะที่เห็นทันทีโดยไม่ต้องเลื่อนผ่านสถิติก่อน */}
+                    <MatchRecorderPanel
+                        kicks={matchState.kicks}
+                        teamA={matchState.teamA}
+                        teamB={matchState.teamB}
+                        rosterA={activePlayers.filter(p => p.teamId === matchState.teamA.id)}
+                        rosterB={activePlayers.filter(p => p.teamId === matchState.teamB.id)}
+                        onEditKick={handleEditKick}
+                        onDeleteKick={handleDeleteKick}
+                    />
+
                 </div>
             ) : (
                 <RegularMatchInterface 
@@ -1540,6 +1623,10 @@ export default function App() {
                       <button onClick={() => goTo('live')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
                           <Video className="w-5 h-5 shrink-0" />
                           <span className="text-left leading-snug flex-1 min-w-0">ถ่ายทอดสด / ดูย้อนหลัง<span className="block text-[11px] font-medium text-indigo-100 mt-1">ชมสดและคลิปไฮไลต์แต่ละคู่</span></span>
+                      </button>
+                      <button onClick={() => goTo('commentary')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
+                          <Mic className="w-5 h-5 shrink-0" />
+                          <span className="text-left leading-snug flex-1 min-w-0">โต๊ะพากย์<span className="block text-[11px] font-medium text-indigo-100 mt-1">ผลสด สถิติ และประเด็นพร้อมพูด</span></span>
                       </button>
                       {isAdmin && (
                         <button onClick={handleDownloadSchoolCodes} className="min-h-[4.5rem] rounded-xl bg-amber-400 text-amber-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-amber-300 transition text-left">

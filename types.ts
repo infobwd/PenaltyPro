@@ -152,6 +152,10 @@ export interface Team {
   shortName: string;
   color: string;
   logoUrl: string;
+  /** คลิปแนะนำทีม (YouTube) — เล่นเป็นพื้นหลังตอนเปิดตัวทีมบนผังตัวนักกีฬา */
+  introVideoUrl?: string;
+  /** คำโปรยประจำทีม เช่น "แชมป์เก่า 2 สมัย" — ขึ้นใต้ชื่อทีมบนจอ */
+  hypeText?: string;
   status?: 'Invited' | 'Draft' | 'Submitted' | 'Pending' | 'Approved' | 'Rejected' | 'Withdrawn';
   group?: string; 
   rejectReason?: string; 
@@ -183,10 +187,12 @@ export interface Player {
   id: string;
   teamId: string;
   name: string;
-  number: string; 
+  number: string;
   position: string;
   photoUrl: string;
-  birthDate?: string; 
+  /** คลิปแนะนำตัวสั้น ๆ (YouTube) — ใช้บนผังตัวนักกีฬา ว่างคือไม่มี */
+  introVideoUrl?: string;
+  birthDate?: string;
   tournamentId?: string;
 }
 
@@ -205,7 +211,8 @@ export interface Kick {
 export interface MatchEvent {
   id: string;
   matchId: string;
-  tournamentId: string;
+  /** ไม่ได้เก็บรายเหตุการณ์ — นัดที่เหตุการณ์สังกัดอยู่รู้รายการแข่งขันอยู่แล้ว */
+  tournamentId?: string;
   minute: number;
   type: 'GOAL' | 'YELLOW_CARD' | 'RED_CARD' | 'SUB_IN' | 'SUB_OUT' | 'OWN_GOAL' | 'BLUE_CARD';
   player: string;
@@ -225,6 +232,9 @@ export interface Match {
   summary?: string;
   kicks?: Kick[];
   events?: MatchEvent[];
+  /** id ของทีมในนัดนั้น — ใช้ย้อนไปหาโรงเรียนได้ ต่างจาก teamA ที่เป็นชื่อ/snapshot */
+  teamAId?: string;
+  teamBId?: string;
   roundLabel?: string; 
   status?: 'Scheduled' | 'Finished' | 'Walkover' | 'Live';
   venue?: string; 
@@ -235,6 +245,11 @@ export interface Match {
   highlightUrl?: string;
   highlightTitle?: string;
   tournamentId?: string;
+  /** เพิ่มขึ้นทุกครั้งที่สกอร์ถูกบันทึกทับ — ใช้รู้ว่าข้อมูลที่ถืออยู่เก่าหรือยัง */
+  rowVersion?: number;
+  /** โลโก้ที่ liveBoard ส่งมาให้ตรง ๆ — หน้าที่ poll ไม่ได้โหลดตาราง teams มาด้วย */
+  teamALogo?: string;
+  teamBLogo?: string;
 }
 
 export interface MatchState {
@@ -316,7 +331,8 @@ export interface UserProfile {
   statusMessage?: string;
   type: 'line' | 'guest' | 'credentials';
   phoneNumber?: string; 
-  role?: 'admin' | 'staff' | 'user';
+  /** referee = กรรมการบันทึกผล เข้าหน้าบันทึกผลได้อย่างเดียว ไม่เห็นหลังบ้าน */
+  role?: 'admin' | 'staff' | 'referee' | 'user';
   lineUserId?: string;
   lastLogin?: string;
   fanPoints?: number; // Calculated on client

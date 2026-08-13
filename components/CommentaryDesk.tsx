@@ -1,0 +1,696 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ChevronLeft, Radio, RefreshCw, Mic, History, Target, ShieldCheck, XCircle,
+  Users, NotebookPen, WifiOff, Clock, MapPin, Flame, AlertTriangle, Trophy,
+} from 'lucide-react';
+import { AppSettings, Kick, Match, MatchEvent, Player, Team } from '../types';
+import { useLiveBoard } from '../hooks/useLiveBoard';
+import { headToHead, recentForm } from '../services/headToHead';
+
+/**
+ * โต๊ะพากย์ — หน้าสำหรับคนถือไมค์ข้างสนาม
+ *
+ * ทำไมต้องเป็นหน้าแยก ไม่ใช่ปรับหน้าเดิม:
+ *   - จอใหญ่ (live_wall) ออกแบบให้คนดูมองจากไกล ตัวใหญ่ ข้อมูลน้อย
+ *     ผู้พากย์ต้องการตรงข้าม คือข้อมูลแน่นที่สุดในจอเดียวโดยไม่ต้องเลื่อน
+ *   - หน้าบันทึกผลเป็นหน้า "เขียน" ของกรรมการ และตั้งใจให้สั้นที่สุด
+ *     ทุกบรรทัดที่เพิ่มคือระยะที่กรรมการต้องเลื่อนก่อนถึงปุ่มที่กดสิบกว่าครั้งต่อนัด
+ *
+ * ข้อมูลสองชั้น:
+ *   สด    — useLiveBoard ดึงเองทุก 8 วินาที (สกอร์ ลูกยิง เหตุการณ์)
+ *   นิ่ง  — teams/players/allMatches ที่หน้าอื่นโหลดไว้แล้ว ใช้คำนวณสถิติย้อนหลัง
+ *          ไม่ต้องยิงเพิ่มเพราะประวัติเก่าไม่เปลี่ยนระหว่างเกม
+ */
+
+type Props = {
+  tournamentId?: string;
+  tournamentName?: string;
+  /** ทีมในรายการนี้ — ใช้หาคู่ที่กำลังแข่งและรายชื่อนักกีฬา */
+  teams: Team[];
+  players: Player[];
+  /** ทุกนัดข้ามรายการ — สถิติการเจอกันนับย้อนไปถึงปีก่อน ๆ */
+  allMatches: Match[];
+  /**
+   * ทีมของ **ทุกรายการ** — จำเป็นสำหรับสถิติการเจอกันเท่านั้น
+   *
+   * headToHead จับคู่ด้วยโรงเรียน แต่ต้องเดินจาก team_id ของนัดนั้นไปหา school_id
+   * ก่อน ถ้าส่งมาเฉพาะทีมของรายการปัจจุบัน ทีมปีก่อน (คนละ team_id) จะหาไม่เจอ
+   * แล้วประวัติเก่าถูกข้ามทิ้งทั้งหมดเงียบ ๆ — หน้าจะขึ้นว่า "ยังไม่เคยเจอกัน"
+   * ทั้งที่สองโรงเรียนนี้เจอกันมาแล้วทุกปี
+   */
+  allTeams: Team[];
+  config: AppSettings;
+  onBack: () => void;
+};
+
+const POSITION_LABEL: Record<string, string> = {
+  GK: 'ผู้รักษาประตู', DF: 'กองหลัง', MF: 'กองกลาง', FW: 'กองหน้า', Player: 'นักกีฬา',
+};
+
+const RESULT_UI: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
+  GOAL:   { label: 'เข้า',   cls: 'bg-emerald-500', icon: <Target className="w-3 h-3" /> },
+  SAVED:  { label: 'เซฟได้', cls: 'bg-sky-600',     icon: <ShieldCheck className="w-3 h-3" /> },
+  MISSED: { label: 'พลาด',   cls: 'bg-rose-600',    icon: <XCircle className="w-3 h-3" /> },
+};
+
+const EVENT_UI: Record<string, { label: string; cls: string }> = {
+  GOAL:        { label: 'ประตู',      cls: 'bg-emerald-500' },
+  OWN_GOAL:    { label: 'ทำเข้าตัวเอง', cls: 'bg-orange-500' },
+  YELLOW_CARD: { label: 'ใบเหลือง',   cls: 'bg-amber-400 text-amber-950' },
+  RED_CARD:    { label: 'ใบแดง',      cls: 'bg-rose-600' },
+  BLUE_CARD:   { label: 'ใบฟ้า',      cls: 'bg-sky-500' },
+  SUB_IN:      { label: 'เปลี่ยนตัวเข้า', cls: 'bg-slate-600' },
+  SUB_OUT:     { label: 'เปลี่ยนตัวออก', cls: 'bg-slate-600' },
+};
+
+/**
+ * ตัวระบุลูกยิงที่ "อยู่กับที่" ข้ามการบันทึกซ้ำ
+ *
+ * ⚠️ ห้ามใช้ kick.id — ฝั่ง server ลบลูกทั้งนัดแล้วเขียนใหม่ทุกครั้งที่กดบันทึก
+ * (ดู live.php) และ kick_id เป็น AUTO_INCREMENT ทุกลูกจึงได้เลขใหม่หมดทุกครั้ง
+ * ถ้าเอา id มาเทียบว่าอันไหน "เพิ่งเข้ามา" ทั้งกระดานจะกะพริบใหม่ทุกรอบ
+ *
+ * ที่ไม่เปลี่ยนคือช่องของมันเอง ซึ่งฐานข้อมูลก็บังคับให้ไม่ซ้ำอยู่แล้ว
+ * (UNIQUE KEY match_id, round_no, team_side)
+ */
+const kickSlot = (k: Kick): string => `${k.round}:${k.teamId}`;
+const eventSlot = (e: MatchEvent): string => `${e.minute}:${e.type}:${e.teamId}:${e.player}`;
+
+const teamNameOf = (t: Team | string | undefined): string =>
+  typeof t === 'string' ? t : (t?.name ?? 'ไม่ระบุ');
+
+/** ทีมจาก id ก่อน แล้วค่อยถอยไปเทียบชื่อ — นัดเก่าบางนัดไม่มี team id ผูกไว้ */
+const findTeam = (id: string | undefined, name: string, teams: Team[]): Team | null =>
+  (id ? teams.find(t => t.id === id) : undefined) ?? teams.find(t => t.name === name) ?? null;
+
+const ageOf = (birthDate?: string): number | null => {
+  // มาจาก API เป็น dd/mm/yyyy — Date() อ่านรูปแบบนี้ผิดถ้าโยนเข้าไปตรง ๆ
+  if (!birthDate) return null;
+  const m = birthDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const born = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const monthDiff = now.getMonth() - born.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < born.getDate())) age--;
+  return age >= 0 && age < 100 ? age : null;
+};
+
+/** "ชนะ 3 นัดรวด" / "ไม่ชนะ 4 นัดติด" — ประโยคที่ผู้พากย์หยิบไปใช้ได้ทันที */
+const streakPhrase = (form: ('win' | 'loss' | 'draw')[]): string | null => {
+  if (form.length < 2) return null;
+  const first = form[0];
+  let n = 1;
+  while (n < form.length && form[n] === first) n++;
+  if (n < 2) {
+    // ไม่ชนะติดต่อกัน นับรวมทั้งแพ้และเสมอ — มีความหมายกว่าการแยกนับ
+    let dry = 0;
+    while (dry < form.length && form[dry] !== 'win') dry++;
+    return dry >= 2 ? `ยังไม่ชนะใครใน ${dry} นัดหลังสุด` : null;
+  }
+  return first === 'win' ? `ชนะ ${n} นัดรวด`
+       : first === 'loss' ? `แพ้ ${n} นัดติด`
+       : `เสมอ ${n} นัดติด`;
+};
+
+type Point = { key: string; text: string; tone: 'hot' | 'stat' | 'neutral' };
+
+/**
+ * ประโยคพร้อมพูด สร้างจากข้อมูลจริงล้วน ไม่มีการเดา
+ *
+ * ทำไมต้อง generate ให้: ผู้พากย์ในงานโรงเรียนส่วนใหญ่เป็นครูหรือนักเรียนที่
+ * ไม่ได้เตรียมบทมาก่อน ตัวเลขดิบอย่าง "ชนะ 3 แพ้ 1" ต้องแปลงเป็นประโยคในหัว
+ * ระหว่างที่เกมกำลังดำเนินอยู่ ซึ่งเป็นตอนที่ไม่มีสมาธิเหลือให้ทำแบบนั้น
+ */
+const buildPoints = (
+  m: Match, teamA: Team | null, teamB: Team | null,
+  nameA: string, nameB: string,
+  allMatches: Match[], allTeams: Team[], players: Player[],
+  tournamentId: string | undefined,
+): Point[] => {
+  const points: Point[] = [];
+  const kicks = m.kicks ?? [];
+
+  // ── รอบที่แข่ง ────────────────────────────────────────────────────────
+  const round = (m.roundLabel ?? '').toLowerCase();
+  if (round.includes('final') || m.roundLabel?.includes('ชิงชนะเลิศ')) {
+    points.push({ key: 'final', tone: 'hot', text: 'นัดชิงชนะเลิศ — ผู้ชนะคู่นี้คือแชมป์ของรายการ' });
+  }
+
+  // ── สถิติการเจอกัน ────────────────────────────────────────────────────
+  const h2h = headToHead(teamA?.id, teamB?.id, allMatches, allTeams, m.id);
+  if (h2h.played === 0) {
+    points.push({ key: 'h2h', tone: 'neutral',
+      text: `${nameA} กับ ${nameB} ยังไม่เคยเจอกันมาก่อน นี่คือนัดแรกของสองโรงเรียนนี้` });
+  } else {
+    const lead = h2h.wins > h2h.losses ? nameA : h2h.losses > h2h.wins ? nameB : null;
+    points.push({ key: 'h2h', tone: 'stat',
+      text: `เจอกันมาแล้ว ${h2h.played} นัด — ${nameA} ชนะ ${h2h.wins}, ${nameB} ชนะ ${h2h.losses}`
+        + (h2h.draws > 0 ? `, เสมอ ${h2h.draws}` : '')
+        + (lead ? ` · ${lead} ได้เปรียบสถิติ` : ' · สูสีกันมาตลอด') });
+  }
+
+  // ── ฟอร์มล่าสุด ───────────────────────────────────────────────────────
+  for (const [team, name] of [[teamA, nameA], [teamB, nameB]] as const) {
+    const phrase = streakPhrase(recentForm(team?.id, allMatches, allTeams, 5, m.id));
+    if (phrase) points.push({ key: `form-${name}`, tone: 'stat', text: `${name} ${phrase}` });
+  }
+
+  // ── สถิติจุดโทษของนัดนี้ ──────────────────────────────────────────────
+  for (const side of ['A', 'B'] as const) {
+    const own = kicks.filter(k => k.teamId === side);
+    if (own.length === 0) continue;
+    const goals = own.filter(k => k.result === 'GOAL').length;
+    const name = side === 'A' ? nameA : nameB;
+    points.push({ key: `conv-${side}`, tone: 'stat',
+      text: `${name} ยิงจุดโทษเข้า ${goals} จาก ${own.length} ลูกในนัดนี้`
+        + ` (${Math.round((goals / own.length) * 100)}%)` });
+  }
+
+  // ── ผู้รักษาประตูที่กำลังเป็นพระเอก ────────────────────────────────────
+  for (const side of ['A', 'B'] as const) {
+    // ลูกที่ถูกเซฟของฝ่ายตรงข้าม = ผลงานของผู้รักษาประตูฝั่งนี้
+    const saves = kicks.filter(k => k.teamId !== side && k.result === 'SAVED').length;
+    if (saves >= 2) {
+      const name = side === 'A' ? nameA : nameB;
+      const gk = players.find(p =>
+        p.teamId === (side === 'A' ? teamA?.id : teamB?.id) && p.position === 'GK');
+      points.push({ key: `gk-${side}`, tone: 'hot',
+        text: `ผู้รักษาประตูของ ${name}${gk ? ` (${gk.name})` : ''} เซฟไปแล้ว ${saves} ลูกในนัดนี้` });
+    }
+  }
+
+  // ── ยิงทีละคู่ตัดสิน ──────────────────────────────────────────────────
+  const maxRound = kicks.reduce((n, k) => Math.max(n, k.round), 0);
+  if (maxRound > 5) {
+    points.push({ key: 'sudden', tone: 'hot',
+      text: `ครบ 5 คนแล้วยังไม่รู้ผล เข้าสู่ช่วงยิงทีละคู่ตัดสิน (รอบที่ ${maxRound})` });
+  }
+
+  // ── ดาวยิงของแต่ละทีมในรายการนี้ ──────────────────────────────────────
+  const scoped = allMatches.filter(x =>
+    tournamentId ? x.tournamentId === tournamentId : true);
+  for (const [team, name] of [[teamA, nameA], [teamB, nameB]] as const) {
+    if (!team) continue;
+    const tally = new Map<string, number>();
+    for (const x of scoped) {
+      if (x.id === m.id) continue;
+      const side = x.teamAId === team.id ? 'A' : x.teamBId === team.id ? 'B' : null;
+      if (!side) continue;
+      for (const k of x.kicks ?? []) {
+        if (k.teamId === side && k.result === 'GOAL' && k.player) {
+          tally.set(k.player, (tally.get(k.player) ?? 0) + 1);
+        }
+      }
+      for (const e of x.events ?? []) {
+        if (e.teamId === side && e.type === 'GOAL' && e.player) {
+          tally.set(e.player, (tally.get(e.player) ?? 0) + 1);
+        }
+      }
+    }
+    const top = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] >= 2) {
+      points.push({ key: `scorer-${team.id}`, tone: 'stat',
+        text: `ดาวยิงของ ${name} ในรายการนี้คือ ${top[0]} ทำไปแล้ว ${top[1]} ประตู` });
+    }
+  }
+
+  // ── ขนาดและอายุของทีม ─────────────────────────────────────────────────
+  for (const [team, name] of [[teamA, nameA], [teamB, nameB]] as const) {
+    if (!team) continue;
+    const roster = players.filter(p => p.teamId === team.id);
+    if (roster.length === 0) continue;
+    const ages = roster.map(p => ageOf(p.birthDate)).filter((a): a is number => a !== null);
+    const avg = ages.length > 0
+      ? ` อายุเฉลี่ย ${(ages.reduce((s, a) => s + a, 0) / ages.length).toFixed(1)} ปี` : '';
+    points.push({ key: `roster-${team.id}`, tone: 'neutral',
+      text: `${name} ส่งนักกีฬาลงทะเบียน ${roster.length} คน${avg}` });
+  }
+
+  return points;
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * "อัปเดตเมื่อ x วินาทีที่แล้ว"
+ *
+ * แยกเป็นคอมโพเนนต์ของตัวเองเพราะต้องเดินทุกวินาที ถ้าให้ตัวจับเวลาอยู่ในหน้าหลัก
+ * ทั้งหน้าจะ re-render วินาทีละครั้งตลอดเวลาที่เปิดค้างไว้
+ */
+const Freshness: React.FC<{ at: number | null; stale: boolean }> = ({ at, stale }) => {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (at === null) return <span className="text-slate-500">กำลังเชื่อมต่อ…</span>;
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+  return (
+    <span className={stale ? 'text-amber-400' : 'text-slate-400'}>
+      อัปเดตเมื่อ {secs < 60 ? `${secs} วินาที` : `${Math.floor(secs / 60)} นาที`}ที่แล้ว
+    </span>
+  );
+};
+
+const Panel: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode }> =
+  ({ title, icon, children }) => (
+    <section className="rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
+      <h2 className="px-4 py-2.5 text-xs font-black text-slate-300 flex items-center gap-2
+                     border-b border-white/10 bg-white/[0.03]">
+        {icon} {title}
+      </h2>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+
+// ─────────────────────────────────────────────────────────────────────────
+
+const CommentaryDesk: React.FC<Props> = ({
+  tournamentId, tournamentName, teams, players, allMatches, allTeams, config, onBack,
+}) => {
+  const { matches, updatedAt, error, fallback, loading, refresh } = useLiveBoard(tournamentId);
+
+  const [pickedId, setPickedId] = useState<string | null>(null);
+
+  /**
+   * นัดที่กำลังพากย์
+   *
+   * ยึดที่ผู้ใช้เลือกไว้ก่อนเสมอ ถ้ายังไม่ได้เลือกค่อยหยิบนัดแรกที่กำลังแข่ง
+   * ห้ามสลับให้เองเมื่อกระดานเปลี่ยน — ผู้พากย์กำลังพูดถึงคู่นี้อยู่
+   */
+  const match = useMemo(() => {
+    if (matches.length === 0) return null;
+    return matches.find(m => m.id === pickedId)
+      ?? matches.find(m => m.status === 'Live')
+      ?? matches[0];
+  }, [matches, pickedId]);
+
+  const nameA = teamNameOf(match?.teamA);
+  const nameB = teamNameOf(match?.teamB);
+  const teamA = useMemo(
+    () => (match ? findTeam(match.teamAId, nameA, teams) : null), [match, nameA, teams]);
+  const teamB = useMemo(
+    () => (match ? findTeam(match.teamBId, nameB, teams) : null), [match, nameB, teams]);
+
+  // ── ลูกยิงเรียงตามลำดับที่ยิงจริง ────────────────────────────────────
+  //
+  // เรียงตามรอบและฝั่ง ไม่ใช่ timestamp — server เขียนลูกทั้งนัดใหม่ทุกครั้ง
+  // ที่กดบันทึก kicked_at ของทุกลูกจึงเท่ากันหมด เรียงตามเวลาแล้วลำดับจะมั่ว
+  const kicks = useMemo(() => {
+    const list = [...(match?.kicks ?? [])];
+    list.sort((a, b) => (b.round - a.round) || (a.teamId === 'A' ? 1 : -1));
+    return list;
+  }, [match]);
+
+  const events = useMemo(
+    () => [...(match?.events ?? [])].sort((a, b) => b.minute - a.minute), [match]);
+
+  // ── ไฮไลต์สิ่งที่เพิ่งเข้ามา ──────────────────────────────────────────
+  const seenRef = useRef<{ id: string; slots: Set<string> } | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!match) return;
+    const slots = new Set([
+      ...kicks.map(kickSlot), ...events.map(eventSlot),
+    ]);
+
+    // เพิ่งเปิดหน้า หรือเพิ่งสลับนัด — ของที่มีอยู่แล้วไม่ใช่ "ของใหม่"
+    if (seenRef.current?.id !== match.id) {
+      seenRef.current = { id: match.id, slots };
+      setFresh(new Set());
+      return;
+    }
+
+    const added = [...slots].filter(s => !seenRef.current!.slots.has(s));
+    seenRef.current = { id: match.id, slots };
+    if (added.length === 0) return;
+
+    setFresh(new Set(added));
+    const timer = setTimeout(() => setFresh(new Set()), 8000);
+    return () => clearTimeout(timer);
+  }, [match, kicks, events]);
+
+  // ── โน้ตของผู้พากย์ ───────────────────────────────────────────────────
+  //
+  // เก็บในเครื่อง ไม่ส่งขึ้น server โดยตั้งใจ — เป็นคำอ่านชื่อและกันลืมส่วนตัว
+  // ไม่ใช่ข้อมูลของรายการแข่งขัน และผู้พากย์มักไม่มีบัญชีในระบบอยู่แล้ว
+  const noteKey = match ? `penalty_pro_desk_note_${match.id}` : '';
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    setNote(noteKey ? (localStorage.getItem(noteKey) ?? '') : '');
+  }, [noteKey]);
+  const saveNote = useCallback((v: string) => {
+    setNote(v);
+    if (noteKey) localStorage.setItem(noteKey, v);
+  }, [noteKey]);
+
+  const points = useMemo(
+    () => (match ? buildPoints(match, teamA, teamB, nameA, nameB,
+      allMatches, allTeams, players, tournamentId) : []),
+    [match, teamA, teamB, nameA, nameB, allMatches, allTeams, players, tournamentId]);
+
+  const rosterA = useMemo(
+    () => players.filter(p => p.teamId === teamA?.id), [players, teamA]);
+  const rosterB = useMemo(
+    () => players.filter(p => p.teamId === teamB?.id), [players, teamB]);
+
+  const stale = updatedAt !== null && Date.now() - updatedAt > 30_000;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white pb-10">
+      {/* ── แถบบน ───────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur border-b border-white/10">
+        <div className="max-w-[1600px] mx-auto px-3 py-2.5 flex items-center gap-3">
+          <button onClick={onBack} aria-label="กลับ"
+            className="p-2 -ml-2 rounded-lg hover:bg-white/10 shrink-0">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="font-black leading-tight flex items-center gap-2">
+              <Mic className="w-4 h-4 text-indigo-400 shrink-0" /> โต๊ะพากย์
+            </p>
+            <p className="text-[11px] truncate">
+              <span className="text-slate-400">{tournamentName || config.competitionName}</span>
+              <span className="mx-1.5 text-slate-600">·</span>
+              <Freshness at={updatedAt} stale={stale} />
+            </p>
+          </div>
+          <button onClick={refresh} aria-label="ดึงข้อมูลใหม่"
+            className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold
+                       flex items-center gap-1.5 shrink-0">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">รีเฟรช</span>
+          </button>
+        </div>
+
+        {/* เลือกนัด — วันแข่งมีหลายสนามพร้อมกัน */}
+        {matches.length > 1 && (
+          <div className="max-w-[1600px] mx-auto px-3 pb-2 flex gap-2 overflow-x-auto">
+            {matches.map(m => {
+              const on = m.id === match?.id;
+              return (
+                <button key={m.id} onClick={() => setPickedId(m.id)}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold border transition
+                    ${on ? 'bg-indigo-600 border-indigo-500'
+                         : 'bg-white/[0.06] border-white/10 hover:border-white/30'}`}>
+                  {m.status === 'Live' && (
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5 align-middle" />
+                  )}
+                  {teamNameOf(m.teamA)} พบ {teamNameOf(m.teamB)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </header>
+
+      {error && (
+        <div className="max-w-[1600px] mx-auto px-3 pt-3">
+          <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5
+                        text-sm text-amber-200 flex items-center gap-2">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            ดึงข้อมูลไม่สำเร็จ กำลังลองใหม่ให้เอง — ตัวเลขที่เห็นอาจไม่ใช่ล่าสุด
+          </p>
+        </div>
+      )}
+
+      {fallback && (
+        <div className="max-w-[1600px] mx-auto px-3 pt-3">
+          <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5
+                        text-sm text-slate-300 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+            ตอนนี้ไม่มีนัดที่ระบบถือว่ากำลังแข่ง กำลังแสดงนัดล่าสุดแทน —
+            ถ้ากำลังแข่งอยู่จริง ให้กรรมการกดเริ่มการแข่งขันในหน้าบันทึกผล
+          </p>
+        </div>
+      )}
+
+      {match === null ? (
+        <div className="max-w-md mx-auto mt-16 px-4 text-center">
+          <Radio className="w-10 h-10 text-slate-700 mx-auto mb-3" />
+          <p className="font-black">ยังไม่มีนัดให้พากย์</p>
+          <p className="text-sm text-slate-400 mt-1.5">
+            เมื่อกรรมการเริ่มบันทึกผลนัดไหน นัดนั้นจะขึ้นที่นี่เองภายในไม่กี่วินาที
+          </p>
+        </div>
+      ) : (
+        <div className="max-w-[1600px] mx-auto px-3 py-4 grid gap-4 lg:grid-cols-12">
+
+          {/* ══ ซ้าย — สกอร์และไทม์ไลน์ ══════════════════════════════ */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <span className={`px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5
+                  ${match.status === 'Live' ? 'bg-rose-600' : 'bg-slate-700'}`}>
+                  {match.status === 'Live' && (
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                    </span>
+                  )}
+                  {match.status === 'Live' ? 'กำลังแข่ง'
+                    : match.status === 'Scheduled' ? 'ยังไม่เริ่ม' : 'จบแล้ว'}
+                </span>
+                {match.roundLabel && (
+                  <span className="text-xs font-bold text-slate-300 truncate">{match.roundLabel}</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                {[{ name: nameA, logo: match.teamALogo, score: match.scoreA, win: match.winner === 'A' },
+                  { name: nameB, logo: match.teamBLogo, score: match.scoreB, win: match.winner === 'B' }]
+                  .map((s, i) => (
+                    <React.Fragment key={i}>
+                      {i === 1 && <span className="text-slate-600 font-black shrink-0">–</span>}
+                      <div className="flex-1 min-w-0 text-center">
+                        {s.logo
+                          ? <img src={s.logo} alt="" className="w-10 h-10 mx-auto object-contain rounded bg-white/10" />
+                          : <div className="w-10 h-10 mx-auto rounded bg-white/10" />}
+                        <p className={`text-5xl font-black tabular-nums mt-1.5
+                          ${s.win ? 'text-emerald-400' : ''}`}>{s.score}</p>
+                        <p className="text-xs font-bold mt-1 leading-snug break-words">{s.name}</p>
+                      </div>
+                    </React.Fragment>
+                  ))}
+              </div>
+
+              <p className="text-[11px] text-slate-400 mt-3 flex items-center gap-3 flex-wrap justify-center">
+                {match.venue && (
+                  <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{match.venue}</span>
+                )}
+                {match.scheduledTime && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {new Date(match.scheduledTime).toLocaleTimeString('th-TH',
+                      { hour: '2-digit', minute: '2-digit' })} น.
+                  </span>
+                )}
+              </p>
+            </div>
+
+            {kicks.length > 0 && (
+              <Panel title={`ลูกจุดโทษ (${kicks.length} ลูก)`} icon={<Target className="w-4 h-4" />}>
+                <div className="space-y-1.5 max-h-[26rem] overflow-y-auto">
+                  {kicks.map(k => {
+                    const ui = RESULT_UI[k.result as string] ?? RESULT_UI.MISSED;
+                    const isNew = fresh.has(kickSlot(k));
+                    return (
+                      <div key={kickSlot(k)}
+                        className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 transition
+                          ${isNew ? 'border-amber-400 bg-amber-400/15 animate-pulse'
+                                  : 'border-white/10 bg-white/[0.04]'}`}>
+                        <span className="w-6 h-6 rounded-lg bg-white/10 text-[11px] font-black shrink-0
+                                         flex items-center justify-center tabular-nums">{k.round}</span>
+                        <span className="text-xs font-bold shrink-0 w-16 truncate text-slate-400">
+                          {k.teamId === 'A' ? nameA : nameB}
+                        </span>
+                        <span className="text-sm font-bold flex-1 min-w-0 truncate">
+                          {k.player || <span className="text-slate-500">ไม่ระบุชื่อ</span>}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-black shrink-0
+                                          flex items-center gap-1 text-white ${ui.cls}`}>
+                          {ui.icon} {ui.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Panel>
+            )}
+
+            {events.length > 0 && (
+              <Panel title={`เหตุการณ์ในเกม (${events.length})`} icon={<Flame className="w-4 h-4" />}>
+                <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                  {events.map(e => {
+                    const ui = EVENT_UI[e.type] ?? { label: e.type, cls: 'bg-slate-600' };
+                    const isNew = fresh.has(eventSlot(e));
+                    return (
+                      <div key={eventSlot(e)}
+                        className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 transition
+                          ${isNew ? 'border-amber-400 bg-amber-400/15 animate-pulse'
+                                  : 'border-white/10 bg-white/[0.04]'}`}>
+                        <span className="text-xs font-black tabular-nums w-8 shrink-0 text-slate-400">
+                          {e.minute}′
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-black shrink-0 text-white ${ui.cls}`}>
+                          {ui.label}
+                        </span>
+                        <span className="text-sm font-bold flex-1 min-w-0 truncate">{e.player}</span>
+                        <span className="text-[11px] text-slate-400 shrink-0 truncate max-w-[6rem]">
+                          {e.teamId === 'A' ? nameA : nameB}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Panel>
+            )}
+          </div>
+
+          {/* ══ กลาง — บทพูด ═══════════════════════════════════════ */}
+          <div className="lg:col-span-4 space-y-4">
+            <Panel title="ประเด็นพร้อมพูด" icon={<Mic className="w-4 h-4" />}>
+              {points.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  ยังไม่มีข้อมูลพอจะสรุปประเด็น — จะขึ้นเองเมื่อเริ่มบันทึกผล
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {points.map(p => (
+                    <li key={p.key}
+                      className={`rounded-xl border px-3 py-2.5 text-sm leading-relaxed
+                        ${p.tone === 'hot' ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                          : p.tone === 'stat' ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-50'
+                          : 'border-white/10 bg-white/[0.04] text-slate-200'}`}>
+                      {p.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+
+            <Panel title="โน้ตของผู้พากย์" icon={<NotebookPen className="w-4 h-4" />}>
+              <textarea value={note} onChange={e => saveNote(e.target.value)}
+                rows={7} placeholder="คำอ่านชื่อโรงเรียน ชื่อนักกีฬาที่อ่านยาก ข้อความขอบคุณผู้สนับสนุน…"
+                className="w-full rounded-xl bg-white/[0.06] border border-white/10 p-3
+                           text-sm outline-none focus:border-indigo-500 resize-y" />
+              <p className="text-[11px] text-slate-500 mt-2">
+                เก็บไว้ในเครื่องนี้เท่านั้น แยกตามนัด ไม่ส่งขึ้นระบบ
+              </p>
+            </Panel>
+          </div>
+
+          {/* ══ ขวา — รายชื่อสองทีม ═══════════════════════════════ */}
+          <div className="lg:col-span-4 space-y-4">
+            {[{ team: teamA, name: nameA, roster: rosterA },
+              { team: teamB, name: nameB, roster: rosterB }].map(({ team, name, roster }, i) => (
+              <Panel key={team?.id ?? i} title={name} icon={<Users className="w-4 h-4" />}>
+                {roster.length === 0 ? (
+                  <p className="text-sm text-slate-400">ทีมนี้ยังไม่ได้ส่งรายชื่อนักกีฬาเข้าระบบ</p>
+                ) : (
+                  <div className="space-y-1 max-h-72 overflow-y-auto">
+                    {[...roster]
+                      .sort((a, b) => (Number(a.number) || 999) - (Number(b.number) || 999))
+                      .map(p => {
+                        const age = ageOf(p.birthDate);
+                        return (
+                          <div key={p.id} className="flex items-center gap-2.5 px-1 py-1">
+                            <span className="w-8 text-center text-sm font-black tabular-nums
+                                             text-indigo-400 shrink-0">{p.number || '–'}</span>
+                            <span className="text-sm font-bold flex-1 min-w-0 truncate">{p.name}</span>
+                            <span className="text-[11px] text-slate-400 shrink-0">
+                              {POSITION_LABEL[p.position] ?? p.position}
+                              {age !== null && ` · ${age} ปี`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </Panel>
+            ))}
+
+            <Panel title="สถิติการเจอกัน" icon={<History className="w-4 h-4" />}>
+              <H2HSummary teamA={teamA} teamB={teamB} matches={allMatches}
+                teams={allTeams} currentMatchId={match.id} />
+            </Panel>
+
+            {matches.length > 1 && (
+              <Panel title="คู่อื่นในกระดาน" icon={<Trophy className="w-4 h-4" />}>
+                <div className="space-y-1.5">
+                  {matches.filter(m => m.id !== match.id).map(m => (
+                    <button key={m.id} onClick={() => setPickedId(m.id)}
+                      className="w-full flex items-center gap-2 rounded-xl border border-white/10
+                                 bg-white/[0.04] px-3 py-2 hover:border-white/30 transition text-left">
+                      <span className="text-sm font-bold flex-1 min-w-0 truncate">
+                        {teamNameOf(m.teamA)} พบ {teamNameOf(m.teamB)}
+                      </span>
+                      <span className="text-sm font-black tabular-nums shrink-0">
+                        {m.scoreA}–{m.scoreB}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </Panel>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** สรุปการเจอกันแบบย่อ — เวอร์ชันเต็มอยู่ในการ์ด HeadToHead ของหน้าตารางแข่ง */
+const H2HSummary: React.FC<{
+  teamA: Team | null; teamB: Team | null; matches: Match[];
+  teams: Team[]; currentMatchId: string;
+}> = ({ teamA, teamB, matches, teams, currentMatchId }) => {
+  const h2h = useMemo(
+    () => headToHead(teamA?.id, teamB?.id, matches, teams, currentMatchId),
+    [teamA?.id, teamB?.id, matches, teams, currentMatchId]);
+
+  if (h2h.played === 0) {
+    return <p className="text-sm text-slate-400">ยังไม่เคยเจอกัน — นี่คือนัดแรกของสองโรงเรียนนี้</p>;
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 text-center">
+          <p className="text-3xl font-black tabular-nums text-emerald-400">{h2h.wins}</p>
+          <p className="text-[11px] text-slate-400 truncate">{teamA?.name} ชนะ</p>
+        </div>
+        <div className="text-center shrink-0">
+          <p className="text-2xl font-black tabular-nums">{h2h.draws}</p>
+          <p className="text-[11px] text-slate-400">เสมอ</p>
+        </div>
+        <div className="flex-1 text-center">
+          <p className="text-3xl font-black tabular-nums text-rose-400">{h2h.losses}</p>
+          <p className="text-[11px] text-slate-400 truncate">{teamB?.name} ชนะ</p>
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-400 mt-3">
+        เจอกัน {h2h.played} นัด · ประตูรวม {h2h.goalsFor} – {h2h.goalsAgainst}
+      </p>
+      <div className="mt-3 pt-3 border-t border-white/10 space-y-1">
+        {h2h.recent.slice(0, 5).map(r => (
+          <div key={r.match.id} className="flex items-center gap-2 text-xs">
+            <span className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center shrink-0
+              ${r.outcome === 'win' ? 'bg-emerald-500' : r.outcome === 'loss' ? 'bg-rose-500' : 'bg-slate-500'}`}>
+              {r.outcome === 'win' ? 'ช' : r.outcome === 'loss' ? 'พ' : 'ส'}
+            </span>
+            <span className="font-black tabular-nums shrink-0">{r.goalsFor}–{r.goalsAgainst}</span>
+            <span className="truncate flex-1 min-w-0 text-slate-400">
+              {r.match.roundLabel || 'ไม่ระบุรอบ'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+};
+
+export default CommentaryDesk;

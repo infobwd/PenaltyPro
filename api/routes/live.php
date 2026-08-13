@@ -20,8 +20,194 @@ function handle(string $action, array $cfg): void
     match ($action) {
         'saveMatchResult' => save_match_result(),
         'saveMatchEvents' => save_match_events(),
+        'liveBoard'       => live_board(),
         default           => Response::fail("ไม่รองรับ action '$action'", 404),
     };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+/** อายุ cache ของกระดานผลสด — สั้นพอให้ผู้พากย์ทันเกม แต่ยังกันฐานข้อมูลได้ */
+const LIVE_BOARD_TTL = 5;
+
+/** จำนวนนัดสูงสุดบนกระดาน — วันแข่งมีถึง 57 นัด แต่ไม่มีใครพากย์พร้อมกันเกินนี้ */
+const LIVE_BOARD_LIMIT = 30;
+
+/**
+ * กระดานผลสด — สำหรับหน้าโต๊ะพากย์และจอสกอร์ที่ต้องอัปเดตเอง
+ *
+ * ทำไมไม่ใช้ getData: getData คืนทีม/นักกีฬา/ข่าว/บริจาคของทั้งระบบมาทั้งก้อน
+ * ซึ่งหนักเกินกว่าจะยิงซ้ำทุกไม่กี่วินาที ที่นี่คืนเฉพาะนัดที่ "กำลังเกิดขึ้น"
+ * พร้อมลูกจุดโทษและเหตุการณ์ในเกม — เล็กพอจะ poll ได้ตลอดวันแข่ง
+ *
+ * เปิดสาธารณะโดยตั้งใจ: สกอร์และรายชื่อผู้ทำประตูเป็นข้อมูลที่ getData ส่งให้
+ * ทุกคนอยู่แล้ว และผู้พากย์ในสนามมักเป็นครูหรือนักเรียนที่ไม่มีบัญชีในระบบ
+ *
+ * ⚠️ ห้ามใส่อะไรที่ getData ตัดออกสำหรับคนทั่วไป (เบอร์โทร ข้อมูลผู้บริจาค)
+ * ไม่งั้นจะกลายเป็นทางอ้อมให้ดึงข้อมูลที่ตั้งใจปิดไว้
+ */
+function live_board(): void
+{
+    $tournamentId = Input::str('tournamentId');
+
+    $cacheKey = Cache::key('liveBoard', ['tid' => $tournamentId]);
+    if (($hit = Cache::get($cacheKey, LIVE_BOARD_TTL)) !== null) {
+        Response::raw($hit);
+    }
+
+    $where  = [];
+    $params = [];
+    if ($tournamentId !== '') {
+        $where[] = 'm.tournament_id = :tid';
+        $params[':tid'] = $tournamentId;
+    }
+    $scope = $where === [] ? '' : ' AND ' . implode(' AND ', $where);
+
+    /**
+     * ช่วงเวลาที่ถือว่า "อยู่ในเกม"
+     *
+     *   Live                      — กำลังแข่ง
+     *   จบไปไม่เกิน 4 ชม.          — ผู้พากย์ยังต้องสรุปผลคู่ที่เพิ่งจบ
+     *   จะเริ่มใน 6 ชม. ข้างหน้า    — เตรียมบทก่อนคู่ถัดไป
+     */
+    $rows = Db::all(
+        "SELECT m.*, ta.name AS team_a_current, tb.name AS team_b_current,
+                ta.logo_url AS logo_a, tb.logo_url AS logo_b
+           FROM matches m
+           LEFT JOIN teams ta ON ta.team_id = m.team_a_id
+           LEFT JOIN teams tb ON tb.team_id = m.team_b_id
+          WHERE (m.status = 'Live'
+                 OR (m.status IN ('Finished','Walkover')
+                     AND m.played_at >= NOW() - INTERVAL 4 HOUR)
+                 OR (m.status = 'Scheduled'
+                     AND m.scheduled_time BETWEEN NOW() - INTERVAL 2 HOUR
+                                              AND NOW() + INTERVAL 6 HOUR))
+                $scope
+          ORDER BY m.status = 'Live' DESC,
+                   COALESCE(m.scheduled_time, m.played_at),
+                   m.match_id
+          LIMIT " . LIVE_BOARD_LIMIT,
+        $params
+    );
+
+    /**
+     * ไม่มีนัดในช่วงเวลาเลย — ถอยไปเอานัดล่าสุดที่มีผลมาแสดงแทน
+     *
+     * เคสจริงที่เจอบ่อย: กรรมการบันทึกสกอร์แต่ไม่เคยกดเปลี่ยนสถานะเป็น Live
+     * และตารางแข่งหลายรายการไม่ได้ใส่เวลานัดไว้เลย ถ้ายึดตามช่วงเวลาอย่างเดียว
+     * ผู้พากย์จะเปิดหน้ามาแล้วเจอจอว่างทั้งที่การแข่งขันดำเนินอยู่ตรงหน้า
+     */
+    $fallback = false;
+    if ($rows === []) {
+        $fallback = true;
+        $rows = Db::all(
+            "SELECT m.*, ta.name AS team_a_current, tb.name AS team_b_current,
+                    ta.logo_url AS logo_a, tb.logo_url AS logo_b
+               FROM matches m
+               LEFT JOIN teams ta ON ta.team_id = m.team_a_id
+               LEFT JOIN teams tb ON tb.team_id = m.team_b_id
+              WHERE 1 = 1 $scope
+              ORDER BY COALESCE(m.played_at, m.scheduled_time) IS NULL,
+                       COALESCE(m.played_at, m.scheduled_time) DESC
+              LIMIT 8",
+            $params
+        );
+    }
+
+    $matches = [];
+    if ($rows !== []) {
+        // ดึงลูกยิงและเหตุการณ์ของเฉพาะนัดบนกระดาน ไม่ใช่ทั้งตาราง
+        $ids = array_column($rows, 'match_id');
+        $in  = implode(',', array_map(
+            static fn(int $i): string => ":m$i", range(0, count($ids) - 1)));
+        $idParams = [];
+        foreach ($ids as $i => $id) {
+            $idParams[":m$i"] = $id;
+        }
+
+        $kicks  = live_group_by(Db::all(
+            "SELECT * FROM kicks WHERE match_id IN ($in)
+              ORDER BY match_id, round_no, team_side", $idParams), 'match_id');
+        $events = live_group_by(Db::all(
+            "SELECT * FROM match_events WHERE match_id IN ($in)
+              ORDER BY match_id, minute_no, created_at", $idParams), 'match_id');
+
+        foreach ($rows as $m) {
+            $mid = (string) $m['match_id'];
+            $matches[] = [
+                'id'      => $mid,
+                'teamA'   => $m['team_a_current'] ?? $m['team_a_name'],
+                'teamB'   => $m['team_b_current'] ?? $m['team_b_name'],
+                'teamAId' => $m['team_a_id'],
+                'teamBId' => $m['team_b_id'],
+                'teamALogo' => drive_img($m['logo_a']),
+                'teamBLogo' => drive_img($m['logo_b']),
+                'scoreA'  => (int) $m['score_a'],
+                'scoreB'  => (int) $m['score_b'],
+                'winner'  => $m['winner'],
+                'status'  => $m['status'],
+                'roundLabel'    => $m['round_label'],
+                'venue'         => $m['venue'],
+                'date'          => iso($m['played_at']),
+                'scheduledTime' => iso($m['scheduled_time']),
+                'livestreamUrl' => $m['livestream_url'],
+                'summary'       => (string) $m['summary'],
+                'tournamentId'  => $m['tournament_id'],
+                'rowVersion'    => (int) $m['row_version'],
+                'kicks' => array_map(static fn(array $k): array => [
+                    'id'      => (string) $k['kick_id'],
+                    'matchId' => $k['match_id'],
+                    'round'   => (int) $k['round_no'],
+                    'teamId'  => $k['team_side'],
+                    'player'  => $k['player_name'],
+                    'result'  => $k['result'],
+                    'commentary' => (string) $k['commentary'],
+                    'timestamp'  => strtotime((string) $k['kicked_at']) * 1000,
+                ], $kicks[$mid] ?? []),
+                'events' => array_map(static fn(array $e): array => [
+                    'id'      => (string) $e['event_id'],
+                    'matchId' => $e['match_id'],
+                    'minute'  => (int) $e['minute_no'],
+                    'type'    => $e['event_type'],
+                    'teamId'  => $e['team_side'],
+                    'player'  => $e['player_name'],
+                    'relatedPlayer' => $e['related_player'],
+                    'timestamp'     => strtotime((string) $e['created_at']) * 1000,
+                ], $events[$mid] ?? []),
+            ];
+        }
+    }
+
+    /**
+     * ลายเซ็นของกระดานทั้งใบ
+     *
+     * row_version อย่างเดียวใช้ไม่ได้ — saveMatchEvents เขียนแค่ตาราง match_events
+     * ไม่ได้แตะ matches เลย ประตูที่เพิ่งบันทึกจึงไม่ทำให้เลขเวอร์ชันขยับ
+     * แฮชจากเนื้อจริงเลยเป็นทางเดียวที่ตอบว่า "มีอะไรเปลี่ยนไหม" ได้ถูกเสมอ
+     */
+    $out = [
+        'status'     => 'success',
+        'matches'    => $matches,
+        'version'    => substr(sha1(json_encode($matches, JSON_UNESCAPED_UNICODE) ?: ''), 0, 12),
+        'serverTime' => date('c'),
+        // บอกฝั่งเว็บว่ากำลังแสดงของสำรอง จะได้ขึ้นป้ายว่านี่ไม่ใช่นัดที่กำลังแข่ง
+        'fallback'   => $fallback,
+    ];
+
+    if (!Response::hasWarnings()) {
+        Cache::put($cacheKey, $out);
+    }
+    Response::raw($out);
+}
+
+/** @return array<string,array<int,array>> */
+function live_group_by(array $rows, string $key): array
+{
+    $out = [];
+    foreach ($rows as $r) {
+        $out[(string) $r[$key]][] = $r;
+    }
+    return $out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

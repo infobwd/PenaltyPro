@@ -134,7 +134,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newsSearch, setNewsSearch] = useState('');
   const [donationSearch, setDonationSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'staff' | 'user'>('all');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'staff' | 'referee' | 'user'>('all');
   const [userSchoolFilter, setUserSchoolFilter] = useState<'all' | 'verified' | 'self' | 'none'>('all');
   const [userPage, setUserPage] = useState(1);
 
@@ -954,16 +954,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const removePlayer = (index: number) => { if (!editForm) return; const updatedPlayers = (editForm.players as Player[]).filter((_, i) => i !== index); setEditForm({ ...editForm, players: updatedPlayers }); };
 
   const handleSaveTeamChanges = async (updatedTeam: Team, updatedPlayers: Player[]) => {
+      // เก็บไฟล์ที่เลือกไว้ก่อนปิดโมดัล — setEditForm(null) ทำให้อ้างถึงไม่ได้แล้ว
+      const pendingLogo = editForm?.newLogo ?? null;
+      const pendingDoc  = editForm?.newDoc ?? null;
+      const pendingSlip = editForm?.newSlip ?? null;
+
       // Close modal immediately to show the skeleton on main page
-      setIsEditingTeam(false); 
-      setEditForm(null); 
+      setIsEditingTeam(false);
+      setEditForm(null);
       setSelectedTeam(null); // Deselect team
 
       // updateTeamData ส่ง status/group/schoolId ไปด้วยแล้วในคำสั่งเดียว
       // ถ้าเรียก updateTeamStatus ซ้ำอีกรอบ กรณี "ปฏิเสธ" จะไปเข้า reviewTeam
       // ที่บังคับต้องมีเหตุผล แล้วขึ้น error ทั้งที่บันทึกสำเร็จไปแล้ว
       executeWithReload(async () => {
-          await updateTeamData(updatedTeam, updatedPlayers);
+          /**
+           * อัปไฟล์ก่อน แล้วค่อยส่ง URL ไปกับข้อมูลทีม
+           *
+           * ของเดิมเก็บ File ไว้ใน editForm แล้วโชว์ preview จาก blob URL
+           * แต่ไม่เคยอัปขึ้น server และ updateTeamData ก็ไม่ได้ส่ง logoUrl ไปเลย
+           * แอดมินจึงเห็นรูปเปลี่ยนบนจอ กดบันทึกขึ้นว่าสำเร็จ แล้วโลโก้เหมือนเดิม
+           */
+          const files: { logoUrl?: string; docUrl?: string; slipUrl?: string } = {};
+          if (pendingLogo) files.logoUrl = await uploadFile(pendingLogo, 'logo');
+          if (pendingDoc)  files.docUrl  = await uploadFile(pendingDoc, 'doc');
+          if (pendingSlip) files.slipUrl = await uploadFile(pendingSlip, 'slip');
+
+          await updateTeamData(updatedTeam, updatedPlayers, files);
       }, "อัปเดตข้อมูลและรีโหลดเรียบร้อย", "กำลังอัปเดตข้อมูลทีม...");
   };
   
@@ -1042,7 +1059,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   
   const filteredTeams = sortedTeams.filter(t => {
       const matchSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.province?.toLowerCase().includes(searchTerm.toLowerCase()) || t.district?.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchStatus = filterStatus === 'All' || t.status === filterStatus;
+      // 'Pending' คือกลุ่ม ไม่ใช่สถานะเดียว — ตรงกับการ์ด "รอการอนุมัติ"
+      // ที่นับทุกทีมที่ยังไม่ถูกตัดสิน (ยังไม่อนุมัติ และยังไม่ถูกตีกลับ)
+      const matchStatus = filterStatus === 'All'
+        || (filterStatus === 'Pending'
+              ? (t.status !== 'Approved' && t.status !== 'Rejected' && t.status !== 'Withdrawn')
+              : t.status === filterStatus);
       return matchSearch && matchStatus;
   });
 
@@ -1710,9 +1732,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div>
                           <label className="block text-sm font-bold text-slate-700 mb-1">สิทธิ์ (Role)</label>
                           <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className="w-full p-2 border rounded-lg bg-white">
-                              <option value="user">User</option>
-                              <option value="staff">Staff</option>
-                              <option value="admin">Admin</option>
+                              <option value="user">ผู้ใช้ทั่วไป</option>
+                              <option value="referee">กรรมการบันทึกผล</option>
+                              <option value="staff">เจ้าหน้าที่</option>
+                              <option value="admin">ผู้ดูแลระบบ</option>
                           </select>
                       </div>
                       <div>
@@ -2018,7 +2041,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* --- TEAMS TAB --- */}
         {activeTab === 'teams' && (
             <div className="animate-in fade-in duration-300">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"><div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><div className="flex items-center justify-between"><div><p className="text-slate-500 text-sm">ทีมทั้งหมด</p><p className="text-3xl font-bold text-indigo-600">{localTeams.length}</p></div><div className="p-3 bg-indigo-50 rounded-full"><Users className="w-6 h-6 text-indigo-600" /></div></div></div><div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><div className="flex items-center justify-between"><div><p className="text-slate-500 text-sm">รอการอนุมัติ</p><p className="text-3xl font-bold text-orange-500">{localTeams.filter(t => t.status !== 'Approved' && t.status !== 'Rejected').length}</p></div><div className="p-3 bg-orange-50 rounded-full"><ShieldAlert className="w-6 h-6 text-orange-500" /></div></div></div><div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"><div className="flex items-center justify-between"><div><p className="text-slate-500 text-sm">อนุมัติแล้ว</p><p className="text-3xl font-bold text-green-600">{localTeams.filter(t => t.status === 'Approved').length}</p></div><div className="p-3 bg-green-50 rounded-full"><ShieldCheck className="w-6 h-6 text-green-600" /></div></div></div></div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
+                    {/* กดการ์ดเพื่อกรอง — เร็วกว่าไปหา dropdown แล้วเลือกเอง
+                        กดซ้ำที่การ์ดเดิมเพื่อกลับไปดูทั้งหมด */}
+                    {([
+                      { key: 'All',      label: 'ทีมทั้งหมด',    count: localTeams.length,
+                        color: 'text-indigo-600', bg: 'bg-indigo-50', icon: <Users className="w-6 h-6 text-indigo-600" /> },
+                      { key: 'Pending',  label: 'รอการอนุมัติ',  // ทีมที่แจ้งไม่เข้าร่วมแล้วไม่ได้ "รออนุมัติ" — เขาตอบไปแล้วว่าไม่มา
+                        // เดิมนับรวมไว้ ทำให้ตัวเลขบนการ์ดสูงกว่างานที่ต้องทำจริง
+                        count: localTeams.filter(t => t.status !== 'Approved' && t.status !== 'Rejected' && t.status !== 'Withdrawn').length,
+                        color: 'text-orange-500', bg: 'bg-orange-50', icon: <ShieldAlert className="w-6 h-6 text-orange-500" /> },
+                      { key: 'Approved', label: 'อนุมัติแล้ว',   count: localTeams.filter(t => t.status === 'Approved').length,
+                        color: 'text-green-600', bg: 'bg-green-50', icon: <ShieldCheck className="w-6 h-6 text-green-600" /> },
+                    ]).map(c => {
+                      const active = filterStatus === c.key;
+                      return (
+                        <button key={c.key} type="button"
+                          onClick={() => setFilterStatus(active && c.key !== 'All' ? 'All' : c.key)}
+                          aria-pressed={active}
+                          className={`bg-white p-5 md:p-6 rounded-xl shadow-sm border text-left transition
+                            ${active ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-slate-200 hover:border-indigo-300'}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-slate-500 text-sm">{c.label}</p>
+                              <p className={`text-3xl font-bold ${c.color} tabular-nums`}>{c.count}</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                {active && c.key !== 'All' ? 'แตะอีกครั้งเพื่อดูทั้งหมด' : 'แตะเพื่อกรองเฉพาะกลุ่มนี้'}
+                              </p>
+                            </div>
+                            <div className={`p-3 ${c.bg} rounded-full shrink-0`}>{c.icon}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
                 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     {/* Tool Bar */}
@@ -2031,6 +2087,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <div className="flex gap-2 w-full md:w-auto items-center">
                             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
                                 <option value="All">สถานะ: ทั้งหมด</option>
+                                <option value="Pending">รอการอนุมัติ (ทุกขั้น)</option>
                                 <option value="Invited">รอโรงเรียนยืนยัน</option>
                                 <option value="Draft">โรงเรียนกำลังกรอก</option>
                                 <option value="Submitted">รออนุมัติ</option>
@@ -2760,6 +2817,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 { v: 'all',   t: 'ทุกบทบาท' },
                                 { v: 'admin', t: 'ผู้ดูแล' },
                                 { v: 'staff', t: 'เจ้าหน้าที่' },
+                                { v: 'referee', t: 'กรรมการ' },
                                 { v: 'user',  t: 'ผู้ใช้ทั่วไป' },
                             ] as const).map(o => (
                                 <button key={o.v} onClick={() => setUserRoleFilter(o.v)}
@@ -2812,7 +2870,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                             <p className="font-bold text-slate-800 break-words">{user.displayName}</p>
                                             <p className="text-xs text-slate-400 break-all">{user.username || user.lineUserId}</p>
                                             <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span>
+                                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : user.role === 'referee' ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span>
                                                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-500">{user.type === 'line' ? 'LINE' : 'รหัสผ่าน'}</span>
                                                 {user.schoolName ? (
                                                     user.schoolVerified
@@ -2865,7 +2923,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span></td>
+                                            <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : user.role === 'referee' ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span></td>
                                             <td className="p-4 text-xs">
                                                 {user.schoolName ? (
                                                     <div className="flex flex-col gap-0.5">

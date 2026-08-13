@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Match, Team, Player, AppSettings, KickResult, Prediction, UserProfile, Tournament } from '../types';
 import { ArrowLeft, Calendar, MapPin, Clock, Trophy, Plus, X, Save, Loader2, Search, ChevronDown, Check, Share2, Edit2, Trash2, AlertTriangle, User, ListPlus, PlusCircle, Users, ArrowRight, PlayCircle, ClipboardCheck, RotateCcw, Flag, Film, Video, Image, Youtube, Facebook, BarChart2, ImageIcon, Download, Camera, Filter, Sparkles, MessageSquare, Cpu, FileText, PenTool, LayoutTemplate, BrainCircuit } from 'lucide-react';
 import { scheduleMatch, deleteMatch, saveMatchToSheet, fileToBase64, submitPrediction } from '../services/sheetService';
+import HeadToHead from './HeadToHead';
 import { generateMatchSummary, generateLocalSummary } from '../services/geminiService';
 import { shareMatch } from '../services/liffService';
 import PredictionModal from './PredictionModal';
@@ -27,6 +28,14 @@ interface ScheduleListProps {
   tournament?: Tournament | null;
   /** เปิดหน้าสูจิบัตร (หน้าแยก ไม่ใช่ป๊อปอัป) */
   onOpenProgramme?: () => void;
+  /**
+   * ทุกนัดทุกรายการ — ใช้เฉพาะสถิติการเจอกัน
+   *
+   * แยกจาก matches ที่กรองมาเฉพาะรายการปัจจุบันแล้ว เพราะประวัติการเจอกัน
+   * ต้องมองข้ามรายการ ถ้าใช้ matches ตัวเดียวกันจะขึ้นว่า "ยังไม่เคยเจอกัน" เสมอ
+   */
+  allMatches?: Match[];
+  allTeams?: Team[];
 }
 
 const VENUE_OPTIONS = ["สนาม 1", "สนาม 2", "สนาม 3", "สนาม 4", "สนามกลาง (Main Stadium)"];
@@ -111,7 +120,7 @@ const TeamSelectorModal: React.FC<TeamSelectorProps> = ({ isOpen, onClose, onSel
     );
 };
 
-const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [], onBack, isAdmin, isLoading, onRefresh, showNotification, onStartMatch, config, initialMatchId, currentTournamentId, predictions = [], currentUser, onLoginRequest, tournament = null, onOpenProgramme }) => {
+const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [], onBack, isAdmin, isLoading, onRefresh, showNotification, onStartMatch, config, initialMatchId, currentTournamentId, predictions = [], currentUser, onLoginRequest, tournament = null, onOpenProgramme, allMatches, allTeams }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -928,6 +937,19 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                             {/* TAB: OVERVIEW */}
                             {detailTab === 'overview' && (
                                 <div className="p-4 md:p-6 space-y-6 animate-in fade-in duration-300">
+
+                                    {/* สถิติการเจอกันข้ามรายการ
+                                        ย้ายมาจากหน้าบันทึกผล — เป็นข้อมูล "ก่อนเกม" ที่คนดูอยากรู้
+                                        ส่วนกรรมการที่กำลังจดผลข้างสนามไม่ได้ใช้ และมันทำให้หน้าจด
+                                        ยาวจนต้องเลื่อนผ่านก่อนถึงปุ่มที่กดสิบกว่าครั้งต่อนัด */}
+                                    <HeadToHead
+                                        teamA={resolveTeam(selectedMatch.teamA)}
+                                        teamB={resolveTeam(selectedMatch.teamB)}
+                                        matches={allMatches ?? matches}
+                                        teams={allTeams ?? teams}
+                                        currentMatchId={selectedMatch.id}
+                                    />
+
                                     
                                     {/* News / Match Reporter Section */}
                                     {selectedMatch.winner && (

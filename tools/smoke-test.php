@@ -644,6 +644,126 @@ check('หน้ารายการทีมนับจำนวนที่�
 $pdo->exec("DELETE FROM teams WHERE team_id = " . $pdo->quote($mid2));
 
 // ─────────────────────────────────────────────────────────────────────────
+head('8.15 บทบาทกรรมการบันทึกผล');
+
+$refId = "U_REF_$stamp";
+$pdo->prepare("INSERT INTO users (user_id, username, password_hash, display_name, role)
+               VALUES (?, ?, ?, 'กรรมการทดสอบ', 'referee')")
+    ->execute([$refId, "ref_$stamp", password_hash('ref-pass-1234', PASSWORD_DEFAULT)]);
+$pdo->prepare("INSERT INTO tournament_managers (tournament_id, user_id, granted_by) VALUES (?, ?, ?)")
+    ->execute([$tid, $refId, $adminId]);
+
+$r = req('auth', ['authType' => 'login', 'username' => "ref_$stamp", 'password' => 'ref-pass-1234']);
+$refToken = $r['token'] ?? null;
+check('กรรมการเข้าระบบได้และได้บทบาท referee', ($r['role'] ?? '') === 'referee',
+    'ได้ ' . var_export($r['role'] ?? null, true));
+
+$rmid = "M_REF_$stamp";
+$pdo->prepare("INSERT INTO matches (match_id, tournament_id, team_a_id, team_b_id,
+                 team_a_name, team_b_name, round_label, status)
+               VALUES (?, ?, ?, ?, 'ทีมทดสอบควัน', 'ทีมทดสอบควัน', 'รอบแรก', 'Scheduled')")
+    ->execute([$rmid, $tid, $teamId, $teamId]);
+
+$r = req('saveMatchResult', ['matchId' => $rmid, 'tournamentId' => $tid,
+    'teamA' => 'ทีมทดสอบควัน', 'teamB' => 'ทีมทดสอบควัน',
+    'scoreA' => 2, 'scoreB' => 1, 'winner' => 'A', 'status' => 'Finished',
+    'kicks' => [
+        ['round' => 1, 'teamId' => 'A', 'player' => 'ก', 'result' => 'GOAL'],
+        ['round' => 1, 'teamId' => 'B', 'player' => 'ข', 'result' => 'SAVED'],
+        ['round' => 2, 'teamId' => 'A', 'player' => 'ค', 'result' => 'GOAL'],
+    ]], $refToken);
+check('กรรมการบันทึกผลรายการที่ถูกมอบหมายได้', ($r['ok'] ?? false) === true,
+    'HTTP ' . ($r['_http'] ?? '?') . ' ' . ($r['message'] ?? ''));
+check('ลูกยิงถูกบันทึกครบ',
+    (int) $pdo->query("SELECT COUNT(*) FROM kicks WHERE match_id = " . $pdo->quote($rmid))->fetchColumn() === 3);
+
+// แก้ผลลูกยิงแล้วส่งใหม่ — server ลบทั้งนัดแล้วเขียนใหม่ จึงต้องได้ชุดใหม่เป๊ะ
+$r = req('saveMatchResult', ['matchId' => $rmid, 'tournamentId' => $tid,
+    'teamA' => 'ทีมทดสอบควัน', 'teamB' => 'ทีมทดสอบควัน',
+    'scoreA' => 1, 'scoreB' => 1, 'status' => 'Finished',
+    'kicks' => [
+        ['round' => 1, 'teamId' => 'A', 'player' => 'ก', 'result' => 'MISSED'],
+        ['round' => 1, 'teamId' => 'B', 'player' => 'ข', 'result' => 'GOAL'],
+        ['round' => 2, 'teamId' => 'A', 'player' => 'ค', 'result' => 'GOAL'],
+    ]], $refToken);
+$kr = $pdo->query("SELECT team_side, round_no, result FROM kicks
+                    WHERE match_id = " . $pdo->quote($rmid) . " ORDER BY team_side, round_no")
+          ->fetchAll(PDO::FETCH_ASSOC);
+check('แก้ผลลูกยิงแล้วเขียนทับถูกต้อง',
+    count($kr) === 3 && $kr[0]['result'] === 'MISSED' && $kr[2]['result'] === 'GOAL',
+    json_encode($kr, JSON_UNESCAPED_UNICODE));
+
+// ลบลูกกลางทางแล้วเรียงเลขรอบใหม่ — เลขรอบต้องไม่ขาดช่วง ไม่งั้นชน uq_kick_slot
+$r = req('saveMatchResult', ['matchId' => $rmid, 'tournamentId' => $tid,
+    'teamA' => 'ทีมทดสอบควัน', 'teamB' => 'ทีมทดสอบควัน',
+    'scoreA' => 1, 'scoreB' => 0, 'status' => 'Finished',
+    'kicks' => [
+        ['round' => 1, 'teamId' => 'A', 'player' => 'ก', 'result' => 'MISSED'],
+        ['round' => 2, 'teamId' => 'A', 'player' => 'ค', 'result' => 'GOAL'],
+    ]], $refToken);
+check('ลบลูกแล้วเหลือเท่าที่ส่งไป',
+    (int) $pdo->query("SELECT COUNT(*) FROM kicks WHERE match_id = " . $pdo->quote($rmid))->fetchColumn() === 2);
+
+// สิทธิ์ต้องจำกัดจริง
+$r = req('getUsers', [], $refToken, 'GET');
+check('กรรมการดูรายชื่อผู้ใช้ไม่ได้', ($r['_http'] ?? 0) === 403, 'ได้ HTTP ' . ($r['_http'] ?? '?'));
+$r = req('checkinTeams', ['tournamentId' => $tid], $refToken, 'GET');
+check('กรรมการเปิดหน้ารายงานตัวไม่ได้', ($r['_http'] ?? 0) === 403, 'ได้ HTTP ' . ($r['_http'] ?? '?'));
+
+$other = "T_OTHER_$stamp";
+$pdo->prepare("INSERT INTO tournaments (tournament_id, name, type, status, players_per_team, max_subs, max_teams_per_school)
+               VALUES (?, 'รายการอื่น', 'Penalty', 'Active', 7, 3, 2)")->execute([$other]);
+$r = req('saveMatchResult', ['matchId' => "M_X_$stamp", 'tournamentId' => $other,
+    'teamA' => 'a', 'teamB' => 'b', 'scoreA' => 9, 'scoreB' => 0,
+    'status' => 'Finished', 'skipKicks' => true], $refToken);
+check('กรรมการบันทึกผลรายการที่ไม่ได้ถูกมอบหมายไม่ได้', ($r['_http'] ?? 0) === 403,
+    'ได้ HTTP ' . ($r['_http'] ?? '?'));
+$pdo->exec("DELETE FROM tournaments WHERE tournament_id = " . $pdo->quote($other));
+
+// ─────────────────────────────────────────────────────────────────────────
+head('8.16 ข้อมูลที่สถิติการเจอกันต้องใช้');
+
+// จับคู่ข้ามรายการต้องใช้ team id -> school id ถ้า API ไม่ส่งมา สถิติจะว่างเปล่า
+$r = req('getData', ['parts' => 'matches,teams'], null, 'GET');
+$m0 = null;
+foreach (($r['matches'] ?? []) as $x) { if (($x['id'] ?? '') === $rmid) { $m0 = $x; break; } }
+check('getData ส่ง teamAId/teamBId ของนัดมาด้วย',
+    ($m0['teamAId'] ?? '') !== '' && ($m0['teamBId'] ?? '') !== '',
+    json_encode([$m0['teamAId'] ?? null, $m0['teamBId'] ?? null]));
+$t0 = null;
+foreach (($r['teams'] ?? []) as $x) { if (($x['id'] ?? '') === $teamId) { $t0 = $x; break; } }
+check('getData ส่ง schoolId ของทีมมาด้วย', ($t0['schoolId'] ?? '') !== '',
+    var_export($t0['schoolId'] ?? null, true));
+
+$pdo->exec("DELETE FROM matches WHERE match_id = " . $pdo->quote($rmid));
+$pdo->exec("DELETE FROM users WHERE user_id = " . $pdo->quote($refId));
+
+// ─────────────────────────────────────────────────────────────────────────
+head('8.17 แอดมินเปลี่ยนโลโก้/เอกสารของทีมได้');
+
+// เคยพลาด: หน้าแอดมินเก็บ File ไว้แล้วโชว์ preview แต่ไม่เคยอัปขึ้น server
+// และ updateTeamData ก็ไม่ได้ส่ง logoUrl ไปเลย กดบันทึกขึ้นว่าสำเร็จแต่โลโก้เหมือนเดิม
+$before = (string) $pdo->query("SELECT logo_url FROM teams WHERE team_id = " . $pdo->quote($teamId))->fetchColumn();
+$r = req('saveTeam', ['teamId' => $teamId, 'name' => 'ทีมทดสอบควัน',
+    'logoUrl' => '/storage/uploads/logo/smoke-logo.png',
+    'docUrl'  => '/storage/uploads/doc/smoke-doc.pdf'], $adminToken);
+check('บันทึกโลโก้/เอกสารได้', ($r['ok'] ?? false) === true, $r['message'] ?? '');
+$row = $pdo->query("SELECT logo_url, doc_url FROM teams WHERE team_id = " . $pdo->quote($teamId))
+           ->fetch(PDO::FETCH_ASSOC);
+check('โลโก้ถูกเก็บลงฐานข้อมูล',
+    ($row['logo_url'] ?? '') === '/storage/uploads/logo/smoke-logo.png',
+    "'$before' -> '" . ($row['logo_url'] ?? '') . "'");
+check('เอกสารถูกเก็บลงฐานข้อมูล',
+    ($row['doc_url'] ?? '') === '/storage/uploads/doc/smoke-doc.pdf',
+    var_export($row['doc_url'] ?? null, true));
+
+// ไม่ส่ง logoUrl มา = ไม่ได้แตะ ต้องคงของเดิม ไม่ใช่ล้างทิ้ง
+req('saveTeam', ['teamId' => $teamId, 'name' => 'ทีมทดสอบควัน'], $adminToken);
+check('บันทึกโดยไม่ส่งโลโก้แล้วโลโก้ไม่หาย',
+    (string) $pdo->query("SELECT logo_url FROM teams WHERE team_id = " . $pdo->quote($teamId))->fetchColumn()
+        === '/storage/uploads/logo/smoke-logo.png');
+
+// ─────────────────────────────────────────────────────────────────────────
 head('9. เก็บกวาด');
 
 foreach (["DELETE FROM donations WHERE tournament_id = " . $pdo->quote($tid),

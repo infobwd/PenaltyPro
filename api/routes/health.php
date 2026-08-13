@@ -70,6 +70,19 @@ function handle(string $action, array $cfg): void
         'รัน db/11-tournament-branding.sql');
     $add('col_matches_highlight', $hasCol('matches', 'highlight_url'),
         'รัน db/12-match-highlight.sql');
+    // ตรวจว่า ENUM ของ role รับ referee แล้วหรือยัง — ถ้ายัง การสร้างบัญชี
+    // กรรมการจะล้มด้วย SQLSTATE 01000 แบบไม่มีคำอธิบายที่หน้าเว็บ
+    $add('role_enum_referee', (static function (): bool {
+        try {
+            $t = (string) Db::value(
+                "SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+                    AND COLUMN_NAME = 'role'");
+            return str_contains($t, 'referee');
+        } catch (Throwable) { return false; }
+    })(), 'รัน db/13-referee-role.sql');
+    $add('col_players_intro_video', $hasCol('players', 'intro_video_url'),
+        'รัน db/14-lineup-intro-video.sql');
 
     try {
         $ver = (string) Db::value('SELECT VERSION()');

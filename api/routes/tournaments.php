@@ -392,6 +392,9 @@ function assign_tournament_manager(): void
 
     // ผู้ดูแลรายการต้องล็อกอินด้วย username/password ได้ จึงต้องเป็น staff ขึ้นไป
     // (บัญชี LINE ล้วนไม่มีรหัสผ่าน จะเข้ามาจัดการหลังบ้านไม่ได้)
+    //
+    // กรรมการที่มีบทบาท referee อยู่แล้วไม่ต้องยกเป็น staff — เขาแค่ต้องบันทึกผล
+    // ไม่ต้องเห็นรายชื่อผู้ใช้ทั้งระบบหรือเงินบริจาค
     if ($u['role'] === 'user') {
         Db::exec("UPDATE users SET role = 'staff' WHERE user_id = :uid3",
             [':uid3' => $userId]);

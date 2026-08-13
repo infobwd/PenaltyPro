@@ -126,6 +126,13 @@ final class Auth
     public static function isLoggedIn(): bool { return self::$user !== null; }
     public static function isAdmin(): bool  { return (self::$user['role'] ?? '') === 'admin'; }
     public static function isStaff(): bool  { return (self::$user['role'] ?? '') === 'staff'; }
+    /**
+     * กรรมการบันทึกผล — บันทึกผลของรายการที่ถูกมอบหมายได้อย่างเดียว
+     *
+     * ตั้งใจไม่ให้ผ่าน requireStaff() เพราะ staff เห็นรายชื่อผู้ใช้ทั้งระบบ
+     * เงินบริจาค และหลังบ้านทั้งหมด ซึ่งเกินความจำเป็นของคนที่มาช่วยจดผล
+     */
+    public static function isReferee(): bool { return (self::$user['role'] ?? '') === 'referee'; }
 
     /** school_id ของ session โรงเรียน (null ถ้าไม่ได้เข้าด้วยรหัสโรงเรียน) */
     public static function schoolId(): ?string { return self::$teamSession['school_id'] ?? null; }
@@ -136,6 +143,7 @@ final class Auth
         return match (true) {
             self::isAdmin()            => 'admin',
             self::isStaff()            => 'staff',
+            self::isReferee()          => 'referee',
             self::schoolId() !== null  => 'school',
             self::isLoggedIn()         => 'user',
             default                    => 'system',

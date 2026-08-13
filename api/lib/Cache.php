@@ -63,10 +63,18 @@ final class Cache
         return preg_replace('/[^\w.-]/u', '_', implode('_', $parts)) . '.json';
     }
 
-    public static function get(string $key): ?array
+    /**
+     * @param int|null $ttl อายุเฉพาะคีย์นี้ (วินาที) — ว่างคือใช้ค่ากลางจาก config
+     *
+     * ที่ต้องมี: กระดานผลสดถูก poll ทุกไม่กี่วินาที ถ้าใช้ TTL กลาง 5 นาที
+     * ผู้พากย์จะเห็นสกอร์ช้ากว่าความจริงถึง 5 นาที แต่จะเลิกแคชไปเลยก็ไม่ได้
+     * เพราะวันแข่งมีคนเปิดพร้อมกันหลักร้อย — TTL สั้น ๆ ตรึงภาระฐานข้อมูลไว้ที่
+     * ประมาณหนึ่งคิวรีต่อช่วง TTL ไม่ว่าจะมีคนดูกี่คน
+     */
+    public static function get(string $key, ?int $ttl = null): ?array
     {
         $path = self::$dir . '/' . $key;
-        if (!is_file($path) || filemtime($path) + self::$ttl < time()) {
+        if (!is_file($path) || filemtime($path) + ($ttl ?? self::$ttl) < time()) {
             return null;
         }
         $raw = @file_get_contents($path);
