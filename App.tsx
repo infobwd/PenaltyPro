@@ -680,14 +680,16 @@ export default function App() {
           const nextRound = prev.currentTurn === 'B' ? prev.currentRound + 1 : prev.currentRound; 
           let nextState: MatchState = { ...prev, kicks: updatedKicks, currentTurn: nextTurn, currentRound: nextRound }; 
           nextState = checkWinCondition(nextState); 
-          if (nextState.isFinished) { 
-              confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: nextState.winner === 'A' ? ['#2563EB', '#60A5FA'] : ['#E11D48', '#FB7185'] }); 
-              setIsSaving(true); 
-              Promise.all([ saveMatchToSheet(nextState, "", false, currentTournamentId || 'default') ]).then(() => { setIsSaving(false); loadData(true); showNotification("บันทึกผลการแข่งขันเรียบร้อย", "", "success"); }); 
-          } 
-          return nextState; 
-      }); 
-      setIsProcessing(false); 
+          if (nextState.isFinished) {
+              confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: nextState.winner === 'A' ? ['#2563EB', '#60A5FA'] : ['#E11D48', '#FB7185'] });
+              setIsSaving(true);
+              Promise.all([ saveMatchToSheet(nextState, "", false, currentTournamentId || 'default') ]).then(() => { setIsSaving(false); loadData(true); showNotification("บันทึกผลการแข่งขันเรียบร้อย", "", "success"); });
+          } else {
+              saveLiveProgress(nextState);
+          }
+          return nextState;
+      });
+      setIsProcessing(false);
   };
 
   const requestUndoLastKick = () => { if (!matchState || matchState.kicks.length === 0) return; setConfirmModal({ isOpen: true, title: "ยกเลิกการยิงล่าสุด", message: "ต้องการลบผลการยิงลูกล่าสุดใช่หรือไม่?", onConfirm: () => { handleUndoLastKick(); setConfirmModal(null); } }); };
