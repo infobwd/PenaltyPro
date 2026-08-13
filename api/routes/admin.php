@@ -59,6 +59,13 @@ function list_users(): void
         'phoneNumber' => $u['phone'],
         'pictureUrl'  => drive_img($u['picture_url']),
         'lineUserId'  => $u['line_user_id'],
+        // ช่องทางเข้าระบบ — ไม่เคยส่งมาก่อน ฝั่งเว็บจึงขึ้นว่า "รหัสผ่าน" ให้ทุกคน
+        // รวมถึงบัญชี LINE ล้วนที่ไม่มีรหัสผ่านเลย
+        // ผู้ดูแล/เจ้าหน้าที่มีทั้งสองทางได้ ให้ถือว่าเข้าด้วยรหัสผ่านเป็นหลัก
+        // เพราะนั่นคือทางที่ใช้เข้าหลังบ้าน
+        'type'        => ($u['username'] !== null && $u['username'] !== '')
+            ? 'credentials'
+            : (($u['line_user_id'] !== null && $u['line_user_id'] !== '') ? 'line' : 'guest'),
         'lastLogin'   => $u['last_login_at'],
         'schoolId'    => $u['school_id'],
         'schoolName'  => $u['school_name'],
@@ -354,8 +361,9 @@ function verify_donation(): void
     if (!in_array($status, ['Pending', 'Verified', 'Rejected'], true)) {
         Response::fail('สถานะไม่ถูกต้อง', 422);
     }
-    $before = Db::one('SELECT status, amount FROM donations WHERE donation_id = :id',
-        [':id' => $id]);
+    $before = Db::one(
+        'SELECT status, amount, donor_name, line_user_id FROM donations
+          WHERE donation_id = :id', [':id' => $id]);
     if ($before === null) {
         Response::fail('ไม่พบรายการบริจาคนี้', 404);
     }
@@ -363,6 +371,35 @@ function verify_donation(): void
         [':st' => $status, ':id2' => $id]);
     Audit::log('donation', $id, 'verify', $before, ['status' => $status]);
     Cache::flush();
+
+    // บอกผู้บริจาคว่าสลิปผ่านหรือไม่ผ่าน
+    //
+    // เดิมผู้บริจาคโอนแล้วเงียบหายไปเลย ต้องเข้ามาดูหน้าเว็บเองว่ายอดขึ้นหรือยัง
+    // ถ้าสลิปไม่ผ่าน (โอนไม่ครบ อ่านไม่ออก) ยิ่งต้องรู้ ไม่งั้นเข้าใจว่าบริจาคแล้ว
+    //
+    // หาเจ้าของจาก line_user_id ที่บันทึกไว้ตอนบริจาค ซึ่งมาจาก session จริง
+    // คนที่บริจาคโดยไม่เข้าระบบจะไม่มีค่านี้ — ข้ามไป ไม่มีช่องทางแจ้ง
+    $line = (string) ($before['line_user_id'] ?? '');
+    if ($line !== '' && $status !== (string) $before['status']
+        && in_array($status, ['Verified', 'Rejected'], true)) {
+        $donorId = Db::value('SELECT user_id FROM users WHERE line_user_id = :line',
+            [':line' => $line]);
+        if ($donorId !== null) {
+            $amt = number_format((float) $before['amount'], 2);
+            if ($status === 'Verified') {
+                PushNotifier::notify((string) $donorId, 'donation_verified',
+                    'ยืนยันการบริจาคแล้ว',
+                    'ขอบคุณสำหรับการสนับสนุน ' . $amt . ' บาท — ยอดของคุณถูกนับรวมแล้ว',
+                    '/', ['donationId' => $id]);
+            } else {
+                PushNotifier::notify((string) $donorId, 'donation_rejected',
+                    'สลิปบริจาคยังตรวจสอบไม่ผ่าน',
+                    'ยอด ' . $amt . ' บาท — กรุณาติดต่อผู้จัดการแข่งขันเพื่อตรวจสอบ',
+                    '/', ['donationId' => $id]);
+            }
+        }
+    }
+
     Response::ok();
 }
 

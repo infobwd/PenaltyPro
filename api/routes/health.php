@@ -66,6 +66,10 @@ function handle(string $action, array $cfg): void
     $add('table_player_checkins',
         Db::value("SHOW TABLES LIKE 'player_checkins'") !== null,
         'รัน db/10-player-checkin.sql');
+    $add('col_tournaments_branding', $hasCol('tournaments', 'competition_logo'),
+        'รัน db/11-tournament-branding.sql');
+    $add('col_matches_highlight', $hasCol('matches', 'highlight_url'),
+        'รัน db/12-match-highlight.sql');
 
     try {
         $ver = (string) Db::value('SELECT VERSION()');

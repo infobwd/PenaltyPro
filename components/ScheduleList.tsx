@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Match, Team, Player, AppSettings, KickResult, Prediction, UserProfile, Tournament } from '../types';
-import { ArrowLeft, Calendar, MapPin, Clock, Trophy, Plus, X, Save, Loader2, Search, ChevronDown, Check, Share2, Edit2, Trash2, AlertTriangle, User, ListPlus, PlusCircle, Users, ArrowRight, PlayCircle, ClipboardCheck, RotateCcw, Flag, Video, Image, Youtube, Facebook, BarChart2, ImageIcon, Download, Camera, Filter, Sparkles, MessageSquare, Cpu, FileText, PenTool, LayoutTemplate, BrainCircuit } from 'lucide-react';
+import { ArrowLeft, Calendar, MapPin, Clock, Trophy, Plus, X, Save, Loader2, Search, ChevronDown, Check, Share2, Edit2, Trash2, AlertTriangle, User, ListPlus, PlusCircle, Users, ArrowRight, PlayCircle, ClipboardCheck, RotateCcw, Flag, Film, Video, Image, Youtube, Facebook, BarChart2, ImageIcon, Download, Camera, Filter, Sparkles, MessageSquare, Cpu, FileText, PenTool, LayoutTemplate, BrainCircuit } from 'lucide-react';
 import { scheduleMatch, deleteMatch, saveMatchToSheet, fileToBase64, submitPrediction } from '../services/sheetService';
 import { generateMatchSummary, generateLocalSummary } from '../services/geminiService';
 import { shareMatch } from '../services/liffService';
@@ -124,7 +124,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
   
   const [activeMatchType, setActiveMatchType] = useState<'group' | 'knockout' | 'custom'>('group');
   
-  const [matchForm, setMatchForm] = useState({ id: '', teamA: '', teamB: '', date: '', time: '', venue: '', roundLabel: 'Group A', livestreamUrl: '' });
+  const [matchForm, setMatchForm] = useState({ id: '', teamA: '', teamB: '', date: '', time: '', venue: '', roundLabel: 'Group A', livestreamUrl: '', highlightUrl: '', highlightTitle: '' });
   const [matchCover, setMatchCover] = useState<{file: File | null, preview: string | null}>({file: null, preview: null});
   const [bulkMatches, setBulkMatches] = useState<Array<{ tempId: string, teamA: string, teamB: string, time: string, venue: string }>>([]);
 
@@ -356,7 +356,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
 
   const handleOpenAdd = () => { 
       const today = new Date().toISOString().split('T')[0];
-      setMatchForm({ id: '', teamA: '', teamB: '', date: today, time: '09:00', venue: '', roundLabel: 'Group A', livestreamUrl: '' });
+      setMatchForm({ id: '', teamA: '', teamB: '', date: today, time: '09:00', venue: '', roundLabel: 'Group A', livestreamUrl: '', highlightUrl: '', highlightTitle: '' });
       setMatchCover({file: null, preview: null});
       setBulkMatches([{ tempId: Date.now().toString(), teamA: '', teamB: '', time: '09:00', venue: '' }]);
       setActiveMatchType('group');
@@ -387,7 +387,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
           time: dateObj.toTimeString().slice(0, 5), 
           venue: match.venue || '', 
           roundLabel: uiLabel,
-          livestreamUrl: match.livestreamUrl || ''
+          livestreamUrl: match.livestreamUrl || '',
+          highlightUrl: match.highlightUrl || '',
+          highlightTitle: match.highlightTitle || ''
       }); 
       setMatchCover({ file: null, preview: match.livestreamCover || null });
       setActiveMatchType(type);
@@ -481,7 +483,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                    const groupName = matchForm.roundLabel.replace('Group ', '').trim();
                    finalLabel = `Group ${groupName}: ${teamAObj?.shortName || matchForm.teamA} vs ${teamBObj?.shortName || matchForm.teamB}`;
                }
-               await scheduleMatch(matchForm.id, matchForm.teamA, matchForm.teamB, finalLabel, matchForm.venue, new Date(`${matchForm.date}T${matchForm.time}`).toISOString(), matchForm.livestreamUrl, coverBase64 || undefined, tournamentIdToSave);
+               await scheduleMatch(matchForm.id, matchForm.teamA, matchForm.teamB, finalLabel, matchForm.venue, new Date(`${matchForm.date}T${matchForm.time}`).toISOString(), matchForm.livestreamUrl, coverBase64 || undefined, tournamentIdToSave,
+                 matchForm.highlightUrl, matchForm.highlightTitle);
           } else {
               if (activeMatchType === 'group') {
                   for (const m of bulkMatches) {
@@ -496,7 +499,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                   }
               } else {
                   const newId = `M_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-                  await scheduleMatch(newId, matchForm.teamA, matchForm.teamB, matchForm.roundLabel, matchForm.venue, new Date(`${matchForm.date}T${matchForm.time}`).toISOString(), matchForm.livestreamUrl, coverBase64 || undefined, tournamentIdToSave);
+                  await scheduleMatch(newId, matchForm.teamA, matchForm.teamB, matchForm.roundLabel, matchForm.venue, new Date(`${matchForm.date}T${matchForm.time}`).toISOString(), matchForm.livestreamUrl, coverBase64 || undefined, tournamentIdToSave,
+                 matchForm.highlightUrl, matchForm.highlightTitle);
               }
           }
           if (showNotification) showNotification("สำเร็จ", "บันทึกข้อมูลเรียบร้อย", "success"); 
@@ -1204,6 +1208,34 @@ const ScheduleList: React.FC<ScheduleListProps> = ({ matches, teams, players = [
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-xs font-bold text-slate-500 mb-1 block">ทีมเหย้า (Home)</label><TeamSelectionButton value={matchForm.teamA} placeholder="เลือกทีม..." onClick={() => openTeamSelector('singleA')} /></div><div><label className="text-xs font-bold text-slate-500 mb-1 block">ทีมเยือน (Away)</label><TeamSelectionButton value={matchForm.teamB} placeholder="เลือกทีม..." onClick={() => openTeamSelector('singleB')} /></div></div>
                             <div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-bold text-slate-500 mb-1 block">เวลา</label><input type="time" value={matchForm.time} onChange={e => setMatchForm({...matchForm, time: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm" /></div><div><label className="text-xs font-bold text-slate-500 mb-1 block">สนามแข่ง</label><div className="relative"><input type="text" list="single-venue-list" value={matchForm.venue} onChange={e => setMatchForm({...matchForm, venue: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm" placeholder="สนาม..." /><datalist id="single-venue-list">{VENUE_OPTIONS.map(v => <option key={v} value={v} />)}</datalist></div></div></div>
                             <div className="border-t border-slate-100 pt-3 mt-2"><label className="text-xs font-bold text-slate-500 mb-2 block flex items-center gap-2"><Video className="w-4 h-4" /> Live Stream (Youtube/Facebook)</label><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><input type="text" value={matchForm.livestreamUrl} onChange={e => setMatchForm({...matchForm, livestreamUrl: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm" placeholder="https://www.youtube.com/watch?v=..." /><p className="text-[10px] text-slate-400 mt-1 flex gap-2"><span className="flex items-center gap-1"><Youtube className="w-3 h-3"/> Support Youtube</span><span className="flex items-center gap-1"><Facebook className="w-3 h-3"/> Support FB Watch</span></p></div><div><label className="flex items-center gap-2 p-2 border border-dashed border-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 transition"><div className="w-8 h-8 bg-slate-100 rounded flex items-center justify-center shrink-0">{matchCover.preview ? <img src={matchCover.preview} className="w-full h-full object-cover rounded" /> : <Image className="w-4 h-4 text-slate-400" />}</div><span className="text-xs text-slate-500 truncate">{matchCover.file ? matchCover.file.name : 'อัปโหลดรูปปก Live (ถ้ามี)'}</span><input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleCoverChange(e.target.files[0])} /></label></div></div></div>
+                            {/* ไฮไลต์ = คลิปที่ตัดแล้วลงทีหลัง คนละอันกับลิงก์ถ่ายทอดสด
+                                แยกช่องกันเพราะมีพร้อมกันได้ ถ้าใช้ช่องเดียวการลงไฮไลต์
+                                จะทับลิงก์สดทิ้ง แล้วลิงก์ที่เคยแชร์ออกไปก็เปิดไม่ได้ */}
+                            <div className="border-t border-slate-100 pt-3 mt-2">
+                                <label className="text-xs font-bold text-slate-500 mb-2 block flex items-center gap-2">
+                                    <Film className="w-4 h-4" /> คลิปไฮไลต์ / ดูย้อนหลัง (YouTube)
+                                </label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <input type="text" value={matchForm.highlightUrl}
+                                            onChange={e => setMatchForm({...matchForm, highlightUrl: e.target.value})}
+                                            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm"
+                                            placeholder="วางลิงก์ YouTube แบบไหนก็ได้" />
+                                        <p className="text-[10px] text-slate-400 mt-1">
+                                            รับทั้ง youtu.be, watch?v=, /live/ และ /shorts/ — ระบบดึงรหัสคลิปให้เอง
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <input type="text" value={matchForm.highlightTitle}
+                                            onChange={e => setMatchForm({...matchForm, highlightTitle: e.target.value})}
+                                            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm"
+                                            placeholder="ชื่อคลิป (ไม่ใส่ก็ได้)" />
+                                        <p className="text-[10px] text-slate-400 mt-1">
+                                            เว้นว่างจะใช้ชื่อคู่แข่งขันแทน
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         </>
                         )}
                         <button onClick={handleSaveMatch} disabled={isSaving} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 mt-2">{isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} บันทึกตารางแข่ง</button>

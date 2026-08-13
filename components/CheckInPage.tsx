@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronLeft, Search, Loader2, CheckCircle2, XCircle, AlertTriangle,
-  RefreshCw, UserCheck, Users, Phone, ShieldCheck, X, Printer, CloudOff,
+  RefreshCw, UserCheck, Users, Phone, ShieldCheck, X, Printer, CloudOff, RotateCcw,
 } from 'lucide-react';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
 import { ToastType } from './Toast';
@@ -29,11 +29,14 @@ type Player = {
   status: 'present' | 'absent' | 'issue' | null;
   note: string;
   checkedAt: string | null;
+  /** ข้อมูลคนนี้ถูกแก้หลังจากที่กรรมการเช็กไปแล้ว — ต้องตรวจซ้ำ */
+  stale?: boolean;
+  updatedAt?: string | null;
 };
 
 type TeamRow = {
   id: string; name: string; logoUrl: string; group: string; schoolName: string;
-  total: number; present: number; absent: number; issue: number;
+  total: number; present: number; absent: number; issue: number; stale?: number;
 };
 
 type TeamDetail = {
@@ -87,6 +90,8 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
     try { return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? '[]'); } catch { return []; }
   });
   const [flushing, setFlushing] = useState(false);
+  const [allBusy, setAllBusy] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
 
   const loadTeams = async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -278,6 +283,33 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
     w.print();
   };
 
+  /**
+   * รายงานตัวทุกทีมในรายการรวดเดียว
+   *
+   * ทีมทยอยมาตั้งแต่เช้า พอถึงเวลาประชุมผู้จัดการทีมก็มากันเกือบครบแล้ว
+   * กดทีเดียวแล้วตามแก้เฉพาะทีมที่ขาด เร็วกว่าเข้าไปกดทีละทีม 30 กว่าครั้ง
+   *
+   * เขียนเฉพาะคนที่ยังไม่ได้เช็ก — ผลที่กรรมการตั้งใจกดไว้แล้วต้องไม่ถูกลบ
+   */
+  const markAll = async () => {
+    if (!tournamentId) {
+      notify('ยังไม่ได้เลือกรายการแข่งขัน', 'กลับไปหน้าหลักแล้วเลือกรายการก่อน', 'warning');
+      return;
+    }
+    setAllBusy(true);
+    try {
+      const r = await apiPost('checkinAllBulk', { tournamentId, status: 'present' });
+      await loadTeams(true);
+      notify('บันทึกรายงานตัวแล้ว',
+        `${r.affected ?? 0} คน จาก ${r.teams ?? 0} ทีม (เฉพาะคนที่ยังไม่ได้เช็ก)`, 'success');
+    } catch (e) {
+      notify('ทำรายการไม่สำเร็จ', (e as ApiError).message, 'error');
+    } finally {
+      setAllBusy(false);
+      setConfirmAll(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return teams;
@@ -290,7 +322,8 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
       players: a.players + t.total,
       present: a.present + t.present,
       pending: a.pending + (t.total - t.present - t.absent - t.issue),
-    }), { players: 0, present: 0, pending: 0 }), [teams]);
+      stale: a.stale + (t.stale ?? 0),
+    }), { players: 0, present: 0, pending: 0, stale: 0 }), [teams]);
 
   const photoZoom = zoom ? createPortal(
     <div className="fixed inset-0 z-[2000] bg-black/90 flex items-center justify-center p-4"
@@ -406,7 +439,9 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
                 const ui = p.status ? STATUS_UI[p.status] : null;
                 return (
                   <div key={p.id}
-                    className={`bg-white rounded-2xl border-2 p-3 transition ${ui ? ui.soft : 'border-slate-200'}`}>
+                    className={`bg-white rounded-2xl border-2 p-3 transition ${
+                      p.stale ? 'bg-orange-50 border-orange-400'
+                              : ui ? ui.soft : 'border-slate-200'}`}>
                     <div className="flex gap-3">
                       {/* รูปใหญ่พอเทียบหน้าคนจริง — แตะเพื่อขยายอีกชั้น */}
                       <button onClick={() => setZoom(p)}
@@ -435,6 +470,14 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
                         </p>
                         {!p.photoUrl && (
                           <p className="text-[11px] text-amber-700 mt-1 font-bold">ไม่มีรูปในระบบ — ตรวจบัตรแทน</p>
+                        )}
+                        {/* ข้อมูลถูกแก้หลังรายงานตัว — ไม่ลบผลที่กดไว้ แต่ต้องบอก
+                            เพราะสิ่งที่กรรมการเทียบไว้ (รูป/เบอร์เสื้อ) เปลี่ยนไปแล้ว
+                            จะตรวจซ้ำหรือปล่อยผ่าน ให้กรรมการตัดสินเอง */}
+                        {p.stale && (
+                          <p className="text-[11px] text-orange-700 mt-1 font-bold flex items-center gap-1">
+                            <RotateCcw className="w-3 h-3 shrink-0" /> แก้ข้อมูลหลังรายงานตัว — ตรวจซ้ำ
+                          </p>
                         )}
                       </div>
                       {saving.has(p.id) && <Loader2 className="w-4 h-4 animate-spin text-slate-400 shrink-0" />}
@@ -523,6 +566,54 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
           ))}
         </div>
 
+        {/* กระทบทุกทีมพร้อมกัน จึงต้องยืนยันอีกชั้น
+            กดพลาดตอนถือมือถืออยู่ข้างสนามเกิดขึ้นได้ง่ายมาก */}
+        {totals.pending > 0 && (
+          confirmAll ? (
+            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3">
+              <p className="text-sm font-bold text-emerald-900">
+                บันทึกว่า "มารายงานตัว" ให้ {totals.pending} คนที่ยังไม่ได้เช็ก?
+              </p>
+              <p className="text-[11px] text-emerald-700 mt-1">
+                คนที่กดไว้แล้วจะไม่ถูกเปลี่ยน — แก้ทีละคนทีหลังได้ตลอด
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button onClick={markAll} disabled={allBusy}
+                  className="flex-1 h-11 rounded-xl bg-emerald-600 text-white font-black text-sm
+                             disabled:opacity-50 flex items-center justify-center gap-2">
+                  {allBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+                  ยืนยัน
+                </button>
+                <button onClick={() => setConfirmAll(false)} disabled={allBusy}
+                  className="px-5 h-11 rounded-xl border-2 border-slate-300 text-slate-600 font-bold text-sm">
+                  ยกเลิก
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmAll(true)}
+              className="w-full h-12 rounded-xl border-2 border-emerald-500 text-emerald-700
+                         font-black text-sm flex items-center justify-center gap-2 hover:bg-emerald-50">
+              <UserCheck className="w-4 h-4" />
+              รายงานตัวทั้งรายการรวดเดียว ({totals.pending} คนที่ยังไม่ได้เช็ก)
+            </button>
+          )
+        )}
+
+        {totals.stale > 0 && (
+          <div className="rounded-xl border border-orange-300 bg-orange-50 p-3 flex items-center gap-3">
+            <RotateCcw className="w-5 h-5 text-orange-600 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-orange-900">
+                มี {totals.stale} คนที่ข้อมูลถูกแก้หลังรายงานตัวแล้ว
+              </p>
+              <p className="text-[11px] text-orange-700">
+                รูปหรือเบอร์เสื้อเปลี่ยนไปหลังจากที่เช็กไว้ — ควรตรวจซ้ำก่อนปล่อยลงแข่ง
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -571,10 +662,15 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
                     <div className={`h-full transition-all ${pending === 0 ? 'bg-emerald-500' : 'bg-indigo-500'}`}
                       style={{ width: `${pct}%` }} />
                   </div>
-                  {(t.absent > 0 || t.issue > 0) && (
-                    <div className="flex gap-3 mt-2 text-[11px] font-bold">
+                  {(t.absent > 0 || t.issue > 0 || (t.stale ?? 0) > 0) && (
+                    <div className="flex flex-wrap gap-3 mt-2 text-[11px] font-bold">
                       {t.absent > 0 && <span className="text-rose-600">ไม่มา {t.absent}</span>}
                       {t.issue > 0 && <span className="text-amber-600">ติดปัญหา {t.issue}</span>}
+                      {(t.stale ?? 0) > 0 && (
+                        <span className="text-orange-700 flex items-center gap-1">
+                          <RotateCcw className="w-3 h-3" /> ต้องตรวจซ้ำ {t.stale}
+                        </span>
+                      )}
                     </div>
                   )}
                 </button>

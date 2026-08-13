@@ -24,9 +24,14 @@ final class NotificationPrefs
         'match_scheduled',
         'match_result',
         'match_starting',
+        // เกี่ยวกับการบริจาค
+        'donation_verified',
+        'donation_rejected',
         // งานของผู้ดูแล
         'team_submitted',
         'payment_submitted',
+        'team_reedited',
+        'donation_received',
         // ทั่วไป
         'news',
         'system_announcement',
@@ -42,16 +47,23 @@ final class NotificationPrefs
     {
         $map = [
             'admin' => [
-                'team_submitted', 'payment_submitted', 'team_approved', 'team_rejected',
+                'team_submitted', 'payment_submitted', 'team_reedited', 'donation_received',
+                'team_approved', 'team_rejected',
                 'payment_verified', 'match_scheduled', 'match_result', 'match_starting',
+                // ผลสลิปบริจาคของตัวเอง เปิดให้ทุกบทบาท — เป็นเรื่องเงินของคนคนนั้น
+                // ไม่ใช่หน้าที่ตามบทบาท ผู้ดูแลก็บริจาคเองได้และต้องรู้ผลเหมือนกัน
+                'donation_verified', 'donation_rejected',
                 'news', 'system_announcement',
             ],
             'staff' => [
-                'team_submitted', 'payment_submitted', 'match_scheduled', 'match_result',
-                'match_starting', 'news', 'system_announcement',
+                'team_submitted', 'payment_submitted', 'team_reedited', 'donation_received',
+                'match_scheduled', 'match_result',
+                'match_starting', 'donation_verified', 'donation_rejected',
+                'news', 'system_announcement',
             ],
             'user' => [
                 'team_approved', 'team_rejected', 'payment_verified', 'roster_reminder',
+                'donation_verified', 'donation_rejected',
                 'match_scheduled', 'match_result', 'match_starting',
                 'news', 'system_announcement',
             ],

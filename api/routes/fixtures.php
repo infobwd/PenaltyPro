@@ -429,12 +429,33 @@ function save_match(): void
             $names = [(string) $existing['team_a_name'], (string) $existing['team_b_name']];
         }
 
+        // ลิงก์ไฮไลต์: ส่งมาว่าง = ไม่ได้แตะช่องนี้ ให้คงของเดิม
+        //
+        // หน้าแก้ไขนัดส่งเฉพาะช่องที่กรอก ถ้าตีความว่างเปล่าว่า "ลบ"
+        // การแก้เวลาแข่งอย่างเดียวจะลบลิงก์ไฮไลต์ทิ้งโดยไม่มีใครตั้งใจ
+        // ต้องส่งขีดกลางมาเท่านั้นถึงจะถือว่าตั้งใจล้างค่า
+        // ใช้กับ livestream_url ด้วย ด้วยเหตุผลเดียวกัน — เดิมเขียนทับด้วยค่าว่างเสมอ
+        // ใครก็ตามที่บันทึกนัดโดยไม่ได้ส่งลิงก์มาด้วยจะลบลิงก์ถ่ายทอดสดทิ้งทั้งที่ไม่ได้ตั้งใจ
+        $CLEAR = '-';
+        $liveIn = Input::str('livestreamUrl');
+        $hlIn   = Input::str('highlightUrl');
+        $hltIn  = Input::str('highlightTitle');
+        $liveSet = $liveIn !== '' ? 1 : 0;
+        $hlSet   = $hlIn !== '' ? 1 : 0;
+        $hltSet  = $hltIn !== '' ? 1 : 0;
+        $liveVal = $liveIn === $CLEAR ? '' : $liveIn;
+        $hlVal   = $hlIn === $CLEAR ? '' : $hlIn;
+        $hltVal  = $hltIn === $CLEAR ? '' : $hltIn;
+
         Db::exec(
             'UPDATE matches SET
                 team_a_id = :ta, team_b_id = :tb,
                 team_a_name = :tan, team_b_name = :tbn,
                 round_label = :round, venue = :venue, scheduled_time = :sched,
-                livestream_url = :live, row_version = row_version + 1
+                livestream_url = CASE WHEN :liveset = 1 THEN :liveval ELSE livestream_url END,
+                highlight_url = CASE WHEN :hlset = 1 THEN :hlval ELSE highlight_url END,
+                highlight_title = CASE WHEN :hltset = 1 THEN :hltval ELSE highlight_title END,
+                row_version = row_version + 1
               WHERE match_id = :mid AND tournament_id = :tid',
             [
                 ':ta' => $teamA, ':tb' => $teamB,
@@ -442,7 +463,12 @@ function save_match(): void
                 ':round' => Input::str('roundLabel'),
                 ':venue' => Input::str('venue'),
                 ':sched' => $sched,
-                ':live'  => Input::str('livestreamUrl'),
+                ':liveset' => $liveSet,
+                ':liveval' => $liveVal,
+                ':hlset'  => $hlSet,
+                ':hlval'  => $hlVal,
+                ':hltset' => $hltSet,
+                ':hltval' => $hltVal,
                 ':mid' => $matchId, ':tid' => $tournamentId,
             ]
         );

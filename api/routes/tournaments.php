@@ -76,6 +76,7 @@ function update_tournament(): void
         Db::exec(
             'UPDATE tournaments SET
                 name = :name, type = :type, status = :status,
+                competition_logo = :complogo, announcement = :announce,
                 registration_deadline = :deadline,
                 registration_enabled = :regon,
                 team_editing_enabled = :editon,
@@ -97,6 +98,8 @@ function update_tournament(): void
                     ? $t['type'] : 'Penalty',
                 ':status'   => in_array($t['status'] ?? '', ['Upcoming', 'Active', 'Archived'], true)
                     ? $t['status'] : 'Upcoming',
+                ':complogo' => (string) ($cfg['competitionLogo'] ?? ''),
+                ':announce' => (string) ($cfg['announcement'] ?? ''),
                 ':deadline' => to_dt($cfg['registrationDeadline'] ?? null),
                 ':regon'    => !array_key_exists('registrationEnabled', $cfg) || !empty($cfg['registrationEnabled']) ? 1 : 0,
                 ':editon'   => !array_key_exists('teamEditingEnabled', $cfg) || !empty($cfg['teamEditingEnabled']) ? 1 : 0,

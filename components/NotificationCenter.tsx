@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Bell, BellOff, Check, CheckCheck, Loader2, Settings2, Trash2, X,
   Trophy, Calendar, ShieldCheck, ShieldX, Banknote, Users, Megaphone, Newspaper, Clock,
+  HeartHandshake,
 } from 'lucide-react';
 import { NotificationItem, useNotifications } from '../hooks/useNotifications';
 import {
@@ -36,6 +37,10 @@ const LOOK: Record<string, { icon: React.ReactNode; cls: string }> = {
   match_starting:   { icon: <Clock className="w-4 h-4" />,       cls: 'bg-orange-100 text-orange-700' },
   team_submitted:   { icon: <Users className="w-4 h-4" />,       cls: 'bg-indigo-100 text-indigo-700' },
   payment_submitted:{ icon: <Banknote className="w-4 h-4" />,    cls: 'bg-amber-100 text-amber-700' },
+  team_reedited:    { icon: <Users className="w-4 h-4" />,       cls: 'bg-orange-100 text-orange-700' },
+  donation_received:{ icon: <HeartHandshake className="w-4 h-4" />, cls: 'bg-pink-100 text-pink-700' },
+  donation_verified:{ icon: <HeartHandshake className="w-4 h-4" />, cls: 'bg-emerald-100 text-emerald-700' },
+  donation_rejected:{ icon: <HeartHandshake className="w-4 h-4" />, cls: 'bg-rose-100 text-rose-700' },
   news:             { icon: <Newspaper className="w-4 h-4" />,   cls: 'bg-slate-100 text-slate-600' },
   system_announcement: { icon: <Megaphone className="w-4 h-4" />, cls: 'bg-slate-100 text-slate-600' },
 };
@@ -50,6 +55,10 @@ const TYPE_LABEL: Record<string, string> = {
   match_starting: 'ใกล้ถึงเวลาแข่ง',
   team_submitted: 'มีทีมส่งใบสมัครใหม่',
   payment_submitted: 'มีทีมแนบสลิปค่าสมัคร',
+  team_reedited: 'ทีมที่อนุมัติแล้วถูกแก้ไข',
+  donation_received: 'มีการบริจาคใหม่รอตรวจสลิป',
+  donation_verified: 'ยืนยันการบริจาคของฉันแล้ว',
+  donation_rejected: 'สลิปบริจาคของฉันไม่ผ่าน',
   news: 'ข่าวประชาสัมพันธ์',
   system_announcement: 'ประกาศจากผู้ดูแลระบบ',
 };
@@ -64,8 +73,12 @@ const TYPE_GROUPS: { title: string; note: string; types: string[] }[] = [
     types: ['match_scheduled', 'match_result', 'match_starting'],
   },
   {
+    title: 'การบริจาค', note: 'เรื่องที่เกิดกับเงินที่คุณบริจาคเข้ามา',
+    types: ['donation_verified', 'donation_rejected'],
+  },
+  {
     title: 'งานผู้ดูแล', note: 'สำหรับผู้จัดการแข่งขัน — เรื่องที่ต้องลงมือทำ',
-    types: ['team_submitted', 'payment_submitted'],
+    types: ['team_submitted', 'payment_submitted', 'team_reedited', 'donation_received'],
   },
   {
     title: 'ทั่วไป', note: 'ข่าวสารและประกาศ',

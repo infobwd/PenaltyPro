@@ -231,6 +231,9 @@ export interface Match {
   scheduledTime?: string; 
   livestreamUrl?: string; 
   livestreamCover?: string;
+  /** คลิปไฮไลต์/ย้อนหลัง (YouTube) — คนละอันกับ livestreamUrl มีพร้อมกันได้ */
+  highlightUrl?: string;
+  highlightTitle?: string;
   tournamentId?: string;
 }
 

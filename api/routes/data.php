@@ -75,6 +75,8 @@ function handle(string $action, array $cfg): void
                 $tid = $t['tournament_id'];
                 // frontend อ่าน config เป็น "JSON string" — ประกอบกลับจากคอลัมน์จริง
                 $config = [
+                    'competitionLogo'  => drive_img($t['competition_logo'] ?? ''),
+                    'announcement'     => (string) ($t['announcement'] ?? ''),
                     'registrationDeadline' => iso($t['registration_deadline']),
                     'registrationEnabled' => (bool) $t['registration_enabled'],
                     'teamEditingEnabled' => (bool) $t['team_editing_enabled'],
@@ -242,6 +244,8 @@ function handle(string $action, array $cfg): void
                     'scheduledTime'   => iso($m['scheduled_time']),
                     'livestreamUrl'   => $m['livestream_url'],
                     'livestreamCover' => drive_img($m['livestream_cover']),
+                    'highlightUrl'    => (string) ($m['highlight_url'] ?? ''),
+                    'highlightTitle'  => (string) ($m['highlight_title'] ?? ''),
                     'tournamentId'    => $m['tournament_id'],
                     'rowVersion'      => (int) $m['row_version'],
                     'kicks' => array_map(static fn(array $k): array => [

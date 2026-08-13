@@ -4,7 +4,7 @@ import AdminTournaments from './AdminTournaments';
 import SearchPicker, { PickerItem } from './SearchPicker';
 import AdminSchedule from './AdminSchedule';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest, Match } from '../types';
-import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, Smartphone, ChevronLeft, ChevronRight, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
 import { apiGet, apiPost } from '../services/apiConfig';
 import { updateTeamStatus, saveSettings, manageNews, fileToBase64, uploadFile, updateTeamData, fetchUsers, updateUserRole, verifyDonation, createUser, updateUserDetails, deleteUser, updateDonationDetails, fetchDatabase, deleteTeam, fetchContests, manageContest } from '../services/sheetService';
 import confetti from 'canvas-confetti';
@@ -134,6 +134,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newsSearch, setNewsSearch] = useState('');
   const [donationSearch, setDonationSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'admin' | 'staff' | 'user'>('all');
+  const [userSchoolFilter, setUserSchoolFilter] = useState<'all' | 'verified' | 'self' | 'none'>('all');
+  const [userPage, setUserPage] = useState(1);
 
   // Draw Logic State
   const [isDrawModalOpen, setIsDrawModalOpen] = useState(false);
@@ -1071,10 +1074,56 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return matchesContext && matchesSearch;
   });
 
-  const filteredUsers = userList.filter(u => {
-      const s = userSearch.toLowerCase();
-      return (u.displayName || '').toLowerCase().includes(s) || (u.username || '').toLowerCase().includes(s) || (u.phoneNumber || '').includes(s);
-  });
+  /**
+   * สถิติผู้ใช้ — นับจากรายการทั้งหมด ไม่ใช่เฉพาะที่กรองอยู่
+   *
+   * ตัวเลขบนการ์ดต้องคงที่ไม่ว่าจะพิมพ์ค้นหาอะไรอยู่ ไม่งั้นมันจะกลายเป็น
+   * "ผลการค้นหา" ที่หน้าตาเหมือนสถิติ ซึ่งอ่านผิดได้ง่ายมาก
+   */
+  const userStats = React.useMemo(() => {
+      const st = {
+          total: userList.length,
+          crew: 0,        // แอดมิน + เจ้าหน้าที่
+          line: 0,
+          verified: 0,    // ผูกโรงเรียนและผู้ดูแลรับรองแล้ว
+          selfPicked: 0,  // ผู้ใช้เลือกโรงเรียนเอง ยังไม่รับรอง
+          noSchool: 0,    // ยังไม่เคยตอบเรื่องโรงเรียน
+      };
+      for (const u of userList) {
+          if (u.role === 'admin' || u.role === 'staff') st.crew++;
+          if (u.type === 'line') st.line++;
+          if (u.schoolName) { u.schoolVerified ? st.verified++ : st.selfPicked++; }
+          else if (!u.schoolChosen) st.noSchool++;
+      }
+      return st;
+  }, [userList]);
+
+  const filteredUsers = React.useMemo(() => userList.filter(u => {
+      const s = userSearch.trim().toLowerCase();
+      const hit = s === ''
+          || (u.displayName || '').toLowerCase().includes(s)
+          || (u.username || '').toLowerCase().includes(s)
+          || (u.phoneNumber || '').includes(s)
+          || (u.schoolName || '').toLowerCase().includes(s);
+      if (!hit) return false;
+      if (userRoleFilter !== 'all' && (u.role ?? 'user') !== userRoleFilter) return false;
+      if (userSchoolFilter === 'verified' && !(u.schoolName && u.schoolVerified)) return false;
+      if (userSchoolFilter === 'self' && !(u.schoolName && !u.schoolVerified)) return false;
+      if (userSchoolFilter === 'none' && (u.schoolName || u.schoolChosen)) return false;
+      return true;
+  }), [userList, userSearch, userRoleFilter, userSchoolFilter]);
+
+  // แบ่งหน้า — โรงเรียนในเขตมีครูหลายร้อยคน เรนเดอร์ทีเดียวหมดทำให้หน้าค้าง
+  const USERS_PER_PAGE = 25;
+  const userPageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
+  const pagedUsers = filteredUsers.slice(
+      (Math.min(userPage, userPageCount) - 1) * USERS_PER_PAGE,
+      Math.min(userPage, userPageCount) * USERS_PER_PAGE);
+
+  // เปลี่ยนคำค้นหรือตัวกรองแล้วต้องกลับหน้าแรก
+  // ไม่งั้นจะค้างอยู่หน้า 7 ของผลลัพธ์ที่เหลือ 2 หน้า แล้วเห็นหน้าว่าง
+  React.useEffect(() => { setUserPage(1); },
+      [userSearch, userRoleFilter, userSchoolFilter]);
 
   /** รายชื่อโรงเรียนสำหรับตัวเลือก — โหลดครั้งเดียวแล้วใช้ซ้ำ */
   const schoolCacheRef = React.useRef<PickerItem[] | null>(null);
@@ -2648,49 +2697,171 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* --- USERS TAB --- */}
         {activeTab === 'users' && (
-            <div className="animate-in fade-in duration-300">
+            <div className="animate-in fade-in duration-300 space-y-4">
+
+                {/* การ์ดสถิติ — นับจากผู้ใช้ทั้งหมด ไม่ขึ้นกับตัวกรองที่เลือกอยู่
+                    กดการ์ดเพื่อกรองได้ทันที เร็วกว่าไปหาตัวกรองอีกที */}
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
+                    {([
+                        { key: 'all',      label: 'ผู้ใช้ทั้งหมด', value: userStats.total,      cls: 'text-slate-900', icon: <UserCog className="w-4 h-4" />, on: userRoleFilter === 'all' && userSchoolFilter === 'all' },
+                        { key: 'crew',     label: 'ผู้ดูแล/เจ้าหน้าที่', value: userStats.crew, cls: 'text-purple-600', icon: <ShieldCheck className="w-4 h-4" />, on: userRoleFilter === 'admin' },
+                        { key: 'line',     label: 'เข้าด้วย LINE',  value: userStats.line,       cls: 'text-emerald-600', icon: <Smartphone className="w-4 h-4" />, on: false },
+                        { key: 'verified', label: 'รับรองโรงเรียนแล้ว', value: userStats.verified, cls: 'text-sky-600', icon: <CheckCircle2 className="w-4 h-4" />, on: userSchoolFilter === 'verified' },
+                        { key: 'pending',  label: 'รอรับรอง/ยังไม่เลือก', value: userStats.selfPicked + userStats.noSchool, cls: 'text-amber-600', icon: <AlertTriangle className="w-4 h-4" />, on: userSchoolFilter === 'self' },
+                    ]).map(c => (
+                        <button key={c.key}
+                            onClick={() => {
+                                if (c.key === 'all') { setUserRoleFilter('all'); setUserSchoolFilter('all'); }
+                                else if (c.key === 'crew') { setUserSchoolFilter('all'); setUserRoleFilter(userRoleFilter === 'admin' ? 'all' : 'admin'); }
+                                else if (c.key === 'verified') { setUserRoleFilter('all'); setUserSchoolFilter(userSchoolFilter === 'verified' ? 'all' : 'verified'); }
+                                else if (c.key === 'pending') { setUserRoleFilter('all'); setUserSchoolFilter(userSchoolFilter === 'self' ? 'all' : 'self'); }
+                            }}
+                            disabled={c.key === 'line'}
+                            className={`bg-white rounded-xl border p-3 text-left transition
+                                ${c.on ? 'border-indigo-500 ring-2 ring-indigo-100' : 'border-slate-200'}
+                                ${c.key === 'line' ? 'cursor-default' : 'hover:border-indigo-300'}`}>
+                            <div className="flex items-center gap-1.5 text-slate-400">{c.icon}
+                                <span className="text-[11px] font-bold leading-tight">{c.label}</span>
+                            </div>
+                            <p className={`text-2xl sm:text-3xl font-black tabular-nums mt-1 ${c.cls}`}>{c.value}</p>
+                        </button>
+                    ))}
+                </div>
+
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
-                        <h2 className="font-bold text-lg text-slate-800">จัดการผู้ใช้งาน</h2>
-                        <div className="flex gap-2">
-                            <input 
-                                type="text" 
-                                placeholder="ค้นหาผู้ใช้..." 
+                    {/* หัวข้อ — บนมือถือเรียงลงมาเป็นแถว ไม่ใช่บีบให้อยู่บรรทัดเดียวจนกดไม่ถูก */}
+                    <div className="p-4 sm:p-5 border-b border-slate-100 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <h2 className="font-bold text-lg text-slate-800">จัดการผู้ใช้งาน</h2>
+                            <div className="flex gap-2 shrink-0">
+                                <button onClick={loadUsers} className="p-2.5 border rounded-lg hover:bg-slate-50 text-slate-500" title="โหลดใหม่">
+                                    <RefreshCw className="w-4 h-4"/>
+                                </button>
+                                <button onClick={() => handleOpenUserModal(null)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
+                                    <UserPlus className="w-4 h-4" /> <span className="hidden sm:inline">เพิ่มผู้ใช้</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                                type="text"
+                                placeholder="ค้นหาชื่อ ชื่อผู้ใช้ เบอร์โทร หรือโรงเรียน"
                                 value={userSearch}
                                 onChange={e => setUserSearch(e.target.value)}
-                                className="p-2 border rounded-lg text-sm w-48 focus:w-64 transition-all outline-none focus:ring-2 focus:ring-indigo-500"
+                                className="w-full h-11 pl-9 pr-3 border border-slate-300 rounded-lg text-base outline-none focus:ring-2 focus:ring-indigo-500"
                             />
-                            <button onClick={() => handleOpenUserModal(null)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition">
-                                <UserPlus className="w-4 h-4" /> เพิ่มผู้ใช้
-                            </button>
-                            <button onClick={loadUsers} className="p-2 border rounded-lg hover:bg-slate-50 text-slate-500" title="Refresh"><RefreshCw className="w-4 h-4"/></button>
                         </div>
+
+                        {/* ตัวกรอง — เลื่อนแนวนอนบนมือถือ ไม่ตัดบรรทัดจนสูงเกินครึ่งจอ */}
+                        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+                            {([
+                                { v: 'all',   t: 'ทุกบทบาท' },
+                                { v: 'admin', t: 'ผู้ดูแล' },
+                                { v: 'staff', t: 'เจ้าหน้าที่' },
+                                { v: 'user',  t: 'ผู้ใช้ทั่วไป' },
+                            ] as const).map(o => (
+                                <button key={o.v} onClick={() => setUserRoleFilter(o.v)}
+                                    className={`px-4 h-10 rounded-full text-xs font-bold whitespace-nowrap shrink-0 border transition
+                                        ${userRoleFilter === o.v ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                                    {o.t}
+                                </button>
+                            ))}
+                            <span className="w-px bg-slate-200 shrink-0 my-1" />
+                            {([
+                                { v: 'all',      t: 'ทุกสถานะโรงเรียน' },
+                                { v: 'verified', t: 'รับรองแล้ว' },
+                                { v: 'self',     t: 'ผู้ใช้เลือกเอง' },
+                                { v: 'none',     t: 'ยังไม่ได้เลือก' },
+                            ] as const).map(o => (
+                                <button key={o.v} onClick={() => setUserSchoolFilter(o.v)}
+                                    className={`px-4 h-10 rounded-full text-xs font-bold whitespace-nowrap shrink-0 border transition
+                                        ${userSchoolFilter === o.v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+                                    {o.t}
+                                </button>
+                            ))}
+                        </div>
+
+                        <p className="text-xs text-slate-500">
+                            พบ <strong className="text-slate-800">{filteredUsers.length}</strong> คน
+                            {filteredUsers.length > USERS_PER_PAGE && (
+                                <> · แสดงหน้า {Math.min(userPage, userPageCount)} จาก {userPageCount}</>
+                            )}
+                        </p>
                     </div>
 
-                    <div className="p-6 bg-slate-50 min-h-[400px]">
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    {isLoadingUsers ? (
+                        <div className="p-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-indigo-500"/></div>
+                    ) : filteredUsers.length === 0 ? (
+                        <div className="p-12 text-center text-slate-400">
+                            <UserCog className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                            <p className="text-sm">ไม่พบผู้ใช้งานตามเงื่อนไขที่เลือก</p>
+                        </div>
+                    ) : (
+                    <>
+                        {/* มือถือ: การ์ด — ตารางกว้าง 6 คอลัมน์บีบลงจอ 375px แล้วอ่านไม่ออก */}
+                        <div className="lg:hidden divide-y divide-slate-100">
+                            {pagedUsers.map(user => (
+                                <div key={user.userId} className="p-4">
+                                    <div className="flex items-start gap-3">
+                                        {user.pictureUrl
+                                            ? <img src={user.pictureUrl} className="w-11 h-11 rounded-full object-cover border border-slate-200 shrink-0"/>
+                                            : <div className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold shrink-0">{user.displayName?.charAt(0)}</div>}
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-bold text-slate-800 break-words">{user.displayName}</p>
+                                            <p className="text-xs text-slate-400 break-all">{user.username || user.lineUserId}</p>
+                                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${user.role === 'admin' ? 'bg-purple-100 text-purple-700' : user.role === 'staff' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{user.role}</span>
+                                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-500">{user.type === 'line' ? 'LINE' : 'รหัสผ่าน'}</span>
+                                                {user.schoolName ? (
+                                                    user.schoolVerified
+                                                        ? <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-700">รับรองแล้ว</span>
+                                                        : <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-700">ผู้ใช้เลือกเอง</span>
+                                                ) : !user.schoolChosen
+                                                    ? <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-700">ยังไม่ได้เลือก</span>
+                                                    : null}
+                                            </div>
+                                            {user.schoolName && <p className="text-xs text-slate-600 mt-1.5 break-words">{user.schoolName}</p>}
+                                            <p className="text-[11px] text-slate-400 mt-1">
+                                                เข้าล่าสุด {user.lastLogin ? new Date(user.lastLogin).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : 'ยังไม่เคย'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 mt-3">
+                                        <button onClick={() => handleOpenUserModal(user)} className="flex-1 h-11 rounded-lg border border-slate-300 text-indigo-600 font-bold text-sm flex items-center justify-center gap-1.5">
+                                            <Edit3 className="w-4 h-4"/> แก้ไข
+                                        </button>
+                                        <button onClick={() => handleDeleteUser(user.userId)} className="w-14 h-11 rounded-lg border border-slate-300 text-red-600 flex items-center justify-center">
+                                            <Trash2 className="w-4 h-4"/>
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* จอคอม: ตารางเหมือนเดิม */}
+                        <div className="hidden lg:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
                                     <tr>
-                                        <th className="p-4">User</th>
-                                        <th className="p-4">Role</th>
+                                        <th className="p-4">ผู้ใช้</th>
+                                        <th className="p-4">บทบาท</th>
                                         <th className="p-4">โรงเรียน</th>
-                                        <th className="p-4">Login Type</th>
-                                        <th className="p-4">Last Login</th>
-                                        <th className="p-4 text-right">Actions</th>
+                                        <th className="p-4">ช่องทางเข้า</th>
+                                        <th className="p-4">เข้าล่าสุด</th>
+                                        <th className="p-4 text-right">จัดการ</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {isLoadingUsers ? (
-                                        <tr><td colSpan={6} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500"/></td></tr>
-                                    ) : filteredUsers.map(user => (
+                                    {pagedUsers.map(user => (
                                         <tr key={user.userId} className="hover:bg-slate-50 transition">
                                             <td className="p-4">
                                                 <div className="flex items-center gap-3">
                                                     {user.pictureUrl ? <img src={user.pictureUrl} className="w-8 h-8 rounded-full object-cover border border-slate-200"/> : <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold">{user.displayName?.charAt(0)}</div>}
-                                                    <div>
-                                                        <div className="font-bold text-slate-800">{user.displayName}</div>
-                                                        <div className="text-xs text-slate-400">{user.username || user.lineUserId}</div>
+                                                    <div className="min-w-0">
+                                                        <div className="font-bold text-slate-800 truncate">{user.displayName}</div>
+                                                        <div className="text-xs text-slate-400 truncate">{user.username || user.lineUserId}</div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -2715,19 +2886,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                                     ? <span className="text-slate-400">ไม่สังกัดโรงเรียน</span>
                                                     : <span className="text-amber-600 font-bold">ยังไม่ได้เลือก</span>}
                                             </td>
-                                            <td className="p-4 text-slate-500 text-xs">{user.type === 'line' ? 'LINE' : 'Password'}</td>
-                                            <td className="p-4 text-slate-400 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : '-'}</td>
-                                            <td className="p-4 text-right flex justify-end gap-2">
-                                                <button onClick={() => handleOpenUserModal(user)} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
-                                                <button onClick={() => handleDeleteUser(user.userId)} className="p-1.5 hover:bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                                            <td className="p-4 text-slate-500 text-xs">{user.type === 'line' ? 'LINE' : 'รหัสผ่าน'}</td>
+                                            <td className="p-4 text-slate-400 text-xs">{user.lastLogin ? new Date(user.lastLogin).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                                            <td className="p-4">
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={() => handleOpenUserModal(user)} className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded"><Edit3 className="w-4 h-4"/></button>
+                                                    <button onClick={() => handleDeleteUser(user.userId)} className="p-1.5 hover:bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
-                                    {!isLoadingUsers && filteredUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-400">ไม่พบผู้ใช้งาน</td></tr>}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
+
+                        {/* แบ่งหน้า */}
+                        {userPageCount > 1 && (
+                            <div className="p-4 border-t border-slate-100 flex items-center justify-between gap-2">
+                                <button onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                                    disabled={userPage <= 1}
+                                    className="h-11 px-4 rounded-lg border border-slate-300 text-sm font-bold disabled:opacity-40 flex items-center gap-1">
+                                    <ChevronLeft className="w-4 h-4" /> ก่อนหน้า
+                                </button>
+                                <span className="text-sm font-bold text-slate-600 tabular-nums">
+                                    {Math.min(userPage, userPageCount)} / {userPageCount}
+                                </span>
+                                <button onClick={() => setUserPage(p => Math.min(userPageCount, p + 1))}
+                                    disabled={userPage >= userPageCount}
+                                    className="h-11 px-4 rounded-lg border border-slate-300 text-sm font-bold disabled:opacity-40 flex items-center gap-1">
+                                    ถัดไป <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
+                    </>
+                    )}
                 </div>
             </div>
         )}

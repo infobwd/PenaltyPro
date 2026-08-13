@@ -15,6 +15,7 @@ function handle(string $action, array $cfg): void
         'checkinTeam'   => checkin_team(),
         'savePlayerCheckin' => save_player_checkin(),
         'checkinTeamBulk'   => checkin_team_bulk(),
+        'checkinAllBulk'    => checkin_all_bulk(),
         default => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -54,7 +55,11 @@ function checkin_teams(): void
                 COUNT(p.player_id) AS total,
                 SUM(c.status = 'present') AS present,
                 SUM(c.status = 'absent')  AS absent,
-                SUM(c.status = 'issue')   AS issue
+                SUM(c.status = 'issue')   AS issue,
+                -- ข้อมูลนักกีฬาถูกแก้หลังจากที่กรรมการเช็กไปแล้ว
+                -- กรรมการรายงานตัวคือการเทียบหน้าคนจริงกับรูปในระบบและดูเบอร์เสื้อ
+                -- ถ้ารูปหรือเบอร์เปลี่ยนทีหลัง ตราที่กดไว้ก็ใช้ยืนยันไม่ได้แล้ว
+                SUM(c.checked_at IS NOT NULL AND p.updated_at > c.checked_at) AS stale
            FROM teams t
            LEFT JOIN schools s ON s.school_id = t.school_id
            LEFT JOIN players p ON p.team_id = t.team_id
@@ -77,6 +82,7 @@ function checkin_teams(): void
             'present'    => (int) $t['present'],
             'absent'     => (int) $t['absent'],
             'issue'      => (int) $t['issue'],
+            'stale'      => (int) $t['stale'],
         ], $teams),
     ]);
 }
@@ -103,7 +109,9 @@ function checkin_team(): void
     $players = Db::all(
         'SELECT p.player_id, p.name, p.shirt_number, p.position,
                 p.photo_url, p.birth_date,
-                c.status, c.note, c.checked_at
+                c.status, c.note, c.checked_at,
+                (c.checked_at IS NOT NULL AND p.updated_at > c.checked_at) AS stale,
+                p.updated_at
            FROM players p
            LEFT JOIN player_checkins c ON c.player_id = p.player_id
           WHERE p.team_id = :tid2
@@ -133,6 +141,9 @@ function checkin_team(): void
             'status'    => $p['status'],          // null = ยังไม่ได้เช็ก
             'note'      => (string) ($p['note'] ?? ''),
             'checkedAt' => isset($p['checked_at']) ? iso($p['checked_at']) : null,
+            // true = ข้อมูลคนนี้ถูกแก้หลังรายงานตัวแล้ว ให้กรรมการตรวจซ้ำ
+            'stale'     => (bool) ($p['stale'] ?? false),
+            'updatedAt' => isset($p['updated_at']) ? iso($p['updated_at']) : null,
         ], $players),
     ]);
 }
@@ -250,4 +261,75 @@ function checkin_team_bulk(): void
         ['status' => $status, 'count' => count($players)]);
 
     Response::ok(['teamId' => $teamId, 'affected' => count($players)]);
+}
+
+/**
+ * รายงานตัวทั้งรายการรวดเดียว
+ *
+ * งานจริงคือทีมทยอยมาถึงตั้งแต่เช้า พอถึงเวลาเรียกประชุมผู้จัดการทีมก็ครบเกือบหมดแล้ว
+ * กรรมการจึงอยากกดทีเดียวให้ทุกทีมที่ยังไม่ได้เช็ก แล้วค่อยตามแก้เฉพาะทีมที่ขาด
+ * เร็วกว่าเข้าไปกดทีละทีม 30 กว่าครั้ง
+ *
+ * ค่าเริ่มต้นเขียนเฉพาะคนที่ยังไม่ได้เช็ก — ผลที่กรรมการตั้งใจกดไว้แล้ว
+ * (เช่นกด "ไม่มา") ต้องไม่ถูกลบทิ้งด้วยการกดปุ่มเดียว
+ */
+function checkin_all_bulk(): void
+{
+    $u = Auth::requireStaff();
+
+    $tournamentId = Input::require_str('tournamentId');
+    $status = Input::str('status');
+
+    if ($status !== '' && !in_array($status, ['present', 'absent', 'issue'], true)) {
+        Response::fail('สถานะไม่ถูกต้อง', 422);
+    }
+
+    if ($status === '') {
+        $n = Db::exec(
+            'DELETE c FROM player_checkins c
+               JOIN teams t ON t.team_id = c.team_id
+              WHERE t.tournament_id = :tid',
+            [':tid' => $tournamentId]
+        );
+        Audit::log('tournament', $tournamentId, 'checkin_clear_all', null, ['count' => $n]);
+        Response::ok(['affected' => $n, 'teams' => 0]);
+    }
+
+    $onlyNew = Input::str('scope') !== 'all';
+    $rows = Db::all(
+        $onlyNew
+            ? "SELECT p.player_id, p.team_id FROM players p
+                 JOIN teams t ON t.team_id = p.team_id
+                 LEFT JOIN player_checkins c ON c.player_id = p.player_id
+                WHERE t.tournament_id = :tid2 AND t.status = 'Approved'
+                  AND c.player_id IS NULL"
+            : "SELECT p.player_id, p.team_id FROM players p
+                 JOIN teams t ON t.team_id = p.team_id
+                WHERE t.tournament_id = :tid2 AND t.status = 'Approved'",
+        [':tid2' => $tournamentId]
+    );
+
+    $teams = [];
+    foreach ($rows as $r) {
+        Db::exec(
+            'INSERT INTO player_checkins
+                (tournament_id, team_id, player_id, status, checked_by)
+             VALUES (:tid3, :team, :pid, :st, :by)
+             ON DUPLICATE KEY UPDATE
+                status = VALUES(status), checked_by = VALUES(checked_by), checked_at = NOW()',
+            [
+                ':tid3' => $tournamentId,
+                ':team' => $r['team_id'],
+                ':pid'  => $r['player_id'],
+                ':st'   => $status,
+                ':by'   => $u['user_id'],
+            ]
+        );
+        $teams[$r['team_id']] = true;
+    }
+
+    Audit::log('tournament', $tournamentId, 'checkin_bulk_all', null,
+        ['status' => $status, 'players' => count($rows), 'teams' => count($teams)]);
+
+    Response::ok(['affected' => count($rows), 'teams' => count($teams)]);
 }

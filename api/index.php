@@ -165,6 +165,7 @@ $routes = [
     'checkinTeam'       => 'checkin.php',
     'savePlayerCheckin' => 'checkin.php',
     'checkinTeamBulk'   => 'checkin.php',
+    'checkinAllBulk'    => 'checkin.php',
 ];
 
 $action = (string) ($_GET['action'] ?? Input::str('action'));

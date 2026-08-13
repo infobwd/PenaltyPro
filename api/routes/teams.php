@@ -40,7 +40,8 @@ function load_tournament(string $id): array
     $t = Db::one(
         'SELECT tournament_id, name, status, registration_deadline,
                 team_editing_enabled, team_edit_deadline,
-                max_teams, max_teams_per_school, players_per_team, max_subs
+                max_teams, max_teams_per_school, players_per_team, max_subs,
+                registration_fee, bank_name, bank_account, account_name
            FROM tournaments WHERE tournament_id = :tid',
         [':tid' => $id]
     );
@@ -270,6 +271,15 @@ function my_teams(): void
             'playersPerTeam' => (int) $t['players_per_team'],
             'maxSubs'        => (int) $t['max_subs'],
             'maxTeamsPerSchool' => (int) $t['max_teams_per_school'],
+            // บัญชีรับค่าสมัคร — ส่งมากับ myTeams เลย
+            //
+            // หน้าโรงเรียนถือ token ของทีม ไม่ใช่ของผู้ใช้ และไม่ได้โหลด getData
+            // ถ้าไม่ส่งมาตรงนี้ ครูต้องกลับไปหาเลขบัญชีจากหน้าอื่นหรือจากไลน์กลุ่ม
+            // แล้วจำมาพิมพ์เอง ซึ่งเป็นที่มาของการโอนผิดบัญชี
+            'registrationFee' => (float) $t['registration_fee'],
+            'bankName'    => (string) $t['bank_name'],
+            'bankAccount' => (string) $t['bank_account'],
+            'accountName' => (string) $t['account_name'],
         ],
         'teams' => $out,
     ]);
@@ -352,19 +362,152 @@ function save_team(): void
     $newPaymentReviewedBy = ($newSlip === '' || $slipChanged)
         ? null : ($team['payment_reviewed_by'] ?? null);
 
-    // โรงเรียนแก้ทีมที่อนุมัติไปแล้ว = ต้องให้เจ้าภาพตรวจใหม่
+    // ── หาว่าอะไรเปลี่ยนบ้าง ก่อนจะเขียนอะไรลงไป ─────────────────────────
     //
-    // เปลี่ยนตัวผู้เล่นหลังอนุมัติเป็นเรื่องปกติ (เจ็บ ติดสอบ) แต่ถ้าปล่อยให้
-    // สถานะค้างเป็น "อนุมัติแล้ว" เจ้าภาพจะไม่มีทางรู้ว่ารายชื่อเปลี่ยนไปแล้ว
-    // แล้วคนที่ลงสนามจริงก็จะไม่ตรงกับที่ตรวจไว้
+    // ผลจากตรงนี้ใช้ 3 อย่าง:
+    //   1. ตัดสินว่าต้องถอนอนุมัติไหม (ถอนเฉพาะเมื่อเปลี่ยนจริง)
+    //   2. บอกผู้ดูแลว่าอะไรเปลี่ยน จะได้ไม่ต้องไล่เทียบเอง 12 คน
+    //   3. ข้ามการ UPDATE แถวที่ไม่ได้เปลี่ยน — สำคัญกว่าที่คิด เพราะ
+    //      players.updated_at เป็น ON UPDATE CURRENT_TIMESTAMP
+    //      ถ้าเขียนทับทุกแถวทุกครั้ง เวลาแก้จะเดินหมดทั้งทีม แล้วธงเตือน
+    //      "แก้หลังรายงานตัว" ในหน้ารายงานตัวจะขึ้นให้ทุกคนจนไร้ความหมาย
+    $changes = [];
+
+    $teamFields = [
+        ['ชื่อทีม',        'name',           $name],
+        ['ชื่อย่อ',        'short_name',     (string) Input::get('shortName', $team['short_name'])],
+        ['ผู้อำนวยการ',    'director_name',  (string) Input::get('directorName', $team['director_name'])],
+        ['ผู้จัดการทีม',   'manager_name',   (string) Input::get('managerName', $team['manager_name'])],
+        ['เบอร์ผู้จัดการ', 'manager_phone',  (string) Input::get('managerPhone', $team['manager_phone'])],
+        ['ผู้ฝึกสอน',      'coach_name',     (string) Input::get('coachName', $team['coach_name'])],
+        ['เบอร์ผู้ฝึกสอน', 'coach_phone',    (string) Input::get('coachPhone', $team['coach_phone'])],
+        ['โลโก้ทีม',       'logo_url',       (string) Input::get('logoUrl', $team['logo_url'])],
+        ['เอกสารรับรอง',   'doc_url',        (string) Input::get('docUrl', $team['doc_url'])],
+    ];
+    foreach ($teamFields as [$label, $col, $val]) {
+        if ((string) ($team[$col] ?? '') !== $val) {
+            $changes[] = $label === 'โลโก้ทีม' || $label === 'เอกสารรับรอง'
+                ? "เปลี่ยน$label"
+                : "$label: " . (((string) ($team[$col] ?? '')) ?: '(ว่าง)') . ' → ' . ($val ?: '(ว่าง)');
+        }
+    }
+    if ($slipChanged) {
+        $changes[] = $newSlip === '' ? 'เอาสลิปค่าสมัครออก' : 'แนบสลิปค่าสมัครใหม่';
+    }
+
+    // ── จับคู่ผู้เล่นเดิมกับที่ส่งมา ─────────────────────────────────────
     //
-    // แอดมิน/เจ้าหน้าที่แก้เองไม่ต้องถอน — เขาคือคนตรวจอยู่แล้ว
-    $revokeApproval = $schoolId !== null && $team['status'] === 'Approved';
+    // จับคู่ด้วย id ที่ client ส่งกลับมาก่อน ถ้าไม่มีค่อยใช้ชื่อ+เบอร์เสื้อ
+    // (client เก่าบางตัวไม่ส่ง id — ต้องไม่พังและต้องไม่ทิ้งข้อมูล)
+    $existing = $touchPlayers
+        ? Db::all('SELECT player_id, name, shirt_number, position, photo_url, birth_date,
+                          display_order
+                     FROM players WHERE team_id = :tid2', [':tid2' => $teamId])
+        : [];
+
+    $natural = static fn(?string $n, ?string $num): string =>
+        mb_strtolower(trim((string) $n)) . '#' . trim((string) $num);
+
+    $byId = [];
+    $byKey = [];
+    foreach ($existing as $e) {
+        $byId[$e['player_id']] = $e;
+        $byKey[$natural($e['name'], $e['shirt_number'])][] = $e['player_id'];
+    }
+
+    $matched = [];   // player_id -> ข้อมูลชุดใหม่ (ทุกคนที่จับคู่ได้)
+    $updates = [];   // เฉพาะคนที่มีอะไรเปลี่ยนจริง
+    $insert  = [];   // แถวใหม่ล้วน
+    $recheck = [];   // ตัวตนเปลี่ยน ต้องให้เจ้าภาพตรวจใหม่
+
+    foreach ($players as $i => $pIn) {
+        $pname = trim((string) ($pIn['name'] ?? ''));
+        $num   = trim((string) ($pIn['number'] ?? ''));
+        $bd    = trim((string) ($pIn['birthDate'] ?? ''));
+        $ts    = $bd === '' ? false : strtotime($bd);
+        $row = [
+            'name'  => $pname,
+            // '' ต้องเป็น NULL ไม่งั้น uq_player_shirt ชนกันเอง
+            'num'   => $num === '' ? null : $num,
+            'pos'   => (string) ($pIn['position'] ?? 'Player'),
+            'photo' => (string) ($pIn['photoUrl'] ?? ''),
+            'bd'    => $ts === false ? null : date('Y-m-d', $ts),
+            'ord'   => $i,
+        ];
+
+        $hit = null;
+        $sentId = trim((string) ($pIn['id'] ?? ''));
+        if ($sentId !== '' && isset($byId[$sentId]) && !isset($matched[$sentId])) {
+            $hit = $sentId;
+        } else {
+            foreach ($byKey[$natural($pname, $num)] ?? [] as $cand) {
+                if (!isset($matched[$cand])) { $hit = $cand; break; }
+            }
+        }
+
+        if ($hit === null) {
+            $insert[] = $row;
+            $changes[] = 'เพิ่ม ' . ($pname !== '' ? $pname : 'นักกีฬาไม่ระบุชื่อ')
+                . ($num !== '' ? " (เบอร์ $num)" : '');
+            continue;
+        }
+
+        $old = $byId[$hit];
+        $matched[$hit] = $row;
+
+        $diff = [];
+        if (mb_strtolower(trim((string) $old['name'])) !== mb_strtolower($pname)) {
+            $diff[] = 'ชื่อ';
+            $recheck[] = $hit;
+            $changes[] = 'เปลี่ยนชื่อ ' . $old['name'] . ' → ' . $pname;
+        }
+        if ((string) ($old['shirt_number'] ?? '') !== (string) ($row['num'] ?? '')) {
+            $diff[] = 'num';
+            $changes[] = $pname . ' เบอร์ '
+                . (((string) ($old['shirt_number'] ?? '')) ?: '-') . ' → '
+                . (((string) ($row['num'] ?? '')) ?: '-');
+        }
+        if ((string) $old['photo_url'] !== $row['photo']) {
+            $diff[] = 'photo';
+            $changes[] = $pname . ' เปลี่ยนรูป';
+        }
+        if ((string) ($old['birth_date'] ?? '') !== (string) ($row['bd'] ?? '')) {
+            $diff[] = 'bd';
+            $changes[] = $pname . ' เปลี่ยนวันเกิด';
+        }
+        if ((string) $old['position'] !== $row['pos']) { $diff[] = 'pos'; }
+        if ((int) $old['display_order'] !== (int) $row['ord']) { $diff[] = 'ord'; }
+
+        if ($diff !== []) {
+            $updates[$hit] = $row + ['_numChanged' => in_array('num', $diff, true)];
+        }
+    }
+
+    if ($touchPlayers) {
+        foreach ($existing as $e) {
+            if (!isset($matched[$e['player_id']])) {
+                $changes[] = 'เอาออก ' . $e['name']
+                    . ($e['shirt_number'] !== null ? " (เบอร์ {$e['shirt_number']})" : '');
+            }
+        }
+    }
+
+    /**
+     * ถอนอนุมัติเฉพาะเมื่อข้อมูลเปลี่ยนจริง
+     *
+     * เดิมถอนทุกครั้งที่โรงเรียนกดบันทึก และตั้งแต่มีบันทึกอัตโนมัติทุก 2.5 วินาที
+     * ครูแค่เปิดหน้าแก้ไข พิมพ์แล้วลบทิ้ง ทีมก็หลุดอนุมัติเงียบ ๆ
+     * ผู้ดูแลได้แจ้งเตือนเก้อจนเลิกสนใจ แล้วรอบที่แก้จริงก็ถูกมองข้ามไปด้วย
+     *
+     * แอดมิน/เจ้าหน้าที่แก้เองไม่ต้องถอน — เขาคือคนตรวจอยู่แล้ว
+     */
+    $dataChanged = $changes !== [];
+    $revokeApproval = $schoolId !== null && $team['status'] === 'Approved' && $dataChanged;
 
     Db::transaction(static function () use (
-        $teamId, $team, $name, $players, $touchPlayers, $newSlip,
+        $teamId, $team, $name, $touchPlayers, $newSlip,
         $newPaymentStatus, $newPaymentNote, $newPaymentReviewedAt, $newPaymentReviewedBy,
-        $revokeApproval
+        $revokeApproval, $existing, $matched, $updates, $insert, $recheck
     ): void {
         Db::exec(
             'UPDATE teams SET
@@ -416,99 +559,35 @@ function save_team(): void
         if (!$touchPlayers) {
             return;   // แก้เฉพาะข้อมูลทีม ไม่แตะรายชื่อ
         }
-        // ── แก้รายชื่อแบบคงตัวตนเดิมไว้ ────────────────────────────────
+        // ── เขียนเฉพาะสิ่งที่เปลี่ยน ────────────────────────────────────
         //
-        // ของเดิมลบผู้เล่นทั้งทีมแล้ว INSERT ใหม่พร้อม player_id ชุดใหม่ทุกครั้ง
-        // แค่แก้ชื่อคนเดียวก็ทำให้ id ของทุกคนเปลี่ยน ผลคือ:
-        //   - kicks.player_id เป็น ON DELETE SET NULL -> สถิติยิงจุดโทษรายคนขาดจากตัวคน
-        //   - player_checkins เป็น ON DELETE CASCADE -> ผลรายงานตัวหน้างานหายทั้งทีม
-        // และตั้งแต่เปิดให้แก้ทีมที่อนุมัติแล้วได้ เคสนี้จะเกิดใกล้วันแข่งพอดี
+        // การจับคู่และ diff คำนวณไว้แล้วก่อนเข้าทรานแซกชัน ตรงนี้แค่ลงมือเขียน
         //
-        // จับคู่ด้วย id ที่ client ส่งกลับมาก่อน ถ้าไม่มีค่อยใช้ชื่อ+เบอร์เสื้อ
-        // (client เก่าบางตัวไม่ส่ง id — ต้องไม่พังและต้องไม่ทิ้งข้อมูล)
-        $existing = Db::all(
-            'SELECT player_id, name, shirt_number FROM players WHERE team_id = :tid2',
-            [':tid2' => $teamId]
-        );
-
-        $natural = static fn(?string $name, ?string $num): string =>
-            mb_strtolower(trim((string) $name)) . '#' . trim((string) $num);
-
-        $byId = [];
-        $byKey = [];
-        foreach ($existing as $e) {
-            $byId[$e['player_id']] = $e;
-            $byKey[$natural($e['name'], $e['shirt_number'])][] = $e['player_id'];
-        }
-
-        $keep = [];        // player_id เดิม -> ข้อมูลชุดใหม่ที่จะเขียนทับ
-        $insert = [];      // แถวใหม่ล้วน
-        $recheck = [];     // คนที่ตัวตนเปลี่ยน ต้องให้เจ้าภาพตรวจใหม่
-
-        foreach ($players as $i => $p) {
-            $name = trim((string) ($p['name'] ?? ''));
-            $num  = trim((string) ($p['number'] ?? ''));
-            $bd   = trim((string) ($p['birthDate'] ?? ''));
-            $ts   = $bd === '' ? false : strtotime($bd);
-            $row = [
-                'name'  => $name,
-                // '' ต้องเป็น NULL ไม่งั้น uq_player_shirt ชนกันเอง
-                'num'   => $num === '' ? null : $num,
-                'pos'   => (string) ($p['position'] ?? 'Player'),
-                'photo' => (string) ($p['photoUrl'] ?? ''),
-                'bd'    => $ts === false ? null : date('Y-m-d', $ts),
-                'ord'   => $i,
-            ];
-
-            $matched = null;
-            $sentId = trim((string) ($p['id'] ?? ''));
-            if ($sentId !== '' && isset($byId[$sentId]) && !isset($keep[$sentId])) {
-                $matched = $sentId;
-            } else {
-                foreach ($byKey[$natural($name, $num)] ?? [] as $cand) {
-                    if (!isset($keep[$cand])) { $matched = $cand; break; }
-                }
-            }
-
-            if ($matched === null) {
-                $insert[] = $row;
-                continue;
-            }
-            // ชื่อเปลี่ยน = คนละคน ผลรายงานตัวที่กรรมการเช็กไว้ใช้ไม่ได้แล้ว
-            if (mb_strtolower(trim((string) $byId[$matched]['name'])) !== mb_strtolower($name)) {
-                $recheck[] = $matched;
-            }
-            $keep[$matched] = $row;
-        }
+        // ทำไมต้องคงแถวเดิมไว้แทนการลบทั้งชุดแล้วสร้างใหม่:
+        //   - kicks.player_id เป็น ON DELETE SET NULL -> สถิติรายคนขาดจากตัวคน
+        //   - player_checkins เป็น ON DELETE CASCADE -> ผลรายงานตัวหายทั้งทีม
 
         // 1. คนที่หายไปจากรายชื่อ ลบทิ้ง (เบอร์เสื้อของเขาจะได้ว่างให้คนอื่นใช้)
         foreach ($existing as $e) {
-            if (!isset($keep[$e['player_id']])) {
+            if (!isset($matched[$e['player_id']])) {
                 Db::exec('DELETE FROM players WHERE player_id = :dpid',
                     [':dpid' => $e['player_id']]);
             }
         }
 
-        // 2. ปลดเบอร์เสื้อของคนที่เก็บไว้ให้ว่างก่อน
-        //    ถ้าเขียนเบอร์ใหม่ทับเลย กรณีสองคนสลับเบอร์กัน (7<->9) จะชน
-        //    uq_player_shirt กลางคัน ทั้งที่ผลลัพธ์สุดท้ายไม่ซ้ำ
-        foreach ($keep as $pid => $row) {
-            Db::exec(
-                'UPDATE players SET name = :name3, shirt_number = NULL, position = :pos2,
-                                    photo_url = :photo2, birth_date = :bd2, display_order = :ord2
-                  WHERE player_id = :upid',
-                [
-                    ':name3' => $row['name'],
-                    ':pos2'  => $row['pos'],
-                    ':photo2' => $row['photo'],
-                    ':bd2'   => $row['bd'],
-                    ':ord2'  => $row['ord'],
-                    ':upid'  => $pid,
-                ]
-            );
+        // 2. ปลดเบอร์เสื้อของคนที่ "เบอร์เปลี่ยน" ให้ว่างก่อน
+        //    กรณีสองคนสลับเบอร์กัน (7<->9) ถ้าเขียนทับเลยจะชน uq_player_shirt
+        //    กลางคัน ทั้งที่ผลลัพธ์สุดท้ายไม่ซ้ำ
+        //    คนที่เบอร์ไม่เปลี่ยนไม่ต้องปลด — และห้ามแตะด้วย ไม่งั้น updated_at
+        //    จะเดินทั้งที่ข้อมูลเท่าเดิม
+        foreach ($updates as $pid => $row) {
+            if (!empty($row['_numChanged'])) {
+                Db::exec('UPDATE players SET shirt_number = NULL WHERE player_id = :npid',
+                    [':npid' => $pid]);
+            }
         }
 
-        // 3. คนใหม่ — ตอนนี้เบอร์ว่างหมดแล้ว ใส่เบอร์จริงได้เลย
+        // 3. คนใหม่ — เบอร์ที่ต้องใช้ว่างแล้ว ใส่ได้เลย
         foreach ($insert as $i => $row) {
             Db::exec(
                 'INSERT INTO players
@@ -529,13 +608,27 @@ function save_team(): void
             );
         }
 
-        // 4. คืนเบอร์เสื้อให้คนเดิม
-        foreach ($keep as $pid => $row) {
-            Db::exec('UPDATE players SET shirt_number = :num2 WHERE player_id = :spid',
-                [':num2' => $row['num'], ':spid' => $pid]);
+        // 4. คนเดิมที่มีอะไรเปลี่ยน — แถวที่เหมือนเดิมทุกช่องไม่ถูกแตะเลย
+        foreach ($updates as $pid => $row) {
+            Db::exec(
+                'UPDATE players SET name = :name3, shirt_number = :num2, position = :pos2,
+                                    photo_url = :photo2, birth_date = :bd2, display_order = :ord2
+                  WHERE player_id = :upid',
+                [
+                    ':name3'  => $row['name'],
+                    ':num2'   => $row['num'],
+                    ':pos2'   => $row['pos'],
+                    ':photo2' => $row['photo'],
+                    ':bd2'    => $row['bd'],
+                    ':ord2'   => $row['ord'],
+                    ':upid'   => $pid,
+                ]
+            );
         }
 
         // 5. คนที่เปลี่ยนชื่อ ล้างผลรายงานตัวทิ้ง — กรรมการตรวจหน้าคนเดิมไว้
+        //    ส่วนเปลี่ยนรูป/เบอร์เสื้อไม่ลบ แต่หน้ารายงานตัวจะขึ้นธงเตือนแทน
+        //    (เทียบ players.updated_at กับ player_checkins.checked_at)
         //    ตารางนี้อาจยังไม่มีถ้ายังไม่ได้รัน db/10 จึงกลืน error ไว้
         foreach ($recheck as $pid) {
             try {
@@ -549,13 +642,27 @@ function save_team(): void
 
     if ($revokeApproval) {
         Audit::log('team', $teamId, 'approval_revoked_by_edit',
-            ['status' => 'Approved'], ['status' => 'Submitted']);
-        // เจ้าภาพต้องรู้ทันที ไม่งั้นจะไปเจอตอนรายงานตัวหน้างานว่าคนไม่ตรงใบ
+            ['status' => 'Approved'], ['status' => 'Submitted', 'changes' => $changes]);
+
+        /**
+         * บอกผู้ดูแลว่าอะไรเปลี่ยน ไม่ใช่แค่ว่า "มีการแก้ไข"
+         *
+         * ถ้าบอกแค่ว่าแก้แล้ว ผู้ดูแลต้องไล่เทียบเอง 12 คน ซึ่งถ้าเปลี่ยนแค่
+         * เบอร์เสื้อคนเดียวหรือรูปคนเดียวแทบเป็นไปไม่ได้ที่จะจับได้ด้วยตา
+         * ผลคือจะกดอนุมัติผ่านโดยไม่ได้ตรวจ แล้วขั้นตอนถอนอนุมัติก็ไร้ความหมาย
+         *
+         * ตัดเหลือ 4 รายการในข้อความแจ้งเตือน — ยาวกว่านี้ push จะถูกตัดกลางคัน
+         * รายการเต็มอยู่ใน audit_log และ metadata ของการแจ้งเตือน
+         */
+        $head = array_slice($changes, 0, 4);
+        $more = count($changes) - count($head);
+        $summary = implode(' · ', $head) . ($more > 0 ? " · และอีก $more รายการ" : '');
+
         PushNotifier::notifyByRole(
             ['admin', 'staff'], 'team_reedited',
             'ทีมที่อนุมัติแล้วถูกแก้ไข',
-            $name . ' แก้ไขข้อมูลหลังอนุมัติ — ต้องตรวจและอนุมัติใหม่',
-            '/admin', ['teamId' => $teamId]
+            $name . ': ' . $summary,
+            '/admin', ['teamId' => $teamId, 'changes' => $changes]
         );
     }
 
@@ -588,15 +695,18 @@ function save_team(): void
         }
     }
 
+    // เก็บรายการที่เปลี่ยนไว้ด้วย — เดิมเก็บแค่ชื่อทีมกับจำนวนคน
+    // เวลามีข้อโต้แย้งว่า "ใครเปลี่ยนเบอร์เสื้อคนนี้" จึงย้อนดูไม่ได้เลย
     Audit::log('team', $teamId, 'save',
-        ['name' => $team['name']], ['name' => $name, 'players' => count($players)]);
+        ['name' => $team['name']],
+        ['name' => $name, 'players' => count($players), 'changes' => $changes]);
     Cache::flush();
 
     $fresh = Db::one('SELECT * FROM teams WHERE team_id = :tid4', [':tid4' => $teamId]);
     $freshPlayers = Db::all(
         'SELECT * FROM players WHERE team_id = :tid5 ORDER BY display_order',
         [':tid5' => $teamId]);
-    Response::ok(['team' => team_payload($fresh, $freshPlayers)]);
+    Response::ok(['team' => team_payload($fresh, $freshPlayers), 'changes' => $changes]);
 }
 
 /** โรงเรียนกด "ยืนยันและส่ง" — หลังจากนี้แอดมินเป็นผู้ตรวจ */

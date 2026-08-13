@@ -30,6 +30,9 @@ import ContestGallery from './components/ContestGallery';
 import LiveWall from './components/LiveWall';
 import SchoolPortal from './components/SchoolPortal';
 import CheckInPage from './components/CheckInPage';
+import LineupWall from './components/LineupWall';
+import PaymentInfoCard from './components/PaymentInfoCard';
+import LivePage from './components/LivePage';
 import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
@@ -708,7 +711,10 @@ export default function App() {
   const showBottomNav = currentView !== 'match' && currentView !== 'live_wall'
     && currentView !== 'school' && currentView !== 'login'
     // หน้าสูจิบัตรเป็นเอกสารเต็มจอ มีปุ่มย้อนกลับของตัวเอง เมนูล่างจะไปบังเนื้อหา
-    && currentView !== 'programme';
+    && currentView !== 'programme'
+    // ผังตัวผู้เล่นใช้ขึ้นจอโปรเจกเตอร์ และมีแถบควบคุมของตัวเองอยู่ล่างสุด
+    && currentView !== 'lineup'
+    && currentView !== 'checkin';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
@@ -751,6 +757,53 @@ export default function App() {
               onExit={() => goTo('home')}
               notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
               currentUser={currentUser}
+          />
+      );
+  }
+
+  /**
+   * ผังตัวผู้เล่น — เต็มจอเสมอ ไม่อยู่ในกรอบของหน้าหลัก
+   *
+   * ต้อง return ออกมาตรงนี้เหมือน live_wall ไม่ใช่วางไว้ใน shell
+   * เพราะ shell มีแถบบนกับเมนูล่างและกรอบความกว้างของตัวเอง
+   * หน้าที่ตั้งใจให้ขึ้นจอโปรเจกเตอร์จะกลายเป็นกล่องเล็ก ๆ มุมซ้ายบนทันที
+   *
+   * และรับกรณีที่ยังไม่ได้เลือกรายการด้วย (เปิดจากลิงก์ที่แชร์ไป)
+   * programmeScope หารายการที่ควรแสดงให้แล้ว ไม่ต้องเด้งไปหน้าเลือกก่อน
+   */
+  /**
+   * หน้าถ่ายทอดสดและคลิปย้อนหลัง — เต็มจอ ไม่ต้องเข้าระบบ
+   *
+   * เหตุผลเดียวกับ /lineup: shell มีแถบบนกับเมนูล่างของตัวเอง
+   * และหน้านี้เป็นวิดีโอ 16:9 ที่ต้องการความกว้างทั้งหมด
+   */
+  if (currentView === 'live') {
+      const scoped = currentTournamentId
+          ? { matches: activeMatches, teams: activeTeams }
+          : { matches: programmeScope.matches, teams: programmeScope.teams };
+      return (
+          <LivePage
+              matches={scoped.matches}
+              teams={scoped.teams}
+              config={effectiveSettings}
+              onBack={() => goTo('home')}
+              onOpenWall={isAdmin ? () => goTo('live_wall') : undefined}
+          />
+      );
+  }
+
+  if (currentView === 'lineup') {
+      const scoped = currentTournamentId
+          ? { teams: participatingTeams, players: activePlayers, name: activeTournament?.name }
+          : { teams: programmeScope.teams, players: programmeScope.players,
+              name: programmeScope.tournament?.name };
+      return (
+          <LineupWall
+              teams={scoped.teams}
+              players={scoped.players}
+              config={effectiveSettings}
+              tournamentName={scoped.name}
+              onBack={() => goTo('home')}
           />
       );
   }
@@ -1480,6 +1533,14 @@ export default function App() {
                           <FileText className="w-5 h-5 shrink-0" />
                           <span className="text-left leading-snug flex-1 min-w-0">ดูสูจิบัตร<span className="block text-[11px] font-medium text-indigo-100 mt-1">กำหนดการ ทีม และตารางแข่งขัน</span></span>
                       </button>
+                      <button onClick={() => goTo('lineup')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
+                          <Users className="w-5 h-5 shrink-0" />
+                          <span className="text-left leading-snug flex-1 min-w-0">ผังตัวนักกีฬา<span className="block text-[11px] font-medium text-indigo-100 mt-1">รูป เบอร์เสื้อ และตำแหน่ง วนทีละทีม</span></span>
+                      </button>
+                      <button onClick={() => goTo('live')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
+                          <Video className="w-5 h-5 shrink-0" />
+                          <span className="text-left leading-snug flex-1 min-w-0">ถ่ายทอดสด / ดูย้อนหลัง<span className="block text-[11px] font-medium text-indigo-100 mt-1">ชมสดและคลิปไฮไลต์แต่ละคู่</span></span>
+                      </button>
                       {isAdmin && (
                         <button onClick={handleDownloadSchoolCodes} className="min-h-[4.5rem] rounded-xl bg-amber-400 text-amber-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-amber-300 transition text-left">
                             <Download className="w-5 h-5 shrink-0" />
@@ -1691,6 +1752,20 @@ export default function App() {
                   </div>
                   <ChevronRight className="w-5 h-5 shrink-0 opacity-80" />
                 </button>
+              )}
+
+              {/* บัญชีรับค่าสมัคร — โรงเรียนที่ยังไม่ได้เข้าหน้า /school ก็เห็นจากหน้าแรก
+                  ขึ้นเฉพาะตอนที่ยังรับสมัครหรือยังแก้ไขทีมได้ ปิดรับแล้วไม่ต้องชวนให้โอน */}
+              {(isRegistrationOpen || isTeamEditingOpen) && (
+                <PaymentInfoCard
+                  fee={regFee}
+                  bankName={effectiveSettings.bankName}
+                  bankAccount={effectiveSettings.bankAccount}
+                  accountName={effectiveSettings.accountName}
+                  note={<>สำหรับโรงเรียนที่ส่งทีมเข้าแข่งขัน · โอนแล้วแนบสลิปได้ที่
+                    เมนู &quot;ส่งรายชื่อนักกีฬาและแจ้งโอนเงินค่าสมัคร&quot; ด้านบน</>}
+                  className="animate-in slide-in-from-bottom-2"
+                />
               )}
 
               {currentUser && myTeams.length > 0 && (

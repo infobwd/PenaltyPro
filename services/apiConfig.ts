@@ -186,7 +186,21 @@ export async function apiGet<T = any>(
   return data as T;
 }
 
-export async function apiPost<T = any>(action: string, body: any = {}): Promise<T> {
+/**
+ * @param opts.background  คำขอที่แอปยิงเองโดยผู้ใช้ไม่ได้สั่ง
+ *
+ * 401 ของคำขอแบบนี้ **ห้าม** ไปปลุกตัวจัดการ session หมดอายุ
+ *
+ * เคสจริงที่ทำให้หน้า /school ใช้งานไม่ได้บนของจริง: พอเปิดหน้า แอปลองเข้า
+ * ด้วยบัญชีที่ผูกโรงเรียนไว้ให้อัตโนมัติ (teamLoginByAccount) ถ้าบัญชีนั้น
+ * ยังไม่ได้รับการรับรอง หรือ token ที่ถืออยู่เป็นของทีมไม่ใช่ของผู้ใช้
+ * server จะตอบ 401 ตามปกติ — แต่ตัวจัดการกลางล้าง token แล้วเด้งไป /login
+ * ครูจึงเจอ "เซสชันหมดอายุ" และกรอกอะไรไม่ได้เลย ทั้งที่แค่ทางลัดใช้ไม่ได้
+ * ซึ่งไม่ใช่ความผิดพลาดที่ต้องบอกผู้ใช้ด้วยซ้ำ
+ */
+export async function apiPost<T = any>(
+  action: string, body: any = {}, opts: { background?: boolean } = {},
+): Promise<T> {
   // ต้องส่ง base เพราะ DB_API เป็น path สัมพัทธ์บน production
   const url = new URL(DB_API, window.location.origin);
   url.searchParams.set('action', action);
@@ -208,7 +222,7 @@ export async function apiPost<T = any>(action: string, body: any = {}): Promise<
   if (!res.ok || data?.status === 'error') {
     const err = new ApiError(
       data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
-    if (res.status === 401) {
+    if (res.status === 401 && !opts.background) {
       clearExpiredToken();
       onUnauthorized?.(err.message);
     }

@@ -253,17 +253,18 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const [tickerMessages, setTickerMessages] = useState<TickerMessage[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [sponsorPageIndex, setSponsorPageIndex] = useState(0);
+  const [lineupIndex, setLineupIndex] = useState(0);
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
   const [currentTrack, setCurrentTrack] = useState<MusicTrack | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement>(null);
-  const slides = ['Matches', 'MatchForecast', 'Standings', 'Bracket', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream', 'MatchHighlights'];
+  const slides = ['Matches', 'MatchForecast', 'Standings', 'Bracket', 'Results', 'TopScorers', 'TopKeepers', 'FanPrediction', 'Highlights', 'Sponsors', 'Versus', 'LiveStream', 'MatchHighlights', 'Lineup'];
   const totalSlides = slides.length;
 
   useEffect(() => { if (currentUser?.role === 'admin') setIsAuthenticated(true); }, [currentUser]);
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => { const id = Date.now(); setToasts(prev => [...prev, { id, msg, type }]); setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3000); };
-  const getGradientColors = (index: number) => { switch (index) { case 0: return 'from-blue-900 via-indigo-950 to-slate-950'; case 1: return 'from-teal-900 via-cyan-950 to-slate-950'; case 2: return 'from-indigo-900 via-purple-950 to-slate-950'; case 3: return 'from-slate-800 via-zinc-900 to-black'; case 4: return 'from-emerald-900 via-green-950 to-slate-950'; case 5: return 'from-amber-900 via-orange-950 to-slate-950'; case 6: return 'from-cyan-900 via-blue-950 to-slate-950'; case 7: return 'from-fuchsia-900 via-pink-950 to-slate-950'; case 8: return 'from-rose-900 via-red-950 to-slate-950'; case 9: return 'from-slate-800 via-gray-900 to-black'; case 10: return 'from-red-900 via-orange-900 to-slate-950'; case 11: return 'from-black via-slate-950 to-black'; case 12: return 'from-slate-900 via-indigo-950 to-black'; default: return 'from-slate-900 via-slate-950 to-black'; } };
+  const getGradientColors = (index: number) => { switch (index) { case 0: return 'from-blue-900 via-indigo-950 to-slate-950'; case 1: return 'from-teal-900 via-cyan-950 to-slate-950'; case 2: return 'from-indigo-900 via-purple-950 to-slate-950'; case 3: return 'from-slate-800 via-zinc-900 to-black'; case 4: return 'from-emerald-900 via-green-950 to-slate-950'; case 5: return 'from-amber-900 via-orange-950 to-slate-950'; case 6: return 'from-cyan-900 via-blue-950 to-slate-950'; case 7: return 'from-fuchsia-900 via-pink-950 to-slate-950'; case 8: return 'from-rose-900 via-red-950 to-slate-950'; case 9: return 'from-slate-800 via-gray-900 to-black'; case 10: return 'from-red-900 via-orange-900 to-slate-950'; case 11: return 'from-black via-slate-950 to-black'; case 12: return 'from-slate-900 via-indigo-950 to-black'; case 13: return 'from-violet-900 via-indigo-950 to-slate-950'; default: return 'from-slate-900 via-slate-950 to-black'; } };
   const announcements = useMemo(() => { const activeTickers = tickerMessages.filter(t => t.isActive && (!t.type || !t.type.includes('::') || t.type.includes(`::${tournamentId}`))); if (activeTickers.length > 0) return activeTickers.map(t => t.message); return config.announcement ? config.announcement.split('|').filter(s => s.trim() !== '') : []; }, [tickerMessages, config.announcement, tournamentId]);
   const currentUrl = window.location.href.split('?')[0];
 
@@ -290,7 +291,25 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   
   // LIVE STREAM LOGIC
   const liveStreamingMatches = useMemo(() => { const live = matches.filter(m => m.livestreamUrl && !m.winner); if (live.length > 0) return live; return []; }, [matches]);
-  const finishedStreamingMatches = useMemo(() => matches.filter(m => m.livestreamUrl && m.winner).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [matches]);
+  /**
+   * ผังนักกีฬาสำหรับสไลด์ Lineup — วนทีมเองทีละใบ
+   *
+   * ใช้จังหวะเดียวกับสไลด์อื่นที่วนย่อยในตัว (standings, forecast, sponsors)
+   * ทีมที่ยังไม่ส่งรายชื่อไม่เอาขึ้นจอ ช่องว่างเปล่าบนจอใหญ่ดูเหมือนระบบพัง
+   */
+  const lineupTeams = useMemo(() => teams
+    .filter(t => t.status !== 'Rejected' && t.status !== 'Withdrawn')
+    .map(t => ({ team: t, list: players.filter(p => p.teamId === t.id) }))
+    .filter(x => x.list.length > 0)
+    .sort((a, b) => (a.team.group ?? '').localeCompare(b.team.group ?? '', 'th')
+      || a.team.name.localeCompare(b.team.name, 'th')),
+    [teams, players]);
+
+  const finishedStreamingMatches = useMemo(() => matches
+    // คลิปไฮไลต์ที่ตัดแล้วมาก่อน ถ้ายังไม่มีค่อยใช้ลิงก์ถ่ายทอดสดของคู่ที่จบแล้ว
+    // (ของเดิมที่เจ้าภาพเคยใส่ไว้ก่อนมีช่องไฮไลต์แยก ต้องยังดูได้)
+    .map(m => m.highlightUrl ? { ...m, livestreamUrl: m.highlightUrl } : m)
+    .filter(m => m.livestreamUrl && m.winner).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [matches]);
 
   const activeLiveMatch = useMemo(() => {
       if (manualLiveMatchId) return [...liveStreamingMatches, ...finishedStreamingMatches].find(m => m.id === manualLiveMatchId) || null;
@@ -319,8 +338,10 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
   const sponsorChunks = useMemo(() => Array.from({ length: Math.ceil(sponsors.length / 4) }, (v, i) => sponsors.slice(i * 4, i * 4 + 4)), [sponsors]);
 
   useEffect(() => { const clockTimer = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(clockTimer); }, []);
-  useEffect(() => { if (!isAuthenticated || isSlidePaused) return; const SLIDE_DURATIONS: Record<number, number> = { 1: 25000, 11: 45000, 12: 45000 }; const duration = SLIDE_DURATIONS[currentSlide] || 15000; const timer = setTimeout(() => { setCurrentSlide(prev => { const next = (prev + 1) % totalSlides; if (next === 2) setStandingsPage(0); if (next === 1) setForecastPage(0); return next; }); }, duration); return () => clearTimeout(timer); }, [totalSlides, isAuthenticated, currentSlide, isSlidePaused]);
-  useEffect(() => { if (!isAuthenticated) return; let subTimer: any; if (currentSlide === 2 && standingsGroups.length > 1 && !isSlidePaused) subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000); const forecastPageSize = isSmallScreen ? 2 : 4; const totalForecastPages = Math.ceil(activeForecastMatches.length / forecastPageSize); if (currentSlide === 1 && totalForecastPages > 1 && !isSlidePaused) subTimer = setInterval(() => setForecastPage(p => (p + 1) % totalForecastPages), 8000); if (currentSlide === 8 && contestEntries.length > 1 && !isSlidePaused) subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000); if (currentSlide === 9 && sponsors.length > 4 && !isSlidePaused) subTimer = setInterval(() => setSponsorPageIndex(prev => (prev + 1) % Math.ceil(sponsors.length / 4)), 4000); if (currentSlide === 0) { onRefresh(true); loadExtras(); } if (currentSlide !== 9) setSponsorPageIndex(0); return () => { if (subTimer) clearInterval(subTimer); }; }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated, sponsors.length, isSmallScreen, activeForecastMatches.length, isSlidePaused]);
+  useEffect(() => { if (!isAuthenticated || isSlidePaused) return; const SLIDE_DURATIONS: Record<number, number> = { 1: 25000, 11: 45000, 12: 45000 }; /* ผังนักกีฬาวนทีมละ 8 วิ ถ้าให้เวลาสไลด์แค่ 15 วิเท่าอันอื่นจะเห็นแค่ทีมเดียวครึ่ง
+        ให้เวลาตามจำนวนทีมแต่ไม่เกิน 48 วิ ไม่งั้นจอค้างอยู่หน้าเดียวนานเกินไป
+        lineupIndex ไม่รีเซ็ต รอบหน้าจึงวนต่อจากทีมเดิม ทุกทีมได้ขึ้นจอครบ */ const lineupDuration = Math.min(Math.max(lineupTeams.length, 1) * 8000, 48000); const duration = currentSlide === 13 ? lineupDuration : (SLIDE_DURATIONS[currentSlide] || 15000); const timer = setTimeout(() => { setCurrentSlide(prev => { const next = (prev + 1) % totalSlides; if (next === 2) setStandingsPage(0); if (next === 1) setForecastPage(0); return next; }); }, duration); return () => clearTimeout(timer); }, [totalSlides, isAuthenticated, currentSlide, isSlidePaused, lineupTeams.length]);
+  useEffect(() => { if (!isAuthenticated) return; let subTimer: any; if (currentSlide === 2 && standingsGroups.length > 1 && !isSlidePaused) subTimer = setInterval(() => setStandingsPage(p => (p + 1) % standingsGroups.length), 5000); const forecastPageSize = isSmallScreen ? 2 : 4; const totalForecastPages = Math.ceil(activeForecastMatches.length / forecastPageSize); if (currentSlide === 1 && totalForecastPages > 1 && !isSlidePaused) subTimer = setInterval(() => setForecastPage(p => (p + 1) % totalForecastPages), 8000); if (currentSlide === 8 && contestEntries.length > 1 && !isSlidePaused) subTimer = setInterval(() => setHighlightIndex(p => (p + 1) % contestEntries.length), 4000); if (currentSlide === 9 && sponsors.length > 4 && !isSlidePaused) subTimer = setInterval(() => setSponsorPageIndex(prev => (prev + 1) % Math.ceil(sponsors.length / 4)), 4000); if (currentSlide === 13 && lineupTeams.length > 1 && !isSlidePaused) subTimer = setInterval(() => setLineupIndex(p => (p + 1) % lineupTeams.length), 8000); if (currentSlide === 0) { onRefresh(true); loadExtras(); } if (currentSlide !== 9) setSponsorPageIndex(0); return () => { if (subTimer) clearInterval(subTimer); }; }, [currentSlide, standingsGroups.length, contestEntries.length, isAuthenticated, sponsors.length, isSmallScreen, activeForecastMatches.length, isSlidePaused, lineupTeams.length]);
   const currentForecastMatches = useMemo(() => { const pageSize = isSmallScreen ? 2 : 4; return activeForecastMatches.slice(forecastPage * pageSize, (forecastPage + 1) * pageSize); }, [activeForecastMatches, forecastPage, isSmallScreen]);
 
   const renderMusicPlayer = () => { if (!currentTrack || !isPlaying) return null; if (currentTrack.type === 'Suno' || currentTrack.url.includes('suno.com')) return <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none"><iframe width="100%" height="100%" src={`https://suno.com/embed/${currentTrack.url.split('/').pop()}/?autoplay=true`} title="bg-music-suno" frameBorder="0" allow="autoplay; encrypted-media" /></div>; if (currentTrack.type === 'Youtube' || currentTrack.url.includes('youtu')) { let videoId = currentTrack.url.includes('v=') ? currentTrack.url.split('v=')[1].split('&')[0] : currentTrack.url.split('youtu.be/')[1]?.split('?')[0] || currentTrack.url; return <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none"><iframe width="100%" height="100%" src={`https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? 1 : 0}&loop=1&playlist=${videoId}&controls=0&showinfo=0&modestbranding=1&enablejsapi=1&playsinline=1`} title="bg-music" frameBorder="0" allow="autoplay; encrypted-media" /></div>; } if (currentTrack.url.match(/\.(mp3|wav|ogg|m4a)$/i)) return <audio ref={audioRef} src={currentTrack.url} autoPlay loop muted={isMuted} onError={handleNextTrack} preload="auto" playsInline className="hidden" />; return <div className="absolute top-0 left-0 w-1 h-1 overflow-hidden opacity-0 pointer-events-none"><iframe src={currentTrack.url} allow="autoplay" /></div>; };
@@ -445,6 +466,80 @@ const LiveWall: React.FC<LiveWallProps> = ({ matches, teams, players, config, pr
                     )}
                 </div>
             )}
+
+            {currentSlide === 13 && (() => {
+                const cur = lineupTeams[lineupIndex % Math.max(1, lineupTeams.length)];
+                if (!cur) return (
+                    <div className="h-full flex items-center justify-center text-slate-500 text-xl md:text-2xl font-bold">
+                        ยังไม่มีทีมที่ส่งรายชื่อนักกีฬา
+                    </div>
+                );
+                const colors = (() => {
+                    try {
+                        const parsed = JSON.parse(cur.team.color);
+                        if (Array.isArray(parsed) && parsed[0]) return parsed[0] as string;
+                    } catch {}
+                    return (cur.team.color || '').startsWith('#') ? cur.team.color : '#6366f1';
+                })();
+                return (
+                <div className="h-full flex flex-col animate-broadcast-reveal">
+                    <div className="flex items-center gap-4 md:gap-6 mb-3 md:mb-5 mt-1">
+                        <div className="w-14 h-14 md:w-24 md:h-24 rounded-2xl border-2 md:border-4 shrink-0 bg-white/5 overflow-hidden flex items-center justify-center"
+                            style={{ borderColor: colors }}>
+                            {cur.team.logoUrl
+                                ? <img src={cur.team.logoUrl} className="w-full h-full object-contain" />
+                                : <span className="font-black text-lg md:text-3xl" style={{ color: colors }}>{cur.team.shortName}</span>}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[10px] md:text-sm font-black uppercase tracking-[0.2em]" style={{ color: colors }}>
+                                Starting Lineup{cur.team.group ? ` · สาย ${cur.team.group}` : ''}
+                            </p>
+                            <h2 className="text-2xl md:text-6xl font-black leading-tight truncate">{cur.team.name}</h2>
+                            {cur.team.schoolName && cur.team.schoolName !== cur.team.name && (
+                                <p className="text-slate-400 text-xs md:text-xl truncate">{cur.team.schoolName}</p>
+                            )}
+                        </div>
+                        <div className="text-right shrink-0 hidden md:block">
+                            <p className="text-5xl font-black tabular-nums">{cur.list.length}</p>
+                            <p className="text-xs text-slate-400 uppercase tracking-widest">Players</p>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-hidden">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-3">
+                            {cur.list.slice(0, 16).map((p, i) => (
+                                <div key={p.id ?? i} className="rounded-xl md:rounded-2xl bg-white/[0.06] border border-white/10 overflow-hidden animate-in fade-in duration-700">
+                                    <div className="relative bg-slate-900" style={{ aspectRatio: '3 / 4' }}>
+                                        {p.photoUrl
+                                            ? <img src={p.photoUrl} className="w-full h-full object-cover" />
+                                            : <div className="w-full h-full flex items-center justify-center"><User className="w-1/3 h-1/3 text-slate-700" /></div>}
+                                        {p.number && (
+                                            <div className="absolute top-0 left-0 min-w-[1.75rem] md:min-w-[2.5rem] px-1.5 py-0.5 rounded-br-xl font-black text-sm md:text-2xl text-center tabular-nums text-white"
+                                                style={{ backgroundColor: colors }}>{p.number}</div>
+                                        )}
+                                        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent" />
+                                        <div className="absolute inset-x-0 bottom-0 p-1.5 md:p-2.5">
+                                            <p className="font-black text-[10px] md:text-base leading-snug line-clamp-2 break-words">{p.name}</p>
+                                            <p className="text-[8px] md:text-xs" style={{ color: colors }}>{p.position || 'นักกีฬา'}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {lineupTeams.length > 1 && (
+                        <div className="flex items-center justify-center gap-1.5 mt-2 md:mt-4 shrink-0">
+                            {lineupTeams.map((r, i) => (
+                                <span key={r.team.id} className="h-1.5 rounded-full transition-all"
+                                    style={{ width: i === lineupIndex ? 32 : 10,
+                                             backgroundColor: i === lineupIndex ? colors : 'rgba(255,255,255,0.25)' }} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+                );
+            })()}
 
             </div>
         </div>

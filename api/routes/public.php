@@ -255,6 +255,20 @@ function submit_donation(array $cfg): void
     Audit::log('donation', $id, 'submit', null, ['amount' => $amount]);
     Cache::flush();
 
+    // ผู้ดูแลต้องรู้ทันทีว่ามีสลิปรอตรวจ
+    //
+    // เงินบริจาคยังไม่ถูกนับรวมจนกว่าจะมีคนกดยืนยัน ถ้าไม่มีใครเตือน สลิปจะกอง
+    // อยู่เฉย ๆ แล้วยอดระดมทุนบนหน้าเว็บก็ต่ำกว่าความจริงไปเรื่อย ๆ
+    $who = Input::bool('isAnonymous')
+        ? 'ผู้ไม่ประสงค์ออกนาม'
+        : (Input::str('donorName') ?: 'ผู้ไม่ประสงค์ออกนาม');
+    PushNotifier::notifyByRole(
+        ['admin', 'staff'], 'donation_received',
+        'มีการบริจาคใหม่รอตรวจสลิป',
+        $who . ' บริจาค ' . number_format($amount, 2) . ' บาท',
+        '/admin', ['donationId' => $id]
+    );
+
     Response::ok([
         'donationId' => $id,
         'status'     => 'Pending',

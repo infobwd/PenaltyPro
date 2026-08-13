@@ -277,10 +277,18 @@ export const scheduleMatch = async (
   venue?: string, scheduledTime?: string,
   livestreamUrl?: string, livestreamCover?: string,
   tournamentId: string = 'default',
+  highlightUrl?: string, highlightTitle?: string,
 ): Promise<boolean> => {
   await apiPost('saveMatch', {
     matchId, teamA, teamB, roundLabel, venue, scheduledTime,
-    livestreamUrl, livestreamCover, tournamentId,
+    // '-' = ตั้งใจล้างค่า / ว่าง = ไม่ได้แตะช่องนี้ (ดูเหตุผลใน fixtures.php)
+    livestreamUrl: livestreamUrl === '' ? '-' : livestreamUrl,
+    livestreamCover, tournamentId,
+    // ส่ง '-' เมื่อผู้ใช้ล้างช่องทิ้ง เพื่อแยกจาก "ไม่ได้แตะช่องนี้"
+    // ฝั่ง server ตีความว่างเปล่าว่า "ไม่เปลี่ยน" ไม่งั้นแก้เวลาแข่งอย่างเดียว
+    // จะลบลิงก์ไฮไลต์ทิ้งโดยไม่มีใครตั้งใจ
+    highlightUrl: highlightUrl === '' ? '-' : highlightUrl,
+    highlightTitle: highlightTitle === '' ? '-' : highlightTitle,
   });
   return true;
 };
