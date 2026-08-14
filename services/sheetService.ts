@@ -369,8 +369,12 @@ export const updateTeamData = async (
     ...files,
     // ส่ง id กลับไปด้วยเสมอ — server ใช้จับคู่ว่าใครเป็นคนเดิม
     // ถ้าไม่ส่ง แถวเดิมจะถูกลบแล้วสร้างใหม่ สถิติยิงจุดโทษและผลรายงานตัวหายตาม
+    // ⚠️ position ต้องส่งด้วยเสมอ — ของเดิมไม่ส่งมาเลย ฝั่ง server จึงอ่านได้ค่าว่าง
+    // แล้วตกเป็น 'Player' ทุกคน ทุกครั้งที่กดบันทึกจากโมดัลจัดการทีม/หน้าแก้ไขทีม
+    // ตำแหน่งของนักกีฬาทั้งทีมจึงถูกล้างทิ้ง ทับค่าที่โรงเรียนกรอกไว้ถูกต้องแล้วด้วย
     players: players.map(p => ({
-      id: p.id, name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
+      id: p.id, name: p.name, number: p.number, position: p.position,
+      birthDate: p.birthDate, photoUrl: p.photoUrl,
     })),
   });
   return true;
@@ -516,8 +520,12 @@ export const updateMyTeam = async (team: Partial<Team>, players: Partial<Player>
     docUrl: team.docUrl, slipUrl: team.slipUrl,
     // ส่ง id กลับไปด้วยเสมอ — server ใช้จับคู่ว่าใครเป็นคนเดิม
     // ถ้าไม่ส่ง แถวเดิมจะถูกลบแล้วสร้างใหม่ สถิติยิงจุดโทษและผลรายงานตัวหายตาม
+    // ⚠️ position ต้องส่งด้วยเสมอ — ของเดิมไม่ส่งมาเลย ฝั่ง server จึงอ่านได้ค่าว่าง
+    // แล้วตกเป็น 'Player' ทุกคน ทุกครั้งที่กดบันทึกจากโมดัลจัดการทีม/หน้าแก้ไขทีม
+    // ตำแหน่งของนักกีฬาทั้งทีมจึงถูกล้างทิ้ง ทับค่าที่โรงเรียนกรอกไว้ถูกต้องแล้วด้วย
     players: players.map(p => ({
-      id: p.id, name: p.name, number: p.number, birthDate: p.birthDate, photoUrl: p.photoUrl,
+      id: p.id, name: p.name, number: p.number, position: p.position,
+      birthDate: p.birthDate, photoUrl: p.photoUrl,
     })),
   });
   return true;
