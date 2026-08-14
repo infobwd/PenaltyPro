@@ -34,10 +34,19 @@ type FinanceUser = {
   assignedAt?: string;
 };
 
+type FinanceSponsor = {
+  id: string;
+  name: string;
+  amount: number;
+  detail: string;
+};
+
 type FinanceData = {
   entries: FinanceEntry[];
   members: FinanceUser[];
   users: FinanceUser[];
+  /** ผู้สนับสนุนที่ให้เป็นเงิน — เลือกมาลงเป็นรายรับได้ */
+  sponsors: FinanceSponsor[];
   canManage: boolean;
   canEdit: boolean;
   /** ค่าสมัครที่ตรวจสลิปแล้ว — คิดจากฐานข้อมูลทุกครั้ง ไม่ใช่รายการที่กรอกมือ */
@@ -97,10 +106,13 @@ const inputClass = 'w-full min-h-12 rounded-xl border border-slate-300 bg-white 
 const EntryDialog: React.FC<{
   tournamentId: string;
   entry: FinanceEntry | null;
+  sponsors: FinanceSponsor[];
+  /** รายละเอียดของรายรับที่ลงไว้แล้ว — ใช้บอกว่าสปอนเซอร์รายไหนบันทึกไปแล้ว */
+  recordedDescriptions: string[];
   onClose: () => void;
   onSaved: () => Promise<void>;
   notify: Notice;
-}> = ({ tournamentId, entry, onClose, onSaved, notify }) => {
+}> = ({ tournamentId, entry, sponsors, recordedDescriptions, onClose, onSaved, notify }) => {
   const [type, setType] = useState<'Income' | 'Expense'>(entry?.type || 'Expense');
   const [category, setCategory] = useState(entry?.category || '');
   const [description, setDescription] = useState(entry?.description || '');
@@ -158,6 +170,38 @@ const EntryDialog: React.FC<{
               </button>
             ))}
           </div>
+
+          {/* ── ดึงจากผู้สนับสนุน ──────────────────────────────────────
+              กดแล้วเติมหมวด รายละเอียด และจำนวนเงินให้ ไม่ต้องพิมพ์ซ้ำจากหน้า Sponsors
+              ใบที่บันทึกไปแล้วยังกดได้ แต่ขึ้นป้ายเตือนไว้ก่อน */}
+          {type === 'Income' && sponsors.length > 0 && (
+            <section className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="text-xs font-black text-emerald-800">ดึงจากผู้สนับสนุน</p>
+              <p className="text-[11px] text-emerald-700 mt-0.5">
+                แตะเพื่อเติมข้อมูลให้อัตโนมัติ — ลงบัญชีเมื่อได้รับเงินจริงแล้วเท่านั้น
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {sponsors.map(s => {
+                  const already = recordedDescriptions.some(d => d.includes(s.name));
+                  return (
+                    <button key={s.id} type="button"
+                      onClick={() => {
+                        setCategory('เงินสนับสนุน');
+                        setDescription(`ผู้สนับสนุน: ${s.name}${s.detail ? ` — ${s.detail}` : ''}`);
+                        setAmount(String(s.amount));
+                      }}
+                      className={`min-h-10 px-3 rounded-xl border text-xs font-bold text-left
+                        ${already
+                          ? 'border-amber-300 bg-amber-50 text-amber-800'
+                          : 'border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100'}`}>
+                      {s.name} · {money(s.amount)} บาท
+                      {already && <span className="block text-[10px] font-normal">บันทึกไปแล้ว</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <div className="grid sm:grid-cols-2 gap-4">
             <label><span className="text-xs font-bold text-slate-600">หมวดหมู่</span>
@@ -395,7 +439,10 @@ const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, 
         </section>
       </main>
 
-      {editor !== undefined && <EntryDialog tournamentId={tournamentId} entry={editor} onClose={() => setEditor(undefined)} onSaved={load} notify={notify} />}
+      {editor !== undefined && <EntryDialog tournamentId={tournamentId} entry={editor}
+        sponsors={data?.sponsors || []}
+        recordedDescriptions={(data?.entries || []).filter(e => e.type === 'Income').map(e => e.description)}
+        onClose={() => setEditor(undefined)} onSaved={load} notify={notify} />}
     </div>
   );
 };

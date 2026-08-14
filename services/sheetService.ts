@@ -466,9 +466,15 @@ export const fetchSponsors = async (): Promise<Sponsor[]> => (await apiGet('getS
 export const fetchSponsorPageData = async (tournamentId: string): Promise<{
   sponsors: Sponsor[];
   canManage: boolean;
+  /** จัดการสปอนเซอร์ส่วนกลางที่ใช้ร่วมทุกรายการได้ — เจ้าหน้าที่ส่วนกลางเท่านั้น */
+  canManageGlobal: boolean;
 }> => {
   const response = await apiGet<any>('getSponsors', { tournamentId });
-  return { sponsors: response.sponsors ?? [], canManage: Boolean(response.canManage) };
+  return {
+    sponsors: response.sponsors ?? [],
+    canManage: Boolean(response.canManage),
+    canManageGlobal: Boolean(response.canManageGlobal),
+  };
 };
 export const manageSponsor = async (data: any) => { await apiPost('manageSponsor', data); return true; };
 export const saveSponsorPaymentSettings = async (data: {

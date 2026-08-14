@@ -486,6 +486,15 @@ function list_scoped(string $table): void
     if ($table === 'sponsors') {
         $tid = Input::str('tournamentId');
         $payload['canManage'] = $tid !== '' && can_manage_sponsors($tid);
+        /**
+         * สปอนเซอร์ส่วนกลาง (ไม่ผูกรายการ) แก้ได้เฉพาะเจ้าหน้าที่ส่วนกลาง
+         *
+         * แยกจาก canManage เพราะเจ้าภาพจัดการสปอนเซอร์ของรายการตัวเองได้
+         * แต่ต้องไม่แก้สปอนเซอร์ที่ใช้ร่วมกันทุกรายการ — ฝั่ง server กันอยู่แล้ว
+         * (manage_scoped อ่าน tournament_id ของแถวนั้นมาตรวจสิทธิ์ตาม scope จริง)
+         * ค่านี้มีไว้ให้หน้าเว็บรู้ว่าควรโชว์ปุ่มให้ใคร ไม่ใช่ตัวบังคับสิทธิ์
+         */
+        $payload['canManageGlobal'] = can_manage_sponsors('');
     }
     Response::ok($payload);
 }

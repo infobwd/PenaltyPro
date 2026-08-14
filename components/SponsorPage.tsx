@@ -28,6 +28,8 @@ type Props = {
 type SponsorEditorProps = {
   sponsor: Sponsor | null;
   tournamentId: string;
+  /** เจ้าหน้าที่ส่วนกลาง — เลือกให้สปอนเซอร์ใช้ร่วมทุกรายการได้ */
+  canManageGlobal?: boolean;
   onClose: () => void;
   onSaved: () => Promise<void>;
   notify: Notice;
@@ -91,9 +93,18 @@ const contributionLabel = (sponsor: Sponsor) => {
 };
 
 const SponsorEditorDialog: React.FC<SponsorEditorProps> = ({
-  sponsor, tournamentId, onClose, onSaved, notify,
+  sponsor, tournamentId, canManageGlobal = false, onClose, onSaved, notify,
 }) => {
   const [name, setName] = useState(sponsor?.name || '');
+  /**
+   * ขอบเขตของสปอนเซอร์ใบนี้
+   *
+   * ใบส่วนกลางคือใบที่ไม่มี `::tournamentId` ต่อท้าย — ต้องจำค่าเดิมไว้
+   * ไม่งั้นแอดมินเปิดใบส่วนกลางมาแก้ชื่อเฉย ๆ แล้วมันจะถูกย้ายเข้ามาเป็นของ
+   * รายการที่กำลังเปิดอยู่เงียบ ๆ แล้วหายไปจากรายการอื่นทั้งหมด
+   */
+  const [scope, setScope] = useState<'tournament' | 'global'>(
+    sponsor && !String(sponsor.type || '').includes('::') ? 'global' : 'tournament');
   const [tier, setTier] = useState<'Main' | 'Support'>(sponsor ? sponsorTier(sponsor) : 'Support');
   const [contributionType, setContributionType] = useState<'Money' | 'Goods'>(
     sponsor?.contributionType === 'Goods' ? 'Goods' : 'Money',
@@ -112,7 +123,7 @@ const SponsorEditorDialog: React.FC<SponsorEditorProps> = ({
         subAction: sponsor ? 'edit' : 'add',
         ...(sponsor ? { id: sponsor.id } : {}),
         name: name.trim(),
-        type: `${tier}::${tournamentId}`,
+        type: scope === 'global' ? tier : `${tier}::${tournamentId}`,
         contributionType,
         contributionAmount: amount.trim(),
         contributionDetail: detail.trim(),
@@ -164,6 +175,24 @@ const SponsorEditorDialog: React.FC<SponsorEditorProps> = ({
                 <option value="Main">ผู้สนับสนุนหลัก</option>
                 <option value="Support">ผู้ร่วมสนับสนุน</option>
               </select>
+
+              {/* เลือกขอบเขตได้เฉพาะเจ้าหน้าที่ส่วนกลาง — เจ้าภาพเห็นแต่ของรายการตัวเอง
+                  ถ้าใบนี้เป็นของส่วนกลางอยู่แล้วก็ต้องบอกไว้ ไม่งั้นคนแก้ไม่รู้ว่า
+                  กำลังแก้ของที่ทุกรายการใช้ร่วมกัน */}
+              {canManageGlobal ? (
+                <label className="mt-2 flex items-start gap-2 rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                  <input type="checkbox" checked={scope === 'global'} className="mt-0.5 w-4 h-4 accent-indigo-600"
+                    onChange={event => setScope(event.target.checked ? 'global' : 'tournament')} />
+                  <span className="text-xs text-slate-600 leading-snug">
+                    <b className="text-slate-800">ใช้ร่วมทุกรายการ</b> — สปอนเซอร์ส่วนกลาง
+                    แก้ที่นี่แล้วเปลี่ยนทุกรายการที่แสดงอยู่
+                  </span>
+                </label>
+              ) : scope === 'global' && (
+                <p className="mt-2 rounded-xl bg-amber-50 border border-amber-200 p-2.5 text-xs font-bold text-amber-800">
+                  สปอนเซอร์ส่วนกลาง — แก้ได้เฉพาะเจ้าหน้าที่ส่วนกลาง
+                </p>
+              )}
             </label>
             <div>
               <span className="text-sm font-bold text-slate-700">รูปแบบการสนับสนุน</span>
@@ -556,6 +585,7 @@ const SponsorPage: React.FC<Props> = ({
 }) => {
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [serverCanManage, setServerCanManage] = useState(false);
+  const [canManageGlobal, setCanManageGlobal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<{ sponsor: Sponsor | null } | null>(null);
@@ -568,6 +598,7 @@ const SponsorPage: React.FC<Props> = ({
       const data = await fetchSponsorPageData(tournamentId);
       setSponsors(data.sponsors);
       setServerCanManage(data.canManage);
+      setCanManageGlobal(data.canManageGlobal);
     } catch (error: any) {
       notify('โหลดข้อมูลสปอนเซอร์ไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
@@ -583,7 +614,18 @@ const SponsorPage: React.FC<Props> = ({
   }), [sponsors, tournamentId]);
   const tournamentSponsors = useMemo(() => visible.filter(sponsor =>
     String(sponsor.type || '').endsWith(`::${tournamentId}`)), [visible, tournamentId]);
-  const mayManage = canManage || serverCanManage;
+  /**
+   * เชื่อคำตอบจาก server เท่านั้น
+   *
+   * ⚠️ เดิมเป็น `canManage || serverCanManage` ซึ่ง canManage คำนวณฝั่งเว็บจาก
+   * `currentUser.schoolId === activeTournament.hostSchoolId` — แต่ users.school_id
+   * เป็นค่าที่ผู้ใช้ทั่วไป "เลือกเอง" ได้ตอนเข้าระบบครั้งแรก ใครก็ตามที่ตั้งโรงเรียน
+   * ตัวเองเป็นโรงเรียนเจ้าภาพจึงเห็นปุ่มเพิ่ม/แก้/ลบ และปุ่มตั้งค่าบัญชีรับเงินทั้งหมด
+   * (กดแล้ว server ปฏิเสธ 403 จริง แต่การเห็นปุ่มตั้งค่าการเงินก็ไม่ควรเกิดขึ้น)
+   *
+   * ฝั่ง server ตรวจ school_verified = 1 เพิ่มด้วย จึงเป็นคำตอบที่ถูกต้องอยู่แล้ว
+   */
+  const mayManage = serverCanManage;
   const mainSponsors = visible.filter(sponsor => sponsorTier(sponsor) === 'Main');
   const supportingSponsors = visible.filter(sponsor => sponsorTier(sponsor) === 'Support');
   const moneyTotal = visible.filter(item => item.contributionType === 'Money')
@@ -621,7 +663,16 @@ const SponsorPage: React.FC<Props> = ({
   const SponsorGrid = ({ items }: { items: Sponsor[] }) => (
     <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
       {items.map(sponsor => {
-        const editable = mayManage && tournamentSponsors.some(item => item.id === sponsor.id);
+        /**
+         * แก้ได้ตาม scope ของสปอนเซอร์ใบนั้น ไม่ใช่สิทธิ์รวมของหน้า
+         *
+         * ใบที่ผูกกับรายการนี้ → เจ้าภาพหรือผู้ดูแลรายการแก้ได้
+         * ใบส่วนกลาง (ไม่มี ::) → เฉพาะเจ้าหน้าที่ส่วนกลาง เพราะแก้แล้วกระทบทุกรายการ
+         *
+         * เดิมใบส่วนกลางไม่มีปุ่มให้ใครเลย แม้แต่แอดมิน ทั้งที่ฝั่ง server อนุญาตอยู่แล้ว
+         */
+        const isTournamentScoped = tournamentSponsors.some(item => item.id === sponsor.id);
+        const editable = isTournamentScoped ? mayManage : canManageGlobal;
         return (
           <article key={sponsor.id} className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition">
             <div className="relative aspect-[4/3] rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center justify-center overflow-hidden">
@@ -723,7 +774,7 @@ const SponsorPage: React.FC<Props> = ({
         </section>
       </main>
 
-      {editor && <SponsorEditorDialog sponsor={editor.sponsor} tournamentId={tournamentId} onClose={() => setEditor(null)} onSaved={load} notify={notify} />}
+      {editor && <SponsorEditorDialog sponsor={editor.sponsor} tournamentId={tournamentId} canManageGlobal={canManageGlobal} onClose={() => setEditor(null)} onSaved={load} notify={notify} />}
       {acknowledgementSponsor && (
         <SponsorAcknowledgementDialog sponsor={acknowledgementSponsor} tournamentName={tournamentName}
           competitionLogo={config.competitionLogo} signerDefaults={signerDefaults}

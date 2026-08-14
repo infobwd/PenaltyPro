@@ -109,8 +109,33 @@ function finance_data(): void
                       FROM users ORDER BY display_name, username'));
     }
 
+    /**
+     * ผู้สนับสนุนที่ให้เป็นเงิน — ให้เลือกมาลงเป็นรายรับได้โดยไม่ต้องพิมพ์ซ้ำ
+     *
+     * ไม่รวมเข้ารายรับให้อัตโนมัติเหมือนค่าสมัคร เพราะ "ตกลงจะให้" กับ
+     * "เงินเข้าบัญชีแล้ว" เป็นคนละเรื่อง — หน้า Sponsors บันทึกตอนตกลง
+     * ส่วนสมุดบัญชีต้องลงตอนได้รับจริงและมีหลักฐาน จึงให้เหรัญญิกกดยืนยันเอง
+     *
+     * ตัดใบที่ระบบสร้างเองจากรายจ่ายของเจ้าภาพออก (FHOST_) — นั่นเป็นรายจ่าย
+     * ที่เจ้าภาพออกให้ ไม่ใช่เงินที่โอนเข้าบัญชีรายการ ถ้าเอามาลงเป็นรายรับจะนับซ้ำ
+     */
+    $sponsorRows = Db::all(
+        "SELECT sponsor_id, name, contribution_amount, contribution_detail
+           FROM sponsors
+          WHERE tournament_id = :tid AND contribution_type = 'Money'
+            AND contribution_amount > 0 AND sponsor_id NOT LIKE 'FHOST\\_%'
+          ORDER BY display_order, name",
+        [':tid' => $tid]
+    );
+
     Response::ok([
         'entries' => $entries,
+        'sponsors' => array_map(static fn(array $s): array => [
+            'id' => $s['sponsor_id'],
+            'name' => $s['name'],
+            'amount' => (float) $s['contribution_amount'],
+            'detail' => (string) ($s['contribution_detail'] ?? ''),
+        ], $sponsorRows),
         'members' => array_map(static fn(array $member): array => [
             'userId' => $member['user_id'], 'displayName' => $member['display_name'],
             'username' => $member['username'] ?? '', 'role' => $member['role'],
