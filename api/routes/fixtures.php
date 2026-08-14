@@ -391,6 +391,37 @@ function save_match(): void
     $scheduled = Input::str('scheduledTime');
     $sched = $scheduled === '' ? null : date('Y-m-d H:i:s', (int) strtotime($scheduled));
 
+    /**
+     * สร้างแถวให้ก่อนถ้ายังไม่มี — หน้าผังการแข่งขันตั้ง match_id เองฝั่งเว็บ
+     *
+     * ⚠️ ของเดิม matchId ที่ไม่ว่างจะวิ่งเข้า UPDATE ทันที ถ้าแถวนั้นยังไม่มีในฐาน
+     * (ช่องรอบ 16/32 ทีมที่ยังไม่เคยบันทึก) UPDATE จะไม่โดนแถวไหนเลย แล้ว API
+     * ยังตอบ success ตามปกติ — แอดมินเห็นว่า "บันทึกสำเร็จ" แต่พอรีเฟรชผังก็ว่างเหมือนเดิม
+     * เป็นที่มาของ "จัดรอบ 16/32 ทีมไม่ได้" (บน production มีนัดรอบแบ่งสาย 48 นัด
+     * แต่รอบ R16/R32/QF/SF/FINAL เป็น 0 ทั้งที่จัดไปหลายรอบแล้ว)
+     */
+    if ($matchId !== '' && Db::value(
+            'SELECT 1 FROM matches WHERE match_id = :mid_chk', [':mid_chk' => $matchId]) === null) {
+        Db::exec(
+            'INSERT INTO matches
+                (match_id, tournament_id, team_a_id, team_b_id, team_a_name, team_b_name,
+                 round_label, venue, scheduled_time, status)
+             VALUES (:mid0, :tid0, :ta0, :tb0, :tan0, :tbn0, :round0, :venue0, :sched0, :st0)',
+            [
+                ':mid0' => $matchId, ':tid0' => $tournamentId,
+                ':ta0' => $teamA, ':tb0' => $teamB,
+                ':tan0' => $names[0], ':tbn0' => $names[1],
+                ':round0' => Input::str('roundLabel'),
+                ':venue0' => Input::str('venue'),
+                ':sched0' => $sched,
+                ':st0'    => 'Scheduled',
+            ]
+        );
+        Audit::log('match', $matchId, 'create');
+        Cache::flush();
+        Response::ok(['matchId' => $matchId, 'created' => true]);
+    }
+
     if ($matchId === '') {
         $matchId = 'M_' . (int) (microtime(true) * 1000) . '_' . random_int(100, 999);
         Db::exec(
