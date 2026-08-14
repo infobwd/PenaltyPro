@@ -18,7 +18,6 @@ type Props = {
   tournamentId: string;
   tournamentName: string;
   config: AppSettings;
-  canManage?: boolean;
   onBack: () => void;
   onDonate: () => void;
   onRefresh?: () => Promise<void> | void;
@@ -603,7 +602,7 @@ const SponsorAcknowledgementDialog: React.FC<AcknowledgementProps> = ({
 };
 
 const SponsorPage: React.FC<Props> = ({
-  tournamentId, tournamentName, config, canManage = false, onBack, onDonate, onRefresh, notify,
+  tournamentId, tournamentName, config, onBack, onDonate, onRefresh, notify,
 }) => {
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [serverCanManage, setServerCanManage] = useState(false);

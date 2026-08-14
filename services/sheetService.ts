@@ -167,14 +167,26 @@ export const updateTournament = async (tournament: Tournament): Promise<boolean>
 export const deleteTournament = async (
   tournamentId: string, confirmName: string, force = false,
 ): Promise<any> => apiPost('deleteTournament', { tournamentId, confirmName, force });
-export const authenticateUser = async (data: any): Promise<UserProfile | null> => {
+/**
+ * @param opts.background คำขอที่แอปยิงเอง ไม่ใช่ผู้ใช้กดปุ่มเข้าสู่ระบบ
+ *
+ * ⚠️ การซิงก์ LINE ตอนเปิดแอปต้องส่ง background: true เสมอ
+ *
+ * เคสจริงบน iPhone: เปิดลิงก์ /sponsors ที่ใครส่งมา แอปลองเอา ID token เก่า
+ * ใน LIFF ไปยืนยันกับ LINE ซึ่งหมดอายุไปแล้ว (Safari ล้าง storage บ่อยกว่าเครื่องอื่น)
+ * server ตอบ 401 "ตรวจสอบบัญชี LINE ไม่สำเร็จ" แล้วตัวจัดการ session กลางเด้งไป
+ * หน้าเข้าสู่ระบบ — ทั้งที่ผู้ใช้แค่อยากดูว่ามีใครสนับสนุนบ้าง และหน้านั้นเปิดสาธารณะอยู่แล้ว
+ */
+export const authenticateUser = async (
+  data: any, opts: { background?: boolean } = {},
+): Promise<UserProfile | null> => {
   // ย้ายมา PHP/MySQL แล้ว — และเก็บ token ไว้ใช้กับทุก endpoint ที่ต้องมีสิทธิ์
   // ถ้าไม่เก็บ การกดปุ่มในหน้าแอดมินจะได้ 401 ทั้งหมดทั้งที่ล็อกอินแล้ว
   const payload = data.authType === 'line'
     ? { authType: 'line', idToken: data.idToken }
     : { authType: 'login', username: data.username, password: data.password };
 
-  const r = await apiPost('auth', payload);
+  const r = await apiPost('auth', payload, opts);
   setToken(r.token);
   return {
     userId: r.userId,

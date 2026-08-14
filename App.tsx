@@ -419,8 +419,11 @@ export default function App() {
                         const idToken = getLineIdToken();
                         // server ไม่รับ lineUserId ดิบ ๆ อีกแล้ว (ปลอมได้) ถ้าไม่มี
                         // idToken ก็ใช้โปรไฟล์จาก LIFF แสดงผลไปก่อน แต่จะไม่มีสิทธิ์ใด ๆ
+                        // background: true — ผู้ใช้ไม่ได้กดเข้าสู่ระบบ แค่เปิดหน้าเว็บ
+                        // ถ้า token หมดอายุต้องเงียบแล้วใช้งานต่อแบบผู้เยี่ยมชม
+                        // ไม่ใช่เด้งไปหน้าเข้าสู่ระบบพร้อมข้อความที่อธิบายอะไรไม่ได้
                         const backendUser = idToken
-                            ? await authenticateUser({ authType: 'line', idToken })
+                            ? await authenticateUser({ authType: 'line', idToken }, { background: true })
                             : null;
                         if (backendUser) {
                             setCurrentUser(backendUser);
@@ -1539,13 +1542,15 @@ export default function App() {
       
       {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => goTo('home')} isLoading={isLoadingData} predictions={activePredictions} config={effectiveSettings} onDonate={openSponsorDonation} />}
       {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
-      {currentView === 'sponsors' && currentTournamentId && activeTournament && (
+      {/* หน้าผู้สนับสนุนเปิดสาธารณะ — คนที่ได้ลิงก์มาต้องเปิดดูได้ทันที
+          ถ้ายังไม่ได้เลือกรายการ (เปิดจากลิงก์ที่แชร์) ใช้ขอบเขตเดียวกับหน้าสูจิบัตร
+          ส่วนปุ่มจัดการ/ตั้งค่าไม่ต้องส่ง canManage มาแล้ว — SponsorPage ถามสิทธิ์
+          จาก server เองและเชื่อคำตอบนั้นอย่างเดียว (ดู mayManage ในไฟล์นั้น) */}
+      {currentView === 'sponsors' && (currentTournamentId || programmeScope.tournament) && (
         <SponsorPage
-          tournamentId={currentTournamentId}
-          tournamentName={activeTournament.name}
+          tournamentId={currentTournamentId || programmeScope.tournament!.id}
+          tournamentName={activeTournament?.name || programmeScope.tournament?.name || ''}
           config={effectiveSettings}
-          canManage={isAdmin || (!!currentUser?.schoolId
-            && activeTournament.hostSchoolId === currentUser.schoolId)}
           onBack={() => goTo('home')}
           onDonate={openSponsorDonation}
           onRefresh={() => loadData(true)}

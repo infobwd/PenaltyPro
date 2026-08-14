@@ -3,6 +3,7 @@ import AdminTools from './AdminTools';
 import AdminTournaments from './AdminTournaments';
 import SearchPicker, { PickerItem } from './SearchPicker';
 import LineupMediaEditor from './LineupMediaEditor';
+import { PLAYER_POSITIONS, normalizePlayerPosition } from '../services/playerPositions';
 import { isSupportedImage, resizeImageBeforeUpload, SUPPORTED_IMAGE_ACCEPT } from '../services/imageResize';
 import AdminSchedule from './AdminSchedule';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest, Match } from '../types';
@@ -1661,7 +1662,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                             <div className="col-span-3"><input type="text" placeholder="เบอร์" value={p.number} onChange={e => handlePlayerChange(idx, 'number', e.target.value)} className="w-full p-2 border rounded-lg text-xs text-center font-bold" /></div>
                                             <div className="col-span-9"><input type="text" placeholder="ชื่อ-นามสกุล" value={p.name} onChange={e => handlePlayerChange(idx, 'name', e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
                                             <div className="col-span-6"><input type="text" placeholder="วันเกิด (วว/ดด/ปปปป)" value={p.birthDate || ''} onChange={e => handleDateInput(idx, e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
-                                            <div className="col-span-6"><input type="text" placeholder="ตำแหน่ง" value={p.position || 'Player'} onChange={e => handlePlayerChange(idx, 'position', e.target.value)} className="w-full p-2 border rounded-lg text-xs" /></div>
+                                            <div className="col-span-6"><select value={normalizePlayerPosition(p.position)} onChange={e => handlePlayerChange(idx, 'position', e.target.value)} className="w-full p-2 border rounded-lg text-xs bg-white">{PLAYER_POSITIONS.map(pos => <option key={pos.value} value={pos.value}>{pos.label}</option>)}</select></div>
                                         </div>
                                         <button onClick={() => removePlayer(idx)} className="text-red-400 hover:text-red-600 p-2"><Trash2 className="w-4 h-4"/></button>
                                     </div>

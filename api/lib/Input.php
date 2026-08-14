@@ -82,15 +82,26 @@ final class Input
     }
 
     /** จำกัดค่าให้อยู่ในชุดที่อนุญาต ป้องกันค่าแปลกๆ หลุดไปถึง ENUM ของ MySQL */
+    /**
+     * ค่าที่ต้องอยู่ในชุดที่กำหนด — เทียบแบบไม่สนตัวพิมพ์ แล้วคืน "ค่าตามรูปแบบใน
+     * $allowed" เสมอ ผู้เรียกจึงเอาไปเขียนลงฐานได้ตรง ๆ โดยไม่ต้องแปลงอีก
+     *
+     * ⚠️ ของเดิม strtolower ค่าที่รับมาแล้วเทียบแบบ strict กับ $allowed ดิบ ๆ
+     * ชุดที่ไม่ได้เป็นตัวพิมพ์เล็กล้วนจึงไม่มีทางตรงเลยสักค่า — ตำแหน่งนักกีฬา
+     * (GK/DF/MF/FW/Player) แก้ไม่ได้ทั้งระบบ ได้ 422 ทุกครั้งที่กดบันทึก
+     * ทั้งที่ค่าที่ส่งมาถูกต้องแล้ว
+     */
     public static function enum(string $key, array $allowed, ?string $default = null): ?string
     {
-        $v = strtolower(self::str($key));
+        $v = self::str($key);
         if ($v === '') {
             return $default;
         }
-        if (!in_array($v, $allowed, true)) {
-            Response::fail("ค่า $key ไม่ถูกต้อง (รับได้: " . implode(', ', $allowed) . ')', 422);
+        foreach ($allowed as $option) {
+            if (strcasecmp($v, (string) $option) === 0) {
+                return (string) $option;
+            }
         }
-        return $v;
+        Response::fail("ค่า $key ไม่ถูกต้อง (รับได้: " . implode(', ', $allowed) . ')', 422);
     }
 }

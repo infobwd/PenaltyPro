@@ -215,6 +215,13 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
   const [busy, setBusy] = useState<string | null>(null);
   const [schoolName, setSchoolName] = useState('');
   const [tournament, setTournament] = useState<TournamentInfo | null>(null);
+  /**
+   * ชื่อทีมที่เพิ่งส่งสำเร็จ — ใช้แสดงหน้าจบงานพร้อมทางออกที่ชัดเจน
+   *
+   * เดิมกดส่งแล้วเด้งกลับไปหน้ารายการทีมเฉย ๆ ครูที่ทำงานเสร็จแล้วต้องไล่กด
+   * ปุ่มย้อนกลับอีกหลายครั้งกว่าจะออกไปหน้าหลัก ทั้งที่งานจบตั้งแต่กดส่งแล้ว
+   */
+  const [justSubmitted, setJustSubmitted] = useState<string | null>(null);
   const [teams, setTeams] = useState<TeamData[]>([]);
   const [editing, setEditing] = useState<TeamData | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -564,6 +571,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
       if (thenSubmit) {
         await apiPost('submitTeam', { teamId: editing.id });
         notify('ส่งข้อมูลแล้ว', 'รอผู้ดูแลตรวจสอบและอนุมัติ', 'success');
+        setJustSubmitted(editing.name || 'ทีมของคุณ');
       } else {
         notify('บันทึกแล้ว', `รายชื่อ ${players.length} คน`, 'success');
       }
@@ -703,6 +711,37 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
               ลืมรหัส? ติดต่อผู้จัดการแข่งขันเพื่อขอรหัสใหม่<br />รหัสเดิมจะใช้ไม่ได้ทันทีเมื่อออกรหัสใหม่
             </p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ส่งเรียบร้อยแล้ว ────────────────────────────────────────────────────
+  //
+  // ขั้นตอนของครูจบตรงนี้จริง ๆ จึงต้องมีทางออกที่กดครั้งเดียวถึง
+  // ไม่ใช่ปล่อยกลับไปหน้ารายการทีมแล้วให้ไล่กดย้อนกลับเอง
+  if (justSubmitted) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-5">
+        <div className="w-full max-w-sm rounded-3xl bg-white border border-slate-200 p-6 text-center shadow-sm">
+          <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-9 h-9" />
+          </div>
+          <h1 className="font-black text-xl text-slate-900 mt-4">ส่งรายชื่อเรียบร้อย</h1>
+          <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+            {justSubmitted} ถูกส่งให้ผู้ดูแลตรวจสอบแล้ว<br />
+            ผลการอนุมัติจะแจ้งกลับผ่านระบบ
+          </p>
+
+          <button onClick={onExit}
+            className="mt-6 w-full min-h-12 rounded-xl bg-indigo-600 text-white font-black
+                       flex items-center justify-center gap-2">
+            <ChevronLeft className="w-5 h-5" /> ไปหน้าหลัก
+          </button>
+          <button onClick={() => setJustSubmitted(null)}
+            className="mt-2 w-full min-h-12 rounded-xl border border-slate-200 text-slate-600 font-bold">
+            ดูทีมของฉันต่อ
+          </button>
         </div>
       </div>
     );

@@ -208,7 +208,7 @@ function clone_teams(): void
                         ':src3'  => $p['player_id'],
                         ':name2' => $p['name'],
                         ':num'   => $p['shirt_number'],
-                        ':pos'   => $p['position'],
+                        ':pos'   => normalize_player_position((string) $p['position']),
                         ':photo' => $p['photo_url'],
                         ':bd'    => $p['birth_date'],
                         ':ord'   => $i,
@@ -298,6 +298,43 @@ function my_teams(): void
  * ใช้ row_version กันเขียนทับ: ถ้าแอดมินอนุมัติไปพร้อมกับที่โรงเรียนกดบันทึก
  * ฝ่ายที่ช้ากว่าจะได้ 409 พร้อมข้อมูลล่าสุด แทนที่จะเขียนทับเงียบ ๆ
  */
+/**
+ * ตำแหน่งนักกีฬาให้เหลือรหัสกลางเสมอ — คู่กับ services/playerPositions.ts
+ *
+ * ⚠️ ต้อง normalize ที่ server ไม่ใช่หวังให้ทุกฟอร์มส่งค่าถูกมาเอง
+ *
+ * ของเดิมเก็บค่าดิบจาก client ตรง ๆ ซึ่งแต่ละหน้าส่งไม่เหมือนกัน:
+ *   หน้าโรงเรียน  ใช้ dropdown 5 ค่า -> ได้รหัสกลางถูกต้อง
+ *   โมดัลแอดมิน   เป็นช่องพิมพ์อิสระ -> ได้ "กองหน้า", "gk", "ปีกซ้าย", ว่าง ฯลฯ
+ *
+ * ผลคือข้อมูลในตารางเดียวกันมีทั้งรหัสและคำไทยปนกัน แล้วหน้าที่จัดกลุ่มตามตำแหน่ง
+ * (ผังสนาม, Golden Glove) นับไม่ตรง ส่วนหน้าที่บันทึกด้วยรหัสกลางอย่าง
+ * updatePlayerLineup ก็ทับค่าที่แอดมินเพิ่งพิมพ์ไปโดยไม่มีใครรู้ว่าอันไหนถูก
+ *
+ * ค่าที่แปลไม่ออกให้เป็น 'Player' (ไม่ระบุตำแหน่ง) ไม่ใช่ทิ้งข้อมูลหรือปฏิเสธการบันทึก
+ * — ครูกำลังกรอกรายชื่ออยู่ ไม่ควรถูกบล็อกเพราะพิมพ์ตำแหน่งแปลก ๆ
+ */
+function normalize_player_position(string $raw): string
+{
+    $v = trim($raw);
+    if ($v === '') {
+        return 'Player';
+    }
+    $map = [
+        'GK' => 'GK', 'G' => 'GK', 'GOALKEEPER' => 'GK', 'KEEPER' => 'GK',
+        'ผู้รักษาประตู' => 'GK', 'ประตู' => 'GK',
+        'DF' => 'DF', 'D' => 'DF', 'DEFENDER' => 'DF', 'DEFENCE' => 'DF',
+        'DEFENSE' => 'DF', 'กองหลัง' => 'DF',
+        'MF' => 'MF', 'M' => 'MF', 'MIDFIELDER' => 'MF', 'MIDFIELD' => 'MF',
+        'กองกลาง' => 'MF',
+        'FW' => 'FW', 'F' => 'FW', 'FORWARD' => 'FW', 'STRIKER' => 'FW',
+        'ATTACKER' => 'FW', 'กองหน้า' => 'FW',
+        'PLAYER' => 'Player', 'นักกีฬา' => 'Player', 'ผู้เล่น' => 'Player',
+        'ไม่ระบุ' => 'Player',
+    ];
+    return $map[$v] ?? $map[mb_strtoupper($v)] ?? 'Player';
+}
+
 function normalize_player_birth_date(string $raw): ?string
 {
     $value = trim($raw);
@@ -470,7 +507,7 @@ function save_team(): void
             'name'  => $pname,
             // '' ต้องเป็น NULL ไม่งั้น uq_player_shirt ชนกันเอง
             'num'   => $num === '' ? null : $num,
-            'pos'   => (string) ($pIn['position'] ?? 'Player'),
+            'pos'   => normalize_player_position((string) ($pIn['position'] ?? '')),
             'photo' => (string) ($pIn['photoUrl'] ?? ''),
             'bd'    => $bd,
             'ord'   => $i,

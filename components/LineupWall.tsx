@@ -191,6 +191,32 @@ const LineupWall: React.FC<Props> = ({
       : p
   )), [players, numberOverrides, positionOverrides]);
 
+  /**
+   * ทิ้ง override เมื่อข้อมูลจาก server ตามมาแล้ว
+   *
+   * override มีไว้ให้การ์ดเปลี่ยนทันทีที่กดบันทึก ไม่ต้องรอ getData รอบใหม่
+   * แต่ถ้าไม่เคยล้าง มันจะทับค่าจาก server ตลอดอายุของหน้า — พอมีคนอื่นแก้
+   * ตำแหน่งคนเดียวกันจากหน้าจัดการทีม จอนี้จะยังโชว์ค่าเก่าของเราค้างไว้
+   * โดยไม่มีอะไรบอก ทั้งที่ในฐานข้อมูลเปลี่ยนไปแล้ว
+   */
+  useEffect(() => {
+    const byId = new Map<string, Player>(players.map(p => [p.id, p]));
+    setNumberOverrides(prev => {
+      const next: Record<string, string> = {};
+      for (const id of Object.keys(prev)) {
+        if ((byId.get(id)?.number ?? '') !== prev[id]) next[id] = prev[id];
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setPositionOverrides(prev => {
+      const next: Record<string, PlayerPositionCode> = {};
+      for (const id of Object.keys(prev)) {
+        if (normalizePlayerPosition(byId.get(id)?.position) !== prev[id]) next[id] = prev[id];
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [players]);
+
   // จับผู้เล่นเข้าทีมรอบเดียว ไม่ใช่ filter ซ้ำทุกครั้งที่เปลี่ยนสไลด์
   const roster = useMemo(() => {
     const preferred = new Set(preferredTeamIds);
