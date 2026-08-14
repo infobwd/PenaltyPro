@@ -83,10 +83,13 @@ function finance_data(): void
            FROM tournament_finance_entries WHERE tournament_id = :tid",
         [':tid' => $tid]
     ) ?? [];
-    $income = (float) ($totals['income_total'] ?? 0);
+    $manualIncome = (float) ($totals['income_total'] ?? 0);
     $expense = (float) ($totals['expense_total'] ?? 0);
     $hostSupport = (float) ($totals['host_support_total'] ?? 0);
     $cashExpense = max(0, $expense - $hostSupport);
+
+    $registration = registration_income($tid);
+    $income = $manualIncome + $registration['total'];
 
     $members = Db::all(
         'SELECT m.user_id, u.display_name, u.username, u.role, u.picture_url, m.created_at
@@ -117,12 +120,58 @@ function finance_data(): void
         'users' => $users,
         'canManage' => $access['manager'],
         'canEdit' => $access['manager'] || $access['accountant'],
+        'registration' => $registration,
         'summary' => [
-            'income' => $income, 'expense' => $expense, 'hostSupport' => $hostSupport,
+            'income' => $income,
+            // แยกให้เห็นว่ารายรับมาจากไหน ไม่งั้นยอดรวมเปลี่ยนเองแล้วหาที่มาไม่เจอ
+            'manualIncome' => $manualIncome,
+            'registrationIncome' => $registration['total'],
+            'expense' => $expense, 'hostSupport' => $hostSupport,
             'cashExpense' => $cashExpense, 'balance' => $income - $cashExpense,
             'missingEvidence' => (int) ($totals['missing_evidence'] ?? 0),
         ],
     ]);
+}
+
+/**
+ * รายรับจากค่าสมัครที่เจ้าหน้าที่ตรวจสลิปแล้ว
+ *
+ * คำนวณตอนอ่านทุกครั้ง ไม่เขียนเป็นแถวใน tournament_finance_entries เพราะ
+ * สถานะการชำระเงินเปลี่ยนได้ตลอด (ตรวจสลิปเพิ่ม ถอนการอนุมัติ แก้ค่าสมัคร)
+ * ถ้าเขียนเป็นแถวไว้ ยอดจะค้างเป็นของเก่าแล้วไม่มีใครรู้ว่าเพี้ยนตอนไหน
+ *
+ * นับเฉพาะ payment_status = 'Verified' — คือเจ้าหน้าที่เปิดสลิปดูแล้วยืนยันว่า
+ * เงินเข้าจริง ต่างจาก 'Pending' ที่แค่แนบสลิปมา
+ *
+ * ทีมที่ถูกปฏิเสธภายหลังยังนับอยู่ เพราะเงินเข้าบัญชีไปแล้วจริง ๆ
+ * ถ้าคืนเงินให้เขาไปให้บันทึกเป็นรายจ่าย "คืนค่าสมัคร" ซึ่งตรงกับที่เกิดขึ้นจริง
+ *
+ * @return array{teams:int,feePerTeam:float,total:float,pendingTeams:int}
+ */
+function registration_income(string $tournamentId): array
+{
+    $fee = (float) (Db::value(
+        'SELECT registration_fee FROM tournaments WHERE tournament_id = :tid',
+        [':tid' => $tournamentId]
+    ) ?? 0);
+
+    $counts = Db::one(
+        "SELECT
+            SUM(CASE WHEN payment_status = 'Verified' THEN 1 ELSE 0 END) verified,
+            SUM(CASE WHEN payment_status = 'Pending'  THEN 1 ELSE 0 END) pending
+           FROM teams WHERE tournament_id = :tid",
+        [':tid' => $tournamentId]
+    ) ?? [];
+
+    $teams = (int) ($counts['verified'] ?? 0);
+
+    return [
+        'teams' => $teams,
+        'feePerTeam' => $fee,
+        'total' => round($teams * $fee, 2),
+        // รอตรวจสลิปอยู่กี่ทีม — เตือนเหรัญญิกว่ายอดยังไม่นิ่ง
+        'pendingTeams' => (int) ($counts['pending'] ?? 0),
+    ];
 }
 
 function finance_date(string $value): string

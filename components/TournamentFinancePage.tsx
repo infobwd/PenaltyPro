@@ -40,8 +40,17 @@ type FinanceData = {
   users: FinanceUser[];
   canManage: boolean;
   canEdit: boolean;
+  /** ค่าสมัครที่ตรวจสลิปแล้ว — คิดจากฐานข้อมูลทุกครั้ง ไม่ใช่รายการที่กรอกมือ */
+  registration: {
+    teams: number;
+    feePerTeam: number;
+    total: number;
+    pendingTeams: number;
+  };
   summary: {
     income: number;
+    manualIncome: number;
+    registrationIncome: number;
     expense: number;
     hostSupport: number;
     cashExpense: number;
@@ -63,8 +72,16 @@ const ENTRY_CATEGORIES = {
 } as const;
 
 const emptySummary: FinanceData['summary'] = {
-  income: 0, expense: 0, hostSupport: 0, cashExpense: 0, balance: 0, missingEvidence: 0,
+  income: 0, manualIncome: 0, registrationIncome: 0,
+  expense: 0, hostSupport: 0, cashExpense: 0, balance: 0, missingEvidence: 0,
 };
+
+const emptyRegistration: FinanceData['registration'] = {
+  teams: 0, feePerTeam: 0, total: 0, pendingTeams: 0,
+};
+
+/** หมวดรายรับที่ระบบคิดให้เองแล้ว — กรอกซ้ำจะกลายเป็นนับสองรอบ */
+const AUTO_INCOME_CATEGORY = 'ค่าสมัครทีม';
 
 const localDate = () => {
   const date = new Date();
@@ -275,6 +292,11 @@ const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, 
   if (accessError) return <div className="min-h-[100dvh] bg-slate-50 p-5"><button onClick={onBack} className="min-h-11 px-4 rounded-xl bg-white border font-bold flex items-center gap-2"><ArrowLeft className="w-4 h-4" /> กลับ</button><div className="max-w-md mx-auto mt-16 rounded-3xl bg-white border p-8 text-center"><WalletCards className="w-12 h-12 text-slate-300 mx-auto" /><h1 className="font-black text-xl mt-3">ไม่สามารถเปิดหน้าการเงิน</h1><p className="text-sm text-slate-500 mt-2">{accessError}</p></div></div>;
 
   const summary = data?.summary || emptySummary;
+  const registration = data?.registration || emptyRegistration;
+  // กรอกค่าสมัครเองทั้งที่ระบบคิดให้แล้ว = ยอดรายรับถูกนับสองรอบ
+  const duplicateFeeEntries = (data?.entries || []).filter(
+    e => e.type === 'Income' && e.category.trim() === AUTO_INCOME_CATEGORY);
+
   return (
     <div className="min-h-[100dvh] bg-slate-50 pb-24">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -294,6 +316,60 @@ const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, 
             { label: 'ใช้งบรายการ', value: summary.cashExpense, icon: BadgeDollarSign, cls: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
             { label: 'คงเหลือสุทธิ', value: summary.balance, icon: WalletCards, cls: summary.balance >= 0 ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-rose-50 text-rose-700 border-rose-100' },
           ].map(card => <article key={card.label} className={`rounded-2xl border p-4 ${card.cls}`}><card.icon className="w-5 h-5" /><p className="text-[11px] font-bold mt-3">{card.label}</p><p className="text-xl sm:text-2xl font-black mt-0.5 break-all">{money(card.value)} <span className="text-[10px]">บาท</span></p></article>)}
+        </section>
+
+        {/* ── ที่มาของรายรับ ────────────────────────────────────────────
+            แยกให้เห็นว่าส่วนไหนระบบคิดเองจากค่าสมัคร ส่วนไหนกรอกเข้ามา
+            ไม่งั้นยอด "รายรับทั้งหมด" ขยับเองตอนเจ้าหน้าที่ตรวจสลิปเพิ่ม
+            แล้วเหรัญญิกหาที่มาไม่เจอ */}
+        <section className="rounded-3xl bg-white border border-slate-200 p-4 sm:p-5">
+          <div className="flex items-center gap-3">
+            <ReceiptText className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <h2 className="font-black">ที่มาของรายรับ</h2>
+              <p className="text-xs text-slate-500">ค่าสมัครคิดจากฐานข้อมูลอัตโนมัติ ไม่ต้องกรอกเอง</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <p className="text-[11px] font-bold text-emerald-800">ค่าสมัครที่ยืนยันแล้ว</p>
+              <p className="text-xl font-black text-emerald-800 mt-0.5 break-all">
+                {money(summary.registrationIncome)} <span className="text-[10px]">บาท</span>
+              </p>
+              <p className="text-[11px] text-emerald-700 mt-1.5">
+                {registration.teams} ทีม
+                {registration.feePerTeam > 0 && ` × ${money(registration.feePerTeam)} บาท`}
+              </p>
+              {registration.feePerTeam === 0 && registration.teams > 0 && (
+                <p className="text-[11px] text-amber-700 font-bold mt-1.5">
+                  รายการนี้ยังไม่ได้ตั้งค่าสมัครต่อทีม ยอดจึงเป็น 0
+                </p>
+              )}
+              {registration.pendingTeams > 0 && (
+                <p className="text-[11px] text-amber-700 font-bold mt-1.5">
+                  อีก {registration.pendingTeams} ทีมแนบสลิปแล้วแต่ยังไม่ได้ตรวจ — ยอดจะเพิ่มเมื่อยืนยัน
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[11px] font-bold text-slate-600">รายรับที่บันทึกเอง</p>
+              <p className="text-xl font-black text-slate-800 mt-0.5 break-all">
+                {money(summary.manualIncome)} <span className="text-[10px]">บาท</span>
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1.5">เงินบริจาค เงินสนับสนุน และรายรับอื่น</p>
+            </div>
+          </div>
+
+          {duplicateFeeEntries.length > 0 && (
+            <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3
+                          text-xs font-bold text-amber-800 leading-relaxed">
+              พบรายการที่บันทึกเองในหมวด “{AUTO_INCOME_CATEGORY}” อยู่ {duplicateFeeEntries.length} รายการ
+              รวม {money(duplicateFeeEntries.reduce((s, e) => s + e.amount, 0))} บาท —
+              ระบบคิดค่าสมัครให้อัตโนมัติอยู่แล้ว รายการเหล่านี้จะถูกนับซ้ำ ควรลบออก
+            </p>
+          )}
         </section>
 
         {data?.canManage && (
