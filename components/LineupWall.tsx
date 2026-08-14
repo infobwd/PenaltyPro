@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, Pause, Play, Maximize2, Minimize2, Users, X,
-  PlayCircle, LayoutGrid, Shirt,
+  PlayCircle, LayoutGrid, Shirt, Pencil, Save, Loader2,
 } from 'lucide-react';
 import { Team, Player, AppSettings } from '../types';
 import { youTubeEmbed, youTubeId } from '../services/youtube';
+import { updatePlayerLineup } from '../services/sheetService';
+import {
+  PLAYER_POSITIONS, PlayerPositionCode, normalizePlayerPosition,
+  playerPositionLabel,
+} from '../services/playerPositions';
 
 /**
  * ผังตัวผู้เล่นแบบรายการทีวี — วนทีละทีมเอง หรือเลื่อนดูเองก็ได้
@@ -28,6 +33,11 @@ type Props = {
   config: AppSettings;
   tournamentName?: string;
   onBack: () => void;
+  canEditNumbers?: boolean;
+  /** ทีมของผู้ใช้ที่เปิดหน้า — เรียงขึ้นก่อนทีมอื่น โดยยังคงแสดงทุกทีมตามเดิม */
+  preferredTeamIds?: string[];
+  onRefresh?: () => Promise<void> | void;
+  notify?: (title: string, message?: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 };
 
 /** วินาทีต่อทีมช่วงผังตัว — พอให้กวาดตาอ่านครบ 12 ชื่อโดยไม่ต้องรีบ */
@@ -35,14 +45,6 @@ const ROSTER_MS = 12000;
 /** ช่วงแนะนำทีม — ยาวกว่านี้แล้วคนดูเริ่มรอ สั้นกว่านี้อ่านคำโปรยไม่ทัน */
 const INTRO_MS = 9000;
 const TICK_MS = 100;
-
-const POSITION_LABEL: Record<string, string> = {
-  GK: 'ผู้รักษาประตู',
-  DF: 'กองหลัง',
-  MF: 'กองกลาง',
-  FW: 'กองหน้า',
-  Player: 'นักกีฬา',
-};
 
 /** แถวบนแผนผังสนาม เรียงจากหลังไปหน้าเหมือนที่รายการถ่ายทอดวางไว้ */
 const FORMATION_ROWS: { key: string; label: string }[] = [
@@ -89,13 +91,20 @@ const PlayerCard: React.FC<{
   delay: number;
   compact?: boolean;
   onPlay?: () => void;
-}> = ({ player: p, accent, delay, compact = false, onPlay }) => {
+  canEditNumber?: boolean;
+  onEditNumber?: () => void;
+}> = ({ player: p, accent, delay, compact = false, onPlay, canEditNumber, onEditNumber }) => {
   const hasVideo = youTubeId(p.introVideoUrl) !== '';
-  const Tag = hasVideo ? 'button' : 'div';
 
   return (
-    <Tag
-      {...(hasVideo ? { onClick: onPlay, 'aria-label': `ดูคลิปแนะนำ ${p.name}` } : {})}
+    <div
+      {...(hasVideo ? {
+        onClick: onPlay,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay?.(); }
+        },
+        role: 'button', tabIndex: 0, 'aria-label': `ดูคลิปแนะนำ ${p.name}`,
+      } : {})}
       className={`group relative w-full rounded-2xl bg-white/[0.06] border border-white/10
                   overflow-hidden text-left animate-in fade-in slide-in-from-bottom-3
                   fill-mode-backwards duration-500
@@ -125,11 +134,20 @@ const PlayerCard: React.FC<{
 
         {/* ป้ายคลิป — ต้องเห็นชัดว่าใบไหนกดได้ ไม่งั้นไม่มีใครรู้ว่ามีคลิป */}
         {hasVideo && (
-          <span className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/60
+          <span className={`absolute top-1.5 ${canEditNumber ? 'right-10' : 'right-1.5'} w-7 h-7 rounded-full bg-black/60
                            backdrop-blur flex items-center justify-center
-                           group-hover:bg-rose-600 transition-colors">
+                           group-hover:bg-rose-600 transition-colors`}>
             <PlayCircle className="w-4 h-4" />
           </span>
+        )}
+
+        {canEditNumber && (
+          <button type="button" aria-label={`แก้เบอร์เสื้อและตำแหน่ง ${p.name}`}
+            onClick={e => { e.stopPropagation(); onEditNumber?.(); }}
+            className="absolute top-1.5 right-1.5 z-10 w-8 h-8 rounded-full bg-amber-400
+                       text-amber-950 shadow-lg flex items-center justify-center hover:bg-amber-300">
+            <Pencil className="w-4 h-4" />
+          </button>
         )}
 
         {/* ไล่สีให้ชื่อบนพื้นรูปยังอ่านออกไม่ว่ารูปจะสว่างแค่ไหน */}
@@ -145,22 +163,39 @@ const PlayerCard: React.FC<{
           </p>
           {!compact && (
             <p className="text-[11px] sm:text-sm mt-0.5" style={{ color: accent }}>
-              {POSITION_LABEL[p.position] ?? p.position ?? 'นักกีฬา'}
+              {playerPositionLabel(p.position)}
             </p>
           )}
         </div>
       </div>
-    </Tag>
+    </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────────────────
 
-const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, onBack }) => {
+const LineupWall: React.FC<Props> = ({
+  teams, players, config, tournamentName, onBack, canEditNumbers = false,
+  preferredTeamIds = [], onRefresh, notify,
+}) => {
+  const [numberOverrides, setNumberOverrides] = useState<Record<string, string>>({});
+  const [positionOverrides, setPositionOverrides] = useState<Record<string, PlayerPositionCode>>({});
+  const displayPlayers = useMemo(() => players.map(p => (
+    Object.prototype.hasOwnProperty.call(numberOverrides, p.id)
+      || Object.prototype.hasOwnProperty.call(positionOverrides, p.id)
+      ? {
+          ...p,
+          number: Object.prototype.hasOwnProperty.call(numberOverrides, p.id) ? numberOverrides[p.id] : p.number,
+          position: positionOverrides[p.id] ?? p.position,
+        }
+      : p
+  )), [players, numberOverrides, positionOverrides]);
+
   // จับผู้เล่นเข้าทีมรอบเดียว ไม่ใช่ filter ซ้ำทุกครั้งที่เปลี่ยนสไลด์
   const roster = useMemo(() => {
+    const preferred = new Set(preferredTeamIds);
     const byTeam = new Map<string, Player[]>();
-    for (const p of players) {
+    for (const p of displayPlayers) {
       if (!byTeam.has(p.teamId)) byTeam.set(p.teamId, []);
       byTeam.get(p.teamId)!.push(p);
     }
@@ -169,10 +204,13 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
       .map(t => ({ team: t, list: byTeam.get(t.id) ?? [] }))
       // ทีมที่ยังไม่ส่งรายชื่อไม่ต้องขึ้นจอ — ช่องว่างเปล่าดูเหมือนระบบพัง
       .filter(x => x.list.length > 0)
-      .sort((a, b) =>
-        (a.team.group ?? '').localeCompare(b.team.group ?? '', 'th')
-        || a.team.name.localeCompare(b.team.name, 'th'));
-  }, [teams, players]);
+      .sort((a, b) => {
+        const preferredOrder = Number(preferred.has(b.team.id)) - Number(preferred.has(a.team.id));
+        if (preferredOrder !== 0) return preferredOrder;
+        return (a.team.group ?? '').localeCompare(b.team.group ?? '', 'th')
+          || a.team.name.localeCompare(b.team.name, 'th');
+      });
+  }, [teams, displayPlayers, preferredTeamIds]);
 
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -181,6 +219,10 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
   const [formation, setFormation] = useState(false);
   /** คลิปรายคนที่เปิดอยู่ — null คือไม่ได้เปิด */
   const [watching, setWatching] = useState<Player | null>(null);
+  const [editingNumber, setEditingNumber] = useState<Player | null>(null);
+  const [numberDraft, setNumberDraft] = useState('');
+  const [positionDraft, setPositionDraft] = useState<PlayerPositionCode>('Player');
+  const [savingNumber, setSavingNumber] = useState(false);
   const touchX = useRef<number | null>(null);
 
   const count = roster.length;
@@ -276,6 +318,42 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
     setWatching(p);
   }, []);
 
+  const openNumberEditor = useCallback((p: Player) => {
+    setPlaying(false);
+    setEditingNumber(p);
+    setNumberDraft(p.number || '');
+    setPositionDraft(normalizePlayerPosition(p.position));
+  }, []);
+
+  const saveNumber = async () => {
+    if (!editingNumber || savingNumber) return;
+    const clean = numberDraft.trim();
+    if (clean !== '' && !/^\d{1,3}$/.test(clean)) {
+      notify?.('เบอร์เสื้อไม่ถูกต้อง', 'กรอกตัวเลขไม่เกิน 3 หลัก หรือเว้นว่างเพื่อล้างเบอร์', 'warning');
+      return;
+    }
+    setSavingNumber(true);
+    try {
+      await updatePlayerLineup({
+        teamId: editingNumber.teamId,
+        playerId: editingNumber.id,
+        number: clean,
+        position: positionDraft,
+      });
+      setNumberOverrides(prev => ({ ...prev, [editingNumber.id]: clean }));
+      setPositionOverrides(prev => ({ ...prev, [editingNumber.id]: positionDraft }));
+      notify?.('บันทึกข้อมูล Lineup แล้ว',
+        `${editingNumber.name}: ${clean ? `เบอร์ ${clean}` : 'ไม่ระบุเบอร์'} · ${playerPositionLabel(positionDraft)}`,
+        'success');
+      setEditingNumber(null);
+      void onRefresh?.();
+    } catch (error: any) {
+      notify?.('บันทึกไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+    } finally {
+      setSavingNumber(false);
+    }
+  };
+
   if (count === 0) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
@@ -298,9 +376,9 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
   // จัดคนเข้าแถวตามตำแหน่ง — คนที่ไม่ระบุตำแหน่งไปรวมแถวล่างสุด ไม่ใช่หายไป
   const byPosition = FORMATION_ROWS.map(row => ({
     ...row,
-    men: list.filter(p => p.position === row.key),
+    men: list.filter(p => normalizePlayerPosition(p.position) === row.key),
   })).filter(r => r.men.length > 0);
-  const unplaced = list.filter(p => !FORMATION_ROWS.some(r => r.key === p.position));
+  const unplaced = list.filter(p => normalizePlayerPosition(p.position) === 'Player');
 
   return (
     <div
@@ -460,7 +538,8 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
                       {row.men.map((p, i) => (
                         <div key={p.id ?? `${ri}-${i}`} className="w-24 sm:w-32">
                           <PlayerCard player={p} accent={accent} compact
-                            delay={ri * 150 + i * 60} onPlay={() => openVideo(p)} />
+                            delay={ri * 150 + i * 60} onPlay={() => openVideo(p)}
+                            canEditNumber={canEditNumbers} onEditNumber={() => openNumberEditor(p)} />
                         </div>
                       ))}
                     </div>
@@ -471,7 +550,8 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-4">
                 {list.map((p, i) => (
                   <PlayerCard key={p.id ?? i} player={p} accent={accent}
-                    delay={i * 60} onPlay={() => openVideo(p)} />
+                    delay={i * 60} onPlay={() => openVideo(p)}
+                    canEditNumber={canEditNumbers} onEditNumber={() => openNumberEditor(p)} />
                 ))}
               </div>
             )}
@@ -497,24 +577,29 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
           <ChevronRight className="w-5 h-5" />
         </button>
 
-        {/* จุดบอกตำแหน่ง — เกิน 20 ทีมจุดจะเล็กจนไร้ประโยชน์ เปลี่ยนเป็นตัวเลขแทน */}
-        {count <= 20 ? (
-          <div className="flex-1 flex items-center justify-center gap-1.5 flex-wrap min-w-0">
-            {roster.map((r, i) => (
-              <button key={r.team.id} onClick={() => { setPlaying(false); setIndex(i); setElapsed(0); }}
-                title={r.team.name} aria-label={r.team.name}
-                className="h-2.5 rounded-full transition-all"
-                style={{
-                  width: i === safeIndex ? 28 : 10,
-                  backgroundColor: i === safeIndex ? accent : 'rgba(255,255,255,0.25)',
-                }} />
+        {/* เลือกโรงเรียนโดยตรง — สำคัญกว่าจุดบอกหน้าเมื่อมีทีมจำนวนมาก */}
+        <label className="flex-1 min-w-0 flex justify-center">
+          <span className="sr-only">เลือกโรงเรียน</span>
+          <select value={team.id}
+            onChange={e => {
+              const next = roster.findIndex(item => item.team.id === e.target.value);
+              if (next < 0) return;
+              setPlaying(false);
+              setIndex(next);
+              setElapsed(0);
+            }}
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-sm h-11 rounded-xl border border-white/15 bg-slate-900 px-3
+                       text-base sm:text-sm font-bold text-white outline-none focus:border-indigo-400">
+            {roster.map((item, i) => (
+              <option key={item.team.id} value={item.team.id}>
+                {i + 1}. {item.team.name}
+                {preferredTeamIds.includes(item.team.id) ? ' · ทีมของคุณ' : ''}
+                {item.team.group ? ` · สาย ${item.team.group}` : ''}
+              </option>
             ))}
-          </div>
-        ) : (
-          <div className="flex-1 text-center text-sm font-bold tabular-nums text-slate-300">
-            {safeIndex + 1} / {count}
-          </div>
-        )}
+          </select>
+        </label>
 
         <button onClick={() => setFormation(f => !f)}
           aria-label={formation ? 'ดูแบบตาราง' : 'ดูแบบแผนผังสนาม'}
@@ -548,7 +633,7 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
               <div className="min-w-0 flex-1">
                 <p className="font-black text-lg sm:text-2xl truncate">{watching.name}</p>
                 <p className="text-sm" style={{ color: accent }}>
-                  {POSITION_LABEL[watching.position] ?? watching.position} · {team.name}
+                  {playerPositionLabel(watching.position)} · {team.name}
                 </p>
               </div>
               <button onClick={() => setWatching(null)} aria-label="ปิดคลิป"
@@ -571,6 +656,65 @@ const LineupWall: React.FC<Props> = ({ teams, players, config, tournamentName, o
                 allowFullScreen
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingNumber && (
+        <div className="fixed inset-0 z-[240] bg-black/75 backdrop-blur-sm flex items-end sm:items-center
+                        justify-center p-0 sm:p-4"
+          role="dialog" aria-modal="true" aria-labelledby="lineup-number-title"
+          onClick={() => !savingNumber && setEditingNumber(null)}
+          onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}>
+          <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-white text-slate-900
+                          p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <Shirt className="w-6 h-6" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-slate-500">
+                  แก้ไขข้อมูล Lineup · {teams.find(t => t.id === editingNumber.teamId)?.name || team.name}
+                </p>
+                <h2 id="lineup-number-title" className="font-black text-lg truncate">{editingNumber.name}</h2>
+              </div>
+              <button onClick={() => setEditingNumber(null)} disabled={savingNumber}
+                aria-label="ปิด" className="p-2 rounded-full bg-slate-100 text-slate-500 disabled:opacity-50">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <label className="block mt-5 text-sm font-bold text-slate-700" htmlFor="lineup-shirt-number">
+              หมายเลขเสื้อ
+            </label>
+            <input id="lineup-shirt-number" value={numberDraft}
+              onChange={e => setNumberDraft(e.target.value.replace(/\D/g, '').slice(0, 3))}
+              onKeyDown={e => { if (e.key === 'Enter') void saveNumber(); }}
+              inputMode="numeric" pattern="[0-9]*" autoFocus placeholder="เช่น 10"
+              className="mt-2 w-full h-14 rounded-2xl border-2 border-slate-200 px-4 text-center
+                         text-2xl font-black tabular-nums outline-none focus:border-indigo-500" />
+            <p className="mt-2 text-xs text-slate-500">เว้นว่างแล้วกดบันทึกเพื่อล้างหมายเลขเดิม</p>
+
+            <label className="block mt-4 text-sm font-bold text-slate-700" htmlFor="lineup-position">
+              ตำแหน่งนักกีฬา
+            </label>
+            <select id="lineup-position" value={positionDraft}
+              onChange={e => setPositionDraft(e.target.value as PlayerPositionCode)}
+              className="mt-2 w-full h-14 rounded-2xl border-2 border-slate-200 bg-white px-4
+                         text-base font-bold outline-none focus:border-indigo-500">
+              {PLAYER_POSITIONS.map(position => (
+                <option key={position.value} value={position.value}>{position.label}</option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-slate-500">
+              ใช้ตำแหน่งนี้จัดผังนักกีฬาและระบุผู้รักษาประตูใน Live Wall
+            </p>
+            <button onClick={() => void saveNumber()} disabled={savingNumber}
+              className="mt-5 w-full min-h-12 rounded-2xl bg-indigo-600 text-white font-black
+                         flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:opacity-60">
+              {savingNumber ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              {savingNumber ? 'กำลังบันทึก…' : 'บันทึกเบอร์และตำแหน่ง'}
+            </button>
           </div>
         </div>
       )}

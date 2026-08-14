@@ -35,6 +35,15 @@ export interface AppSettings {
   educationSupportAccountNumber?: string;
   showPenaltyModeCard?: boolean | string;
   showSupportButton?: boolean | string;
+  /** ช่องทางรับเงินผู้สนับสนุนของรายการ (ต่างจากบัญชีค่าสมัครได้) */
+  sponsorDonationEnabled?: boolean;
+  sponsorDonationUseExistingBank?: boolean;
+  sponsorDonationQrUrl?: string;
+  sponsorDonationBankName?: string;
+  sponsorDonationBankAccount?: string;
+  sponsorDonationAccountName?: string;
+  /** ค่าใช้ชั่วคราวเมื่อเปิดหน้าต่างแจ้งโอนจาก Sponsors/Standings */
+  donationQrUrl?: string;
 }
 
 export interface NewsItem {
@@ -88,6 +97,13 @@ export interface TournamentConfig {
   locationLat?: number;
   locationLng?: number;
   registrationFee?: number;
+
+  sponsorDonationEnabled?: boolean;
+  sponsorDonationUseExistingBank?: boolean;
+  sponsorDonationQrUrl?: string;
+  sponsorDonationBankName?: string;
+  sponsorDonationBankAccount?: string;
+  sponsorDonationAccountName?: string;
 
   // ป้ายหน้าร้านของรายการ — ย้ายมาจากแท็บตั้งค่าระบบ
   // ทุกปีเปลี่ยนโลโก้และประกาศใหม่ ถ้าเก็บไว้ระดับระบบ พอสลับไปดูรายการเก่า
@@ -143,6 +159,8 @@ export interface Tournament {
   name: string;
   type: 'Penalty' | '7v7' | '11v11';
   status: 'Active' | 'Archived' | 'Upcoming';
+  /** โรงเรียนเจ้าภาพ ใช้เปิดสิทธิ์จัดการเนื้อหาระดับรายการ เช่น สปอนเซอร์ */
+  hostSchoolId?: string | null;
   config?: string; 
 }
 
@@ -387,7 +405,17 @@ export interface Sponsor {
   id: string;
   name: string;
   logoUrl: string;
-  type?: 'Main' | 'Support';
+  /** รูปแบบจริงอาจต่อท้ายขอบเขตรายการ เช่น Main::TRN_123 */
+  type?: string;
+  contributionType?: 'Money' | 'Goods' | 'Unspecified';
+  /** จำนวนเงิน หรือมูลค่าโดยประมาณของสิ่งของ */
+  contributionAmount?: number | null;
+  contributionDetail?: string;
+  acknowledgementNo?: string;
+  acknowledgementDate?: string;
+  signerName?: string;
+  signerTitle?: string;
+  signatureUrl?: string;
 }
 
 export interface MusicTrack {

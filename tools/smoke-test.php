@@ -178,6 +178,17 @@ $r = req('auth', ['authType' => 'login', 'username' => "smoke_$stamp", 'password
 $adminToken = $r['data']['token'] ?? $r['token'] ?? null;
 check('แอดมินเข้าระบบได้', is_string($adminToken), $r['message'] ?? '');
 
+$r = req('updatePlayerLineup', [
+    'teamId' => $teamId,
+    'playerId' => $ids1[0]['player_id'],
+    'number' => (string) $ids1[0]['shirt_number'],
+    'position' => 'GK',
+], $adminToken);
+check('กรรมการแก้เบอร์และตำแหน่งจากหน้า Lineup ได้', ($r['ok'] ?? false) === true, $r['message'] ?? '');
+$savedPosition = $pdo->query("SELECT position FROM players WHERE player_id = " . $pdo->quote($ids1[0]['player_id']))
+    ->fetchColumn();
+check('ตำแหน่ง Lineup บันทึกเป็นรหัสมาตรฐาน', $savedPosition === 'GK', (string) $savedPosition);
+
 $r = req('reviewTeam', ['teamId' => $teamId, 'decision' => 'approve'], $adminToken);
 check('อนุมัติทีมได้', ($r['ok'] ?? false) === true,
     'HTTP ' . ($r['_http'] ?? '?') . ' ' . ($r['message'] ?? '') . ' ' . substr((string) $r['_raw'], 0, 200));
@@ -189,8 +200,26 @@ $r = req('reviewRegistrationPayment',
     ['teamId' => $teamId, 'decision' => 'verify'], $adminToken);
 check('ยืนยันสลิปค่าสมัครได้', ($r['ok'] ?? false) === true, $r['message'] ?? '');
 
+// ผู้ดูแลต้องยืนยันยอดที่รับเงินสด/แจ้งกันนอกระบบได้ แม้ไม่มีไฟล์สลิป
+$r = req('reviewRegistrationPayment',
+    ['teamId' => $teamId, 'decision' => 'reset'], $adminToken);
+check('คืนสถานะก่อนทดสอบยอดนอกระบบได้', ($r['ok'] ?? false) === true, $r['message'] ?? '');
+$pdo->prepare("UPDATE teams SET slip_url = '' WHERE team_id = ?")->execute([$teamId]);
+$r = req('reviewRegistrationPayment', [
+    'teamId' => $teamId,
+    'decision' => 'verify_manual',
+    'note' => 'รับเงินสดโดยครูผู้ประสานงาน',
+], $adminToken);
+check('ยืนยันชำระนอกระบบโดยไม่มีสลิปได้', ($r['ok'] ?? false) === true, $r['message'] ?? '');
+$manualPayment = $pdo->query("SELECT payment_status, payment_note FROM teams WHERE team_id = " . $pdo->quote($teamId))
+    ->fetch(PDO::FETCH_ASSOC);
+check('ยอดนอกระบบนับเป็นจ่ายแล้วและมีหมายเหตุ',
+    ($manualPayment['payment_status'] ?? '') === 'Verified'
+        && str_contains((string) ($manualPayment['payment_note'] ?? ''), 'ชำระนอกระบบ'),
+    (string) json_encode($manualPayment, JSON_UNESCAPED_UNICODE));
+
 // ─────────────────────────────────────────────────────────────────────────
-head('5. โรงเรียนกลับมาดูทีมหลังยืนยันสลิป  ← บั๊ก iso() อยู่ตรงนี้');
+head('5. โรงเรียนกลับมาดูทีมหลังยืนยันการชำระ  ← บั๊ก iso() อยู่ตรงนี้');
 
 $r = req('myTeams', [], $teamToken, 'GET');
 check('myTeams ยังตอบเป็น JSON (ไม่ fatal)',

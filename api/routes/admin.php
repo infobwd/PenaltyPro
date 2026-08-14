@@ -26,7 +26,8 @@ function handle(string $action, array $cfg): void
         'updateDonationDetails' => update_donation(),
         // จอแสดงผล
         'getSponsors'       => list_scoped('sponsors'),
-        'manageSponsor'     => manage_scoped('sponsors'),
+        'manageSponsor'     => manage_scoped('sponsors', $cfg),
+        'saveSponsorPaymentSettings' => save_sponsor_payment_settings($cfg),
         'getMusicTracks'    => list_scoped('music_tracks'),
         'manageMusicTrack'  => manage_scoped('music_tracks'),
         'getTickerMessages' => list_scoped('ticker_messages'),
@@ -435,7 +436,14 @@ function scoped_meta(string $table): array
 {
     return match ($table) {
         'sponsors' => ['sponsors', 'sponsor_id',
-            ['name' => 'name', 'logoUrl' => 'logo_url', 'type' => 'sponsor_type']],
+            ['name' => 'name', 'logoUrl' => 'logo_url', 'type' => 'sponsor_type',
+             'contributionType' => 'contribution_type',
+             'contributionAmount' => 'contribution_amount',
+             'contributionDetail' => 'contribution_detail',
+             'acknowledgementNo' => 'acknowledgement_no',
+             'acknowledgementDate' => 'acknowledgement_date',
+             'signerName' => 'signer_name', 'signerTitle' => 'signer_title',
+             'signatureUrl' => 'signature_url']],
         'music_tracks' => ['music_tracks', 'track_id',
             ['name' => 'name', 'url' => 'url', 'type' => 'track_type']],
         default => ['ticker_messages', 'ticker_id',
@@ -454,7 +462,16 @@ function list_scoped(string $table): void
         return match ($table) {
             'sponsors' => ['id' => $r[$pk], 'name' => $r['name'],
                            'logoUrl' => drive_img($r['logo_url']),
-                           'type' => $r['sponsor_type'] . $scope],
+                           'type' => $r['sponsor_type'] . $scope,
+                           'contributionType' => $r['contribution_type'],
+                           'contributionAmount' => $r['contribution_amount'] === null
+                               ? null : (float) $r['contribution_amount'],
+                           'contributionDetail' => $r['contribution_detail'] ?? '',
+                           'acknowledgementNo' => $r['acknowledgement_no'] ?? '',
+                           'acknowledgementDate' => $r['acknowledgement_date'] ?? '',
+                           'signerName' => $r['signer_name'] ?? '',
+                           'signerTitle' => $r['signer_title'] ?? '',
+                           'signatureUrl' => drive_img($r['signature_url'] ?? '')],
             'music_tracks' => ['id' => $r[$pk], 'name' => $r['name'],
                                'url' => $r['url'], 'type' => $r['track_type'] . $scope],
             default => ['id' => $r[$pk], 'message' => $r['message'],
@@ -465,16 +482,134 @@ function list_scoped(string $table): void
     $key = match ($table) {
         'sponsors' => 'sponsors', 'music_tracks' => 'tracks', default => 'messages',
     };
-    Response::ok([$key => $out]);
+    $payload = [$key => $out];
+    if ($table === 'sponsors') {
+        $tid = Input::str('tournamentId');
+        $payload['canManage'] = $tid !== '' && can_manage_sponsors($tid);
+    }
+    Response::ok($payload);
 }
 
-function manage_scoped(string $table): void
+/** เจ้าภาพ ผู้ดูแลรายการ หรือเจ้าหน้าที่ส่วนกลางจัดการสปอนเซอร์ของรายการได้ */
+function can_manage_sponsors(?string $tournamentId): bool
 {
-    Auth::requireStaff();
+    $tid = trim((string) $tournamentId);
+    if ($tid === '') {
+        return Auth::isAdmin() || Auth::isStaff();
+    }
+    if (Auth::isAdmin() || Auth::isStaff() || Perm::managesTournament($tid)) {
+        return true;
+    }
+
+    // บัญชีโรงเรียนที่ได้รับการรับรองอาจเปิดหน้านี้จาก user session โดยยังไม่ได้
+    // แลกรหัสโรงเรียนเป็น team session จึงตรวจได้ทั้งสองแหล่ง
+    $schoolId = Auth::schoolId();
+    if ($schoolId === null && Auth::userId() !== null) {
+        $schoolId = Db::value(
+            'SELECT school_id FROM users
+              WHERE user_id = :uid AND school_verified = 1',
+            [':uid' => Auth::userId()]
+        );
+        $schoolId = $schoolId === null ? null : (string) $schoolId;
+    }
+    if ($schoolId !== null) {
+        $isHost = Db::value(
+            'SELECT 1 FROM tournaments
+              WHERE tournament_id = :tid AND host_school_id = :sid',
+            [':tid' => $tid, ':sid' => $schoolId]
+        ) !== null;
+        if ($isHost) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function require_sponsor_manager(?string $tournamentId): void
+{
+    if (can_manage_sponsors($tournamentId)) {
+        return;
+    }
+    Response::fail('เฉพาะเจ้าภาพหรือผู้ดูแลรายการเท่านั้นที่จัดการสปอนเซอร์ได้', 403);
+}
+
+/** บัญชี/QR สำหรับรับผู้สนับสนุน โดยรายการที่แจ้งโอนยังเข้าตาราง donations เดิม */
+function save_sponsor_payment_settings(array $cfg): void
+{
+    $tid = Input::require_str('tournamentId');
+    require_sponsor_manager($tid);
+    $tournament = Db::one(
+        'SELECT bank_account FROM tournaments WHERE tournament_id = :id', [':id' => $tid]
+    );
+    if ($tournament === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+
+    $useExisting = Input::bool('useExistingAccount');
+    $enabled = Input::bool('enabled');
+    $bankName = trim(Input::str('bankName'));
+    $bankAccount = trim(Input::str('bankAccount'));
+    $accountName = trim(Input::str('accountName'));
+    $qrUrl = Input::str('qrUrl');
+    if (Input::get('qrFile', null) !== null) {
+        try {
+            $qrUrl = store_data_url(Input::str('qrFile'), 'sponsor-qr', $cfg);
+        } catch (Throwable $e) {
+            Response::fail('อัปโหลด QR Code ไม่สำเร็จ: ' . $e->getMessage(), 422);
+        }
+    }
+    if ($enabled && !$useExisting && $bankAccount === '' && $qrUrl === '') {
+        Response::fail('กรุณาระบุเลขบัญชีหรือแนบ QR Code อย่างน้อยหนึ่งรายการ', 422);
+    }
+    if ($enabled && $useExisting && trim((string) $tournament['bank_account']) === '' && $qrUrl === '') {
+        Response::fail('บัญชีเดิมของรายการยังไม่มีเลขบัญชี กรุณาแนบ QR Code หรือเลือกกำหนดบัญชีใหม่', 422);
+    }
+
+    Db::exec(
+        'UPDATE tournaments SET sponsor_donation_enabled = :enabled,
+            sponsor_donation_use_existing = :existing,
+            sponsor_donation_qr_url = :qr,
+            sponsor_bank_name = :bank, sponsor_bank_account = :account,
+            sponsor_account_name = :account_name
+          WHERE tournament_id = :id',
+        [
+            ':enabled' => $enabled ? 1 : 0, ':existing' => $useExisting ? 1 : 0,
+            ':qr' => $qrUrl, ':bank' => $bankName, ':account' => $bankAccount,
+            ':account_name' => $accountName, ':id' => $tid,
+        ]
+    );
+    Audit::log('tournament', $tid, 'sponsor_payment_settings');
+    Cache::flush();
+    Response::ok();
+}
+
+function manage_scoped(string $table, array $cfg = []): void
+{
     [$tbl, $pk, $cols] = scoped_meta($table);
 
     $sub = Input::str('subAction');
     $id = Input::str('id');
+
+    // type อาจมาเป็น "Main::tournamentId" — แยกออกเป็นคอลัมน์จริง
+    [$type, $scope] = array_pad(explode('::', Input::str('type'), 2), 2, null);
+
+    if ($table === 'sponsors') {
+        $targetScope = $scope;
+        if ($id !== '') {
+            $existingScope = Db::one(
+                "SELECT tournament_id FROM `$tbl` WHERE `$pk` = :scope_id",
+                [':scope_id' => $id]
+            );
+            if ($existingScope === null) {
+                Response::fail('ไม่พบสปอนเซอร์นี้', 404);
+            }
+            $targetScope = $existingScope['tournament_id'];
+        }
+        require_sponsor_manager($targetScope);
+    } else {
+        Auth::requireStaff();
+    }
 
     if ($sub === 'delete') {
         if ($id === '') {
@@ -493,11 +628,11 @@ function manage_scoped(string $table): void
         Response::ok();
     }
 
-    // type อาจมาเป็น "Main::tournamentId" — แยกออกเป็นคอลัมน์จริง
-    [$type, $scope] = array_pad(explode('::', Input::str('type'), 2), 2, null);
-
     $data = [];
     foreach ($cols as $in => $col) {
+        if ($table === 'sponsors' && in_array($in, ['logoUrl', 'signatureUrl'], true)) {
+            continue; // จัดการไฟล์และ URL ผ่านตัวตรวจไฟล์ด้านล่าง
+        }
         $v = Input::get($in, null);
         if ($v === null) {
             continue;
@@ -506,6 +641,49 @@ function manage_scoped(string $table): void
     }
     if ($type !== null && $type !== '' && isset($cols['type'])) {
         $data[$cols['type']] = $type;
+    }
+    if ($table === 'sponsors') {
+        if (isset($data['sponsor_type']) && !in_array($data['sponsor_type'], ['Main', 'Support'], true)) {
+            Response::fail('ประเภทสปอนเซอร์ไม่ถูกต้อง', 422);
+        }
+        if (isset($data['contribution_type'])
+            && !in_array($data['contribution_type'], ['Money', 'Goods', 'Unspecified'], true)) {
+            Response::fail('รูปแบบการสนับสนุนไม่ถูกต้อง', 422);
+        }
+        if (array_key_exists('contribution_amount', $data)) {
+            $rawAmount = trim((string) $data['contribution_amount']);
+            if ($rawAmount === '') {
+                $data['contribution_amount'] = null;
+            } elseif (!is_numeric($rawAmount) || (float) $rawAmount < 0) {
+                Response::fail('จำนวนเงินหรือมูลค่าต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป', 422);
+            } else {
+                $data['contribution_amount'] = number_format((float) $rawAmount, 2, '.', '');
+            }
+        }
+        if (array_key_exists('acknowledgement_date', $data)
+            && trim((string) $data['acknowledgement_date']) === '') {
+            $data['acknowledgement_date'] = null;
+        }
+    }
+    if ($table === 'sponsors'
+        && (Input::get('logoFile', null) !== null || Input::get('logoUrl', null) !== null)) {
+        try {
+            $data['logo_url'] = store_data_url(
+                Input::str('logoFile') ?: Input::str('logoUrl'), 'sponsor', $cfg
+            );
+        } catch (Throwable $e) {
+            Response::fail('อัปโหลดโลโก้ไม่สำเร็จ: ' . $e->getMessage(), 422);
+        }
+    }
+    if ($table === 'sponsors'
+        && (Input::get('signatureFile', null) !== null || Input::get('signatureUrl', null) !== null)) {
+        try {
+            $data['signature_url'] = store_data_url(
+                Input::str('signatureFile') ?: Input::str('signatureUrl'), 'signature', $cfg
+            );
+        } catch (Throwable $e) {
+            Response::fail('อัปโหลดลายเซ็นไม่สำเร็จ: ' . $e->getMessage(), 422);
+        }
     }
 
     if ($id === '') {

@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { KickResult, Player, Team } from '../types';
-import { Loader2, Goal, XOctagon, Hand, User } from 'lucide-react';
+import { Loader2, Goal, XOctagon, Hand, User, UserRoundX } from 'lucide-react';
 import { notifyUser } from '../services/uiService';
 
 interface PenaltyInterfaceProps {
@@ -19,7 +19,6 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
   onRecordResult,
   isProcessing 
 }) => {
-  const [playerInput, setPlayerInput] = useState('');
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
   const teamColor = (() => {
     try {
@@ -30,7 +29,7 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
   })();
 
   const handleRecord = (result: KickResult) => {
-    let finalPlayerName = playerInput;
+    let finalPlayerName = '';
     
     if (roster.length > 0) {
         if (!selectedPlayerId) {
@@ -39,15 +38,9 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
         }
         const p = roster.find(x => x.id === selectedPlayerId);
         finalPlayerName = p ? `${p.name} (#${p.number})` : 'ไม่ระบุ';
-    } else {
-        if (!playerInput.trim()) {
-            notifyUser('ข้อมูลยังไม่ครบ', 'กรุณากรอกชื่อหรือเบอร์เสื้อนักเตะ', 'warning');
-            return;
-        }
     }
 
     onRecordResult(finalPlayerName, result);
-    setPlayerInput(''); 
     setSelectedPlayerId('');
   };
 
@@ -66,7 +59,9 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
         
         {/* Player Selection */}
         <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700">เลือกคนยิง</label>
+          <label className="block text-sm font-medium text-gray-700">
+            {roster.length > 0 ? 'เลือกคนยิง' : 'ผู้ยิง'}
+          </label>
           
           {roster.length > 0 ? (
              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
@@ -89,14 +84,16 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
                 ))}
              </div>
           ) : (
-            <input
-                type="text"
-                value={playerInput}
-                onChange={(e) => setPlayerInput(e.target.value)}
-                placeholder="เช่น #10 เมสซี่"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                disabled={isProcessing}
-            />
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3
+                            flex items-start gap-3 text-left">
+              <UserRoundX className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-bold text-slate-700">ทีมนี้ยังไม่มีรายชื่อนักกีฬา</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  กดผลการยิงได้ทันที ระบบจะบันทึกโดยไม่ระบุชื่อผู้ยิง
+                </p>
+              </div>
+            </div>
           )}
         </div>
 

@@ -38,6 +38,135 @@ const MEDIA_ALLOWED = [
 ];
 
 /**
+ * ประเภทไฟล์ที่จะบังคับแปลงเป็น WebP ตอนเก็บ
+ *
+ * เริ่มที่รูปข่าวก่อนเพราะเป็นรูปที่ใหญ่ที่สุดในระบบ (เจ้าภาพอัปรูปจากกล้อง
+ * มือถือเต็มใบ 3-5 MB) และแสดงบนหน้าแรกที่คนเปิดมากที่สุด
+ *
+ * เปิดให้ชนิดอื่นเพิ่มได้ด้วยการใส่ชื่อ kind ลงในรายการนี้ — 'player' กับ 'logo'
+ * ได้ประโยชน์พอกัน แต่ยังไม่เปิดเพราะรูปนักกีฬาผูกกับหน้ารายงานตัวที่ใช้จริง
+ * หน้างานแล้ว ควรเปลี่ยนตอนไม่มีการแข่งขัน
+ */
+const MEDIA_WEBP_KINDS = ['news'];
+
+/** ด้านยาวสุดที่เก็บ — ตรงกับฝั่งเว็บใน services/imageResize.ts */
+const MEDIA_MAX_DIMENSION = 1920;
+const MEDIA_WEBP_QUALITY = 82;
+
+/**
+ * เซิร์ฟเวอร์นี้แปลง WebP ได้ไหม
+ *
+ * shared hosting บางเจ้าคอมไพล์ GD มาโดยไม่มี WebP และแทบไม่มีเจ้าไหนลง Imagick
+ * ให้ ถ้าไม่เช็คก่อนแล้วเรียก imagewebp() ตรง ๆ จะ fatal error ทั้งคำขอ
+ * = อัปรูปข่าวไม่ได้เลยทั้งระบบ ทั้งที่แค่ตัวช่วยประหยัดพื้นที่ทำงานไม่ได้
+ */
+function media_can_webp(): bool
+{
+    return function_exists('imagewebp') || class_exists('Imagick');
+}
+
+/**
+ * ย่อรูปให้ไม่เกิน MEDIA_MAX_DIMENSION แล้วแปลงเป็น WebP
+ *
+ * คืน null เมื่อทำไม่ได้ — ผู้เรียกต้องเก็บไฟล์เดิมแทน ไม่ใช่ล้มทั้งการอัปโหลด
+ *
+ * ผลพลอยได้ที่สำคัญ: EXIF หายไปทั้งหมดเพราะเขียนภาพใหม่จาก pixel
+ * รูปจากมือถือมีพิกัด GPS ติดมาด้วยเสมอ ซึ่งไม่ควรขึ้นเว็บโรงเรียน
+ */
+function media_to_webp(string $bytes, string $mime): ?string
+{
+    // GIF อาจเป็นภาพเคลื่อนไหว แปลงแล้วเหลือเฟรมเดียว — ปล่อยไว้อย่างเดิม
+    if ($mime === 'image/gif' || $mime === 'image/webp' || !media_can_webp()) {
+        return null;
+    }
+    if ($mime !== 'image/jpeg' && $mime !== 'image/png') {
+        return null;
+    }
+
+    if (class_exists('Imagick')) {
+        try {
+            $im = new Imagick();
+            $im->readImageBlob($bytes);
+            $im->autoOrient();                 // แก้รูปมือถือที่ตะแคงตาม EXIF
+            $im->stripImage();                 // ตัด EXIF/GPS ทิ้ง
+            if ($im->getImageWidth() > MEDIA_MAX_DIMENSION
+                || $im->getImageHeight() > MEDIA_MAX_DIMENSION) {
+                // 0 = ให้คำนวณอีกด้านตามสัดส่วนเอง
+                $im->resizeImage(
+                    $im->getImageWidth() >= $im->getImageHeight() ? MEDIA_MAX_DIMENSION : 0,
+                    $im->getImageWidth() >= $im->getImageHeight() ? 0 : MEDIA_MAX_DIMENSION,
+                    Imagick::FILTER_LANCZOS, 1);
+            }
+            $im->setImageFormat('webp');
+            $im->setImageCompressionQuality(MEDIA_WEBP_QUALITY);
+            $out = $im->getImageBlob();
+            $im->clear();
+            return $out !== '' ? $out : null;
+        } catch (Throwable $e) {
+            error_log('[media] imagick webp failed: ' . $e->getMessage());
+            // ตกลงไปลอง GD ต่อ ไม่ return ทันที
+        }
+    }
+
+    if (!function_exists('imagewebp') || !function_exists('imagecreatefromstring')) {
+        return null;
+    }
+
+    $src = @imagecreatefromstring($bytes);
+    if ($src === false) {
+        return null;
+    }
+
+    try {
+        // GD ไม่อ่าน EXIF ให้เอง ต้องหมุนเองก่อนไม่งั้นรูปแนวตั้งจะออกมานอน
+        if ($mime === 'image/jpeg' && function_exists('exif_read_data')) {
+            $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($bytes));
+            $angle = match ((int) ($exif['Orientation'] ?? 0)) {
+                3 => 180, 6 => -90, 8 => 90, default => 0,
+            };
+            if ($angle !== 0) {
+                $rotated = @imagerotate($src, $angle, 0);
+                if ($rotated !== false) {
+                    imagedestroy($src);
+                    $src = $rotated;
+                }
+            }
+        }
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+        $scale = max($w, $h) > MEDIA_MAX_DIMENSION ? MEDIA_MAX_DIMENSION / max($w, $h) : 1.0;
+
+        if ($scale < 1.0) {
+            $nw = max(1, (int) round($w * $scale));
+            $nh = max(1, (int) round($h * $scale));
+            $dst = imagecreatetruecolor($nw, $nh);
+            // PNG โปร่งใสต้องรักษา alpha ไว้ ไม่งั้นพื้นหลังกลายเป็นดำสนิท
+            imagealphablending($dst, false);
+            imagesavealpha($dst, true);
+            imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+            imagedestroy($src);
+            $src = $dst;
+        } else {
+            imagealphablending($src, false);
+            imagesavealpha($src, true);
+        }
+
+        ob_start();
+        $ok = imagewebp($src, null, MEDIA_WEBP_QUALITY);
+        $out = (string) ob_get_clean();
+        return ($ok && $out !== '') ? $out : null;
+    } catch (Throwable $e) {
+        error_log('[media] gd webp failed: ' . $e->getMessage());
+        return null;
+    } finally {
+        if (is_resource($src) || $src instanceof GdImage) {
+            imagedestroy($src);
+        }
+    }
+}
+
+/**
  * เก็บไฟล์ลงดิสก์แล้วคืน URL สาธารณะ
  *
  * ใช้ร่วมกันระหว่าง uploadFile (multipart จากหน้าโรงเรียน) กับหน้าสมัคร/บริจาค
@@ -69,9 +198,45 @@ function store_file(string $bytes, string $kind, array $cfg, string $origName = 
             'รองรับเฉพาะรูปภาพ (JPG/PNG/WebP/GIF) และไฟล์ PDF เท่านั้น');
     }
 
+    $sub = preg_replace('/[^a-z]/', '', strtolower($kind)) ?: 'general';
+
+    /**
+     * แปลงเป็น WebP ก่อนเก็บ สำหรับ kind ที่เปิดไว้
+     *
+     * ทำที่นี่ไม่ใช่ที่ route เพราะทุกทางเดิน (multipart, base64 จากหน้าสมัคร,
+     * ของเดิมที่ยัดมาใน JSON) ผ่านฟังก์ชันนี้หมด ถ้าดักที่ route จะมีทางที่หลุด
+     *
+     * แปลงไม่ได้ก็เก็บไฟล์เดิม — ประหยัดพื้นที่เป็นเรื่องรอง แต่อัปรูปข่าวไม่ได้
+     * คือระบบใช้งานไม่ได้
+     */
+    if (in_array($sub, MEDIA_WEBP_KINDS, true)) {
+        $converted = media_to_webp($bytes, $mime);
+        /**
+         * ใช้ผลลัพธ์เฉพาะเมื่อเล็กลงจริง
+         *
+         * WebP แบบ lossy ไม่ได้ชนะเสมอ — PNG ที่เป็นลายเส้น กราฟ ตารางคะแนน
+         * หรือภาพหน้าจอ บีบด้วย PNG ได้ดีกว่ามาก เคยเจอกรณีที่แปลงแล้ว
+         * "ใหญ่ขึ้น 5 เท่า" ซึ่งตรงข้ามกับเหตุผลทั้งหมดที่ทำเรื่องนี้
+         *
+         * ยกเว้นตอนที่ต้องย่อขนาดอยู่แล้ว — รูปที่กว้างเกิน 1920 ต้องย่อเสมอ
+         * เพราะเปลืองทั้งพื้นที่และแบนด์วิดท์ตอนผู้อ่านโหลดหน้าข่าว
+         */
+        if ($converted !== null) {
+            $dim = @getimagesizefromstring($bytes);
+            $mustShrink = $dim !== false
+                && max((int) $dim[0], (int) $dim[1]) > MEDIA_MAX_DIMENSION;
+
+            if (strlen($converted) < strlen($bytes) || $mustShrink) {
+                Audit::log('file', $sub, 'webp', null,
+                    ['from' => $mime, 'before' => strlen($bytes), 'after' => strlen($converted)]);
+                $bytes = $converted;
+                $mime = 'image/webp';
+            }
+        }
+    }
+
     // ชื่อไฟล์สุ่ม — ไม่ใช้ชื่อเดิมของผู้ใช้ กันทั้ง path traversal และชื่อชนกัน
     $name = date('Ymd') . '_' . bin2hex(random_bytes(8)) . '.' . MEDIA_ALLOWED[$mime];
-    $sub = preg_replace('/[^a-z]/', '', strtolower($kind)) ?: 'general';
     $destDir = $dir . '/' . $sub;
     if (!is_dir($destDir) && !mkdir($destDir, 0775, true) && !is_dir($destDir)) {
         throw new RuntimeException('สร้างโฟลเดอร์เก็บไฟล์ไม่ได้');

@@ -83,6 +83,24 @@ function handle(string $action, array $cfg): void
     })(), 'รัน db/13-referee-role.sql');
     $add('col_players_intro_video', $hasCol('players', 'intro_video_url'),
         'รัน db/14-lineup-intro-video.sql');
+    $add('col_sponsors_contribution', $hasCol('sponsors', 'contribution_type'),
+        'รัน db/15-sponsor-contributions.sql');
+    $add('col_sponsors_signature', $hasCol('sponsors', 'signature_url'),
+        'รัน db/15-sponsor-contributions.sql');
+    $add('col_tournaments_sponsor_donation', $hasCol('tournaments', 'sponsor_donation_qr_url'),
+        'รัน db/16-sponsor-donation-settings.sql');
+    $add('table_tournament_finance_members',
+        Db::value("SHOW TABLES LIKE 'tournament_finance_members'") !== null,
+        'รัน db/17-tournament-finance.sql');
+    $add('table_tournament_finance_entries',
+        Db::value("SHOW TABLES LIKE 'tournament_finance_entries'") !== null,
+        'รัน db/17-tournament-finance.sql');
+    // แปลง WebP ไม่ได้ = อัปรูปข่าวได้ตามปกติ แต่เก็บไฟล์ต้นฉบับเต็มใบ
+    // ไม่ใช่ความผิดพลาด จึงบอกไว้เฉย ๆ ให้รู้ว่าทำไมไฟล์ยังใหญ่
+    $add('image_webp', media_can_webp(),
+        function_exists('imagewebp') ? 'ใช้ GD'
+            : (class_exists('Imagick') ? 'ใช้ Imagick'
+                : 'โฮสต์ไม่มี GD (WebP) หรือ Imagick — รูปข่าวจะเก็บเป็นไฟล์ต้นฉบับ'));
 
     try {
         $ver = (string) Db::value('SELECT VERSION()');

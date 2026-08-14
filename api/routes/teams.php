@@ -30,6 +30,8 @@ function handle(string $action, array $cfg): void
         'deleteTeam'  => delete_team(),
         'setTeamMeta' => set_team_meta(),
         'setLineupMedia' => set_lineup_media(),
+        'updatePlayerNumber' => update_player_number(),
+        'updatePlayerLineup' => update_player_lineup(),
         default       => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -292,6 +294,38 @@ function my_teams(): void
  * ใช้ row_version กันเขียนทับ: ถ้าแอดมินอนุมัติไปพร้อมกับที่โรงเรียนกดบันทึก
  * ฝ่ายที่ช้ากว่าจะได้ 409 พร้อมข้อมูลล่าสุด แทนที่จะเขียนทับเงียบ ๆ
  */
+function normalize_player_birth_date(string $raw): ?string
+{
+    $value = trim($raw);
+    if ($value === '') {
+        return null;
+    }
+
+    $year = $month = $day = 0;
+    if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $value, $m)) {
+        $year = (int) $m[1]; $month = (int) $m[2]; $day = (int) $m[3];
+    } elseif (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $value, $m)) {
+        $day = (int) $m[1]; $month = (int) $m[2]; $year = (int) $m[3];
+    } else {
+        Response::fail('รูปแบบวันเกิดไม่ถูกต้อง กรุณาเลือกวันจากปฏิทิน', 422);
+    }
+
+    // อุปกรณ์ภาษาไทยบางรุ่นหรือข้อมูลที่ย้ายมาจากเอกสารส่งปี พ.ศ. มาให้
+    // แม้ input[type=date] มาตรฐานควรส่ง ค.ศ. จึงแปลงทั้งสองรูปแบบที่ชั้น API อีกครั้ง
+    if ($year > 2400) {
+        $year -= 543;
+    }
+    if (!checkdate($month, $day, $year)) {
+        Response::fail('วันเกิดไม่ถูกต้อง', 422);
+    }
+
+    $normalized = sprintf('%04d-%02d-%02d', $year, $month, $day);
+    if ($normalized > date('Y-m-d')) {
+        Response::fail('วันเกิดต้องไม่อยู่ในอนาคต', 422);
+    }
+    return $normalized;
+}
+
 function save_team(): void
 {
     $teamId = Input::require_str('teamId');
@@ -353,15 +387,18 @@ function save_team(): void
 
     $newSlip = (string) Input::get('slipUrl', $team['slip_url']);
     $slipChanged = $newSlip !== (string) $team['slip_url'];
-    $newPaymentStatus = $newSlip === ''
-        ? 'Unpaid'
-        : ($slipChanged ? 'Pending' : (string) ($team['payment_status'] ?? 'Pending'));
-    $newPaymentNote = ($newSlip === '' || $slipChanged)
-        ? '' : (string) ($team['payment_note'] ?? '');
-    $newPaymentReviewedAt = ($newSlip === '' || $slipChanged)
-        ? null : ($team['payment_reviewed_at'] ?? null);
-    $newPaymentReviewedBy = ($newSlip === '' || $slipChanged)
-        ? null : ($team['payment_reviewed_by'] ?? null);
+    // การแนบสลิปภายหลังต้องไม่ล้มสถานะที่ผู้ดูแลยืนยันจากเงินสด/ช่องทางนอกระบบแล้ว
+    // ส่วนสลิปปกติที่ถูกเปลี่ยนยังต้องกลับไปรอตรวจเหมือนเดิม
+    $manualPaymentVerified = (string) ($team['payment_status'] ?? '') === 'Verified'
+        && str_starts_with((string) ($team['payment_note'] ?? ''), 'ชำระนอกระบบ —');
+    $paymentNeedsReset = !$manualPaymentVerified && ($newSlip === '' || $slipChanged);
+    $newPaymentStatus = $manualPaymentVerified
+        ? 'Verified'
+        : ($newSlip === '' ? 'Unpaid'
+            : ($slipChanged ? 'Pending' : (string) ($team['payment_status'] ?? 'Pending')));
+    $newPaymentNote = $paymentNeedsReset ? '' : (string) ($team['payment_note'] ?? '');
+    $newPaymentReviewedAt = $paymentNeedsReset ? null : ($team['payment_reviewed_at'] ?? null);
+    $newPaymentReviewedBy = $paymentNeedsReset ? null : ($team['payment_reviewed_by'] ?? null);
 
     // ── หาว่าอะไรเปลี่ยนบ้าง ก่อนจะเขียนอะไรลงไป ─────────────────────────
     //
@@ -424,15 +461,14 @@ function save_team(): void
     foreach ($players as $i => $pIn) {
         $pname = trim((string) ($pIn['name'] ?? ''));
         $num   = trim((string) ($pIn['number'] ?? ''));
-        $bd    = trim((string) ($pIn['birthDate'] ?? ''));
-        $ts    = $bd === '' ? false : strtotime($bd);
+        $bd    = normalize_player_birth_date((string) ($pIn['birthDate'] ?? ''));
         $row = [
             'name'  => $pname,
             // '' ต้องเป็น NULL ไม่งั้น uq_player_shirt ชนกันเอง
             'num'   => $num === '' ? null : $num,
             'pos'   => (string) ($pIn['position'] ?? 'Player'),
             'photo' => (string) ($pIn['photoUrl'] ?? ''),
-            'bd'    => $ts === false ? null : date('Y-m-d', $ts),
+            'bd'    => $bd,
             'ord'   => $i,
         ];
 
@@ -864,9 +900,9 @@ function review_registration_payment(): void
     Auth::requireLogin();
 
     $teamId = Input::require_str('teamId');
-    $decision = Input::enum('decision', ['verify', 'reject', 'reset'], null);
+    $decision = Input::enum('decision', ['verify', 'verify_manual', 'reject', 'reset'], null);
     if ($decision === null) {
-        Response::fail('ต้องระบุ decision = verify, reject หรือ reset', 422);
+        Response::fail('ต้องระบุ decision = verify, verify_manual, reject หรือ reset', 422);
     }
 
     $team = Db::one(
@@ -887,6 +923,12 @@ function review_registration_payment(): void
             Response::fail('ทีมนี้ยังไม่ได้ส่งสลิปค่าสมัคร', 422);
         }
         $status = 'Verified';
+    } elseif ($decision === 'verify_manual') {
+        if ($note === '') {
+            Response::fail('กรุณาระบุช่องทางหรือรายละเอียดการชำระนอกระบบ เพื่อให้ตรวจสอบย้อนหลังได้', 422);
+        }
+        $status = 'Verified';
+        $note = 'ชำระนอกระบบ — ' . mb_substr($note, 0, 450);
     } elseif ($decision === 'reject') {
         if (trim((string) $team['slip_url']) === '') {
             Response::fail('ทีมนี้ยังไม่ได้ส่งสลิปค่าสมัคร', 422);
@@ -918,6 +960,7 @@ function review_registration_payment(): void
     Audit::log('team', $teamId, 'review_registration_payment', $old, [
         'status' => $status,
         'note' => $note,
+        'source' => $decision === 'verify_manual' ? 'manual' : ($decision === 'verify' ? 'slip' : null),
     ]);
     Cache::flush();
 
@@ -930,7 +973,9 @@ function review_registration_payment(): void
             $sid, 'payment_verified',
             $status === 'Verified' ? 'ยืนยันการชำระค่าสมัครแล้ว' : 'หลักฐานการชำระเงินไม่ผ่าน',
             $status === 'Verified'
-                ? $team['name'] . ' — ผู้ดูแลตรวจสลิปเรียบร้อยแล้ว'
+                ? ($team['name'] . ($decision === 'verify_manual'
+                    ? ' — ผู้ดูแลยืนยันการชำระเงินนอกระบบแล้ว'
+                    : ' — ผู้ดูแลตรวจสลิปเรียบร้อยแล้ว'))
                 : $team['name'] . ' — ' . mb_substr($note, 0, 120),
             '/school', ['teamId' => $teamId, 'paymentStatus' => $status]
         );
@@ -940,6 +985,7 @@ function review_registration_payment(): void
         'teamId' => $teamId,
         'paymentStatus' => $status,
         'paymentNote' => $note,
+        'paymentSource' => $decision === 'verify_manual' ? 'manual' : ($decision === 'verify' ? 'slip' : null),
     ]);
 }
 
@@ -1178,4 +1224,136 @@ function set_lineup_media(): void
     Cache::flush();
 
     Response::ok(['playersUpdated' => $saved]);
+}
+
+/**
+ * กรรมการแก้เฉพาะหมายเลขเสื้อจากหน้า lineup
+ *
+ * ใช้สิทธิ์เดียวกับการบันทึกผล: ต้องล็อกอินและได้รับมอบหมายรายการนั้น
+ * ไม่เรียก saveTeam เพราะการเปลี่ยนเลขหนึ่งคนต้องไม่เสี่ยงเขียนทับรายชื่อทั้งทีม
+ */
+function update_player_number(): void
+{
+    Auth::requireLogin();
+
+    $teamId = Input::require_str('teamId');
+    $playerId = Input::require_str('playerId');
+    $number = trim(Input::str('number'));
+
+    if ($number !== '' && !preg_match('/^[0-9]{1,3}$/', $number)) {
+        Response::fail('เบอร์เสื้อต้องเป็นตัวเลขไม่เกิน 3 หลัก', 422);
+    }
+
+    $player = Db::one(
+        'SELECT p.player_id, p.name, p.shirt_number, p.team_id, t.tournament_id
+           FROM players p
+           JOIN teams t ON t.team_id = p.team_id
+          WHERE p.player_id = :pid AND p.team_id = :tid',
+        [':pid' => $playerId, ':tid' => $teamId]
+    );
+    if ($player === null) {
+        Response::fail('ไม่พบนักกีฬาในทีมนี้', 404);
+    }
+
+    Perm::requireTournamentManager((string) $player['tournament_id']);
+
+    if ($number !== '') {
+        $duplicate = Db::one(
+            'SELECT player_id, name FROM players
+              WHERE team_id = :tid2 AND shirt_number = :num AND player_id <> :pid2
+              LIMIT 1',
+            [':tid2' => $teamId, ':num' => $number, ':pid2' => $playerId]
+        );
+        if ($duplicate !== null) {
+            Response::fail("เบอร์ $number ถูกใช้โดย {$duplicate['name']} ในทีมนี้แล้ว", 409);
+        }
+    }
+
+    Db::exec(
+        'UPDATE players SET shirt_number = :num2 WHERE player_id = :pid3 AND team_id = :tid3',
+        [':num2' => $number === '' ? null : $number, ':pid3' => $playerId, ':tid3' => $teamId]
+    );
+
+    Audit::log('player', $playerId, 'update_shirt_number',
+        ['number' => (string) ($player['shirt_number'] ?? '')],
+        ['number' => $number, 'teamId' => $teamId]);
+    Cache::flush();
+
+    Response::ok(['playerId' => $playerId, 'teamId' => $teamId, 'number' => $number]);
+}
+
+/**
+ * แก้ข้อมูลที่ใช้จัดผังตัวและรางวัลรายบุคคลจากหน้า Lineup
+ *
+ * ตำแหน่งบันทึกเป็นรหัสกลางเท่านั้น เพื่อให้ Live Wall, Golden Glove และ
+ * ผังนักกีฬาไม่ต้องเดาว่า Goalkeeper/ผู้รักษาประตู/GK หมายถึงค่าเดียวกันหรือไม่
+ */
+function update_player_lineup(): void
+{
+    Auth::requireLogin();
+
+    $teamId = Input::require_str('teamId');
+    $playerId = Input::require_str('playerId');
+    $number = trim(Input::str('number'));
+    $position = Input::enum('position', ['GK', 'DF', 'MF', 'FW', 'Player'], null);
+
+    if ($number !== '' && !preg_match('/^[0-9]{1,3}$/', $number)) {
+        Response::fail('เบอร์เสื้อต้องเป็นตัวเลขไม่เกิน 3 หลัก', 422);
+    }
+    if ($position === null) {
+        Response::fail('กรุณาเลือกตำแหน่งนักกีฬา', 422);
+    }
+
+    $player = Db::one(
+        'SELECT p.player_id, p.name, p.shirt_number, p.position, p.team_id, t.tournament_id
+           FROM players p
+           JOIN teams t ON t.team_id = p.team_id
+          WHERE p.player_id = :pid AND p.team_id = :tid',
+        [':pid' => $playerId, ':tid' => $teamId]
+    );
+    if ($player === null) {
+        Response::fail('ไม่พบนักกีฬาในทีมนี้', 404);
+    }
+
+    Perm::requireTournamentManager((string) $player['tournament_id']);
+
+    if ($number !== '') {
+        $duplicate = Db::one(
+            'SELECT player_id, name FROM players
+              WHERE team_id = :tid2 AND shirt_number = :num AND player_id <> :pid2
+              LIMIT 1',
+            [':tid2' => $teamId, ':num' => $number, ':pid2' => $playerId]
+        );
+        if ($duplicate !== null) {
+            Response::fail("เบอร์ $number ถูกใช้โดย {$duplicate['name']} ในทีมนี้แล้ว", 409);
+        }
+    }
+
+    Db::exec(
+        'UPDATE players SET shirt_number = :num2, position = :position
+          WHERE player_id = :pid3 AND team_id = :tid3',
+        [
+            ':num2' => $number === '' ? null : $number,
+            ':position' => $position,
+            ':pid3' => $playerId,
+            ':tid3' => $teamId,
+        ]
+    );
+
+    Audit::log('player', $playerId, 'update_lineup_profile', [
+        'number' => (string) ($player['shirt_number'] ?? ''),
+        'position' => (string) ($player['position'] ?? 'Player'),
+    ], [
+        'number' => $number,
+        'position' => $position,
+        'teamId' => $teamId,
+    ]);
+    Cache::flush();
+
+    Response::ok([
+        'playerId' => $playerId,
+        'teamId' => $teamId,
+        'number' => $number,
+        'position' => $position,
+    ]);
 }

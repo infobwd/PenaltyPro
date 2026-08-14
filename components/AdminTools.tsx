@@ -282,10 +282,18 @@ const AdminTools: React.FC<Props> = ({
 
   const doReviewPayment = async (
     team: Team,
-    decision: 'verify' | 'reject' | 'reset',
+    decision: 'verify' | 'verify_manual' | 'reject' | 'reset',
   ) => {
     let note = '';
-    if (decision === 'reject') {
+    if (decision === 'verify_manual') {
+      note = await promptAction('ระบุช่องทางหรือรายละเอียดเพื่อให้ตรวจสอบย้อนหลังได้ เช่น ชำระเงินสดกับครูผู้ประสานงาน วันที่ 14 ส.ค. 2569', {
+        title: `ยืนยันว่า ${team.name} จ่ายนอกระบบแล้ว`,
+        placeholder: 'ช่องทาง วันที่ หรือชื่อผู้รับเงิน',
+        required: true,
+        confirmText: 'ยืนยันจ่ายแล้ว',
+      }) ?? '';
+      if (!note.trim()) return;
+    } else if (decision === 'reject') {
       note = await promptAction('ระบุเหตุผล เช่น ยอดเงินไม่ตรง สลิปไม่ชัด หรือไม่พบรายการโอน', {
         title: `สลิปของ ${team.name} ไม่ผ่าน`,
         placeholder: 'เหตุผลที่ต้องส่งสลิปใหม่',
@@ -307,6 +315,7 @@ const AdminTools: React.FC<Props> = ({
       }));
       notify(
         decision === 'verify' ? 'ยืนยันการชำระเงินแล้ว'
+          : decision === 'verify_manual' ? 'บันทึกการชำระนอกระบบแล้ว'
           : decision === 'reject' ? 'บันทึกว่าสลิปไม่ผ่านแล้ว'
             : 'คืนสถานะเป็นรอตรวจแล้ว',
         team.name,
@@ -651,14 +660,14 @@ const AdminTools: React.FC<Props> = ({
       {/* ── ตรวจสลิปค่าสมัคร ──────────────────────────────────── */}
       <Card
         icon={<ReceiptText className="w-5 h-5" />}
-        title="ตรวจสอบสลิปค่าสมัคร"
-        desc={`ตรวจสถานะการชำระเงินแยกจากการอนุมัติใบสมัคร · ${targetTournament?.name || 'เลือกรายการแข่งขัน'}`}
+        title="ตรวจสอบการชำระค่าสมัคร"
+        desc={`ตรวจสถานะการชำระเงินทั้งจากสลิปและการชำระนอกระบบ แยกจากการอนุมัติใบสมัคร · ${targetTournament?.name || 'เลือกรายการแข่งขัน'}`}
       >
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
           {([
             ['Verified', 'จ่ายแล้ว', paymentCounts.Verified, 'bg-emerald-50 text-emerald-700 border-emerald-200'],
             ['Pending', 'รอตรวจ', paymentCounts.Pending, 'bg-amber-50 text-amber-700 border-amber-200'],
-            ['Unpaid', 'ยังไม่ส่งสลิป', paymentCounts.Unpaid, 'bg-slate-50 text-slate-700 border-slate-200'],
+            ['Unpaid', 'ยังไม่ยืนยันชำระ', paymentCounts.Unpaid, 'bg-slate-50 text-slate-700 border-slate-200'],
             ['Rejected', 'สลิปไม่ผ่าน', paymentCounts.Rejected, 'bg-rose-50 text-rose-700 border-rose-200'],
           ] as const).map(([status, label, count, color]) => (
             <button key={status} type="button"
@@ -702,8 +711,8 @@ const AdminTools: React.FC<Props> = ({
                 Rejected: 'bg-rose-100 text-rose-700',
               };
               const statusLabel: Record<PaymentStatus, string> = {
-                Verified: 'จ่ายแล้ว', Pending: 'รอตรวจ',
-                Unpaid: 'ยังไม่ส่งสลิป', Rejected: 'สลิปไม่ผ่าน',
+                Verified: !team.slipUrl ? 'จ่ายแล้ว · นอกระบบ' : 'จ่ายแล้ว', Pending: 'รอตรวจ',
+                Unpaid: 'ยังไม่ยืนยันชำระ', Rejected: 'สลิปไม่ผ่าน',
               };
               return (
                 <div key={team.id} className="rounded-xl border border-slate-200 p-3 sm:p-4">
@@ -718,7 +727,11 @@ const AdminTools: React.FC<Props> = ({
                       <p className="text-xs text-slate-500 mt-1">
                         {[team.schoolName, team.group ? `สาย ${team.group}` : ''].filter(Boolean).join(' · ') || 'ไม่ระบุโรงเรียน/สาย'}
                       </p>
-                      {payment.note && <p className="text-xs text-rose-600 mt-1">หมายเหตุ: {payment.note}</p>}
+                      {payment.note && (
+                        <p className={`text-xs mt-1 ${payment.status === 'Verified' ? 'text-emerald-700' : 'text-rose-600'}`}>
+                          หมายเหตุ: {payment.note}
+                        </p>
+                      )}
                       {team.paymentReviewedAt && payment.status === 'Verified' && (
                         <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
                           <Clock3 className="w-3 h-3" /> ตรวจเมื่อ {new Date(team.paymentReviewedAt).toLocaleString('th-TH')}
@@ -740,6 +753,13 @@ const AdminTools: React.FC<Props> = ({
                           disabled={busy === `pay_${team.id}`}
                           className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-1.5`}>
                           <CheckCircle2 className="w-4 h-4" /> ยืนยันจ่ายแล้ว
+                        </button>
+                      )}
+                      {!team.slipUrl && payment.status !== 'Verified' && (
+                        <button type="button" onClick={() => doReviewPayment(team, 'verify_manual')}
+                          disabled={busy === `pay_${team.id}`}
+                          className={`${btn} bg-sky-600 text-white hover:bg-sky-700 flex items-center justify-center gap-1.5`}>
+                          <WalletCards className="w-4 h-4" /> ยืนยันจ่ายนอกระบบ
                         </button>
                       )}
                       {team.slipUrl && payment.status !== 'Rejected' && (

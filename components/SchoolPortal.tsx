@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { apiGet, apiPost, apiUpload, ApiError, setToken, clearTeamToken, getToken, getTokenKind } from '../services/apiConfig';
 import { confirmAction } from '../services/uiService';
+import { PLAYER_POSITIONS, normalizePlayerPosition } from '../services/playerPositions';
 
 /**
  * หน้าสำหรับโรงเรียน — ใส่รหัส 8 ตัว แล้วยืนยัน/แก้ไขข้อมูลทีมของตัวเอง
@@ -37,6 +38,7 @@ interface PlayerRow {
   id?: string;
   name: string;
   number: string;
+  position: string;
   birthDate: string;
   photoUrl: string;
 }
@@ -101,6 +103,46 @@ const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 type StoredDraft = { savedAt: number; rowVersion?: number; team: TeamData };
 
 const draftKey = (teamId: string) => DRAFT_PREFIX + teamId;
+
+const todayForInput = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const normalizeBirthDateForInput = (value?: string): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const legacy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  let year = iso ? Number(iso[1]) : legacy ? Number(legacy[3]) : 0;
+  const month = iso ? Number(iso[2]) : legacy ? Number(legacy[2]) : 0;
+  const day = iso ? Number(iso[3]) : legacy ? Number(legacy[1]) : 0;
+  if (year > 2400) year -= 543;
+  if (!year || !month || !day || !Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return '';
+  const parsed = new Date(year, month - 1, day);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return '';
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+/** รองรับทั้ง YYYY-MM-DD จากฐานข้อมูลและ DD/MM/YYYY จากข้อมูลรุ่นเก่า */
+const playerAgeLabel = (value?: string): string | null => {
+  const normalized = normalizeBirthDateForInput(value);
+  if (!normalized) return null;
+  const [year, month, day] = normalized.split('-').map(Number);
+
+  const birth = new Date(year, month - 1, day);
+  if (birth.getFullYear() !== year || birth.getMonth() !== month - 1 || birth.getDate() !== day) return null;
+  const today = new Date();
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (birth > current) return 'วันเกิดอยู่ในอนาคต';
+
+  let years = current.getFullYear() - birth.getFullYear();
+  let months = current.getMonth() - birth.getMonth();
+  if (current.getDate() < birth.getDate()) months--;
+  if (months < 0) { years--; months += 12; }
+  if (years <= 0) return `อายุ ${Math.max(0, months)} เดือน`;
+  return `อายุ ${years} ปี${months > 0 ? ` ${months} เดือน` : ''}`;
+};
 
 const writeDraft = (t: TeamData) => {
   try {
@@ -404,10 +446,17 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
       // ตอบว่าไม่กรอกต่อ = ไม่ต้องการร่างนี้แล้ว อย่าเก็บไว้ถามซ้ำรอบหน้า
       clearDraft(t.id);
     }
+    // ร่างเก่าอาจยังไม่มี position และข้อมูลเดิมอาจเป็นคำไทย/อังกฤษเต็ม
+    // แปลงเข้ารหัสชุดเดียวกับ Lineup ก่อนให้ครูแก้ไขและบันทึกกลับ
+    data.players = data.players.map(player => ({
+      ...player,
+      position: normalizePlayerPosition(player.position),
+      birthDate: normalizeBirthDateForInput(player.birthDate),
+    }));
     // เตรียมช่องว่างให้ครบจำนวนที่กำหนด จะได้กรอกรวดเดียวไม่ต้องกดเพิ่มทีละคน
     const want = (tournament?.playersPerTeam ?? 7) + (tournament?.maxSubs ?? 0);
     while (data.players.length < want) {
-      data.players.push({ name: '', number: '', birthDate: '', photoUrl: '' });
+      data.players.push({ name: '', number: '', position: 'Player', birthDate: '', photoUrl: '' });
     }
     rowVersionRef.current = data.rowVersion;
     setEditing(data);
@@ -435,7 +484,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
       .filter(p => p.name.trim() !== '')
       .map(p => ({
         id: p.id, name: p.name.trim(), number: p.number.trim(),
-        birthDate: p.birthDate, photoUrl: p.photoUrl || '',
+        position: normalizePlayerPosition(p.position), birthDate: p.birthDate, photoUrl: p.photoUrl || '',
       }));
     const body = {
       teamId: data.id,
@@ -488,7 +537,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
       .filter(p => p.name.trim() !== '')
       .map(p => ({
         id: p.id, name: p.name.trim(), number: p.number.trim(),
-        birthDate: p.birthDate, photoUrl: p.photoUrl || '',
+        position: normalizePlayerPosition(p.position), birthDate: p.birthDate, photoUrl: p.photoUrl || '',
       }));
 
     if (thenSubmit && players.length === 0) {
@@ -822,7 +871,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
               <span className="text-xs text-slate-500">สูงสุด {limit} คน</span>
             </div>
             <p className="text-[11px] text-slate-400 mb-3">
-              กรอกเฉพาะชื่อก็พอ · เลขเสื้อและวันเกิดใส่ทีหลังได้ · แถวที่เว้นว่างจะไม่ถูกบันทึก
+              กรอกเฉพาะชื่อก็พอ · เลขเสื้อ ตำแหน่ง และวันเกิดใส่ทีหลังได้ · ระบบคำนวณอายุให้อัตโนมัติ
             </p>
 
             <div className="space-y-2">
@@ -906,9 +955,31 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
                           inputMode="numeric" value={p.number}
                           aria-invalid={dupNumbers.has(p.number.trim())}
                           onChange={e => setPlayer(i, 'number', e.target.value)} />
-                        <input className={`${inp} py-2 text-sm`} type="date"
-                          value={p.birthDate || ''}
-                          onChange={e => setPlayer(i, 'birthDate', e.target.value)} />
+                        <label className="min-w-0">
+                          <span className="sr-only">วันเกิดของ {p.name}</span>
+                          <input className={`${inp} py-2 text-sm`} type="date"
+                            aria-label={`วันเกิดของ ${p.name}`} max={todayForInput()}
+                            value={p.birthDate || ''}
+                            onChange={e => setPlayer(i, 'birthDate', e.target.value)} />
+                          {p.birthDate && (
+                            <span className={`mt-1 block rounded-lg px-2 py-1 text-center text-[11px] font-bold
+                              ${playerAgeLabel(p.birthDate) === 'วันเกิดอยู่ในอนาคต'
+                                ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                              {playerAgeLabel(p.birthDate) || 'รูปแบบวันเกิดไม่ถูกต้อง'}
+                            </span>
+                          )}
+                        </label>
+                        <label className="col-span-2 min-w-0">
+                          <span className="mb-1 block text-[11px] font-bold text-slate-500">ตำแหน่งนักกีฬา</span>
+                          <select className={`${inp} py-2 text-sm bg-white`}
+                            aria-label={`ตำแหน่งของ ${p.name}`}
+                            value={normalizePlayerPosition(p.position)}
+                            onChange={e => setPlayer(i, 'position', e.target.value)}>
+                            {PLAYER_POSITIONS.map(position => (
+                              <option key={position.value} value={position.value}>{position.label}</option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
                     )}
                   </div>
@@ -924,7 +995,7 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
 
             {editing.players.length < limit && (
               <button
-                onClick={() => { setEditing({ ...editing, players: [...editing.players, { name: '', number: '', birthDate: '', photoUrl: '' }] }); setDirty(true); }}
+                onClick={() => { setEditing({ ...editing, players: [...editing.players, { name: '', number: '', position: 'Player', birthDate: '', photoUrl: '' }] }); setDirty(true); }}
                 className="mt-3 w-full py-2.5 border-2 border-dashed border-slate-300 rounded-xl text-sm text-slate-500 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center gap-1">
                 <Plus className="w-4 h-4" /> เพิ่มแถว
               </button>

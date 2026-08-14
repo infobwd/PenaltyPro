@@ -34,16 +34,19 @@ import LineupWall from './components/LineupWall';
 import PaymentInfoCard from './components/PaymentInfoCard';
 import LivePage from './components/LivePage';
 import CommentaryDesk from './components/CommentaryDesk';
+import SponsorPage from './components/SponsorPage';
+import TournamentFinancePage from './components/TournamentFinancePage';
+import ProjectDocumentPreview from './components/ProjectDocumentPreview';
 import MatchRecorderPanel from './components/MatchRecorderPanel';
 import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes } from './services/sheetService';
+import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes, cancelMatchRecord, discardMatchDraft } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic, Handshake } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -166,6 +169,7 @@ export default function App() {
   const [distanceToVenue, setDistanceToVenue] = useState<string | null>(null);
   const [announcementIndex, setAnnouncementIndex] = useState(0);
   const [isDonationOpen, setIsDonationOpen] = useState(false);
+  const [donationConfigOverride, setDonationConfigOverride] = useState<AppSettings | null>(null);
   const [isDonorListOpen, setIsDonorListOpen] = useState(false); 
   const [activeImageMode, setActiveImageMode] = useState<'before' | 'after'>('before');
   const [isSupportOpen, setIsSupportOpen] = useState(false);
@@ -175,6 +179,7 @@ export default function App() {
   const [teamToEdit, setTeamToEdit] = useState<{team: Team, players: Player[]} | null>(null);
   const [selectedHomeTeam, setSelectedHomeTeam] = useState<Team | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [projectDocPreviewOpen, setProjectDocPreviewOpen] = useState(false);
 
   const activeTeams = currentTournamentId ? availableTeams.filter(t => t.tournamentId === currentTournamentId || (!t.tournamentId && currentTournamentId === 'default')) : [];
   const activePlayers = currentTournamentId ? availablePlayers.filter(p => p.tournamentId === currentTournamentId || (!p.tournamentId && currentTournamentId === 'default')) : [];
@@ -242,6 +247,26 @@ export default function App() {
       locationLng: tConfig.locationLng || appConfig.locationLng,
       competitionLogo: tConfig.competitionLogo || appConfig.competitionLogo,
       announcement: tConfig.announcement || appConfig.announcement,
+      sponsorDonationEnabled: tConfig.sponsorDonationEnabled !== false,
+      sponsorDonationUseExistingBank: tConfig.sponsorDonationUseExistingBank !== false,
+      sponsorDonationQrUrl: tConfig.sponsorDonationQrUrl || '',
+      sponsorDonationBankName: tConfig.sponsorDonationBankName || '',
+      sponsorDonationBankAccount: tConfig.sponsorDonationBankAccount || '',
+      sponsorDonationAccountName: tConfig.sponsorDonationAccountName || '',
+  };
+
+  const sponsorDonationConfig: AppSettings = {
+      ...effectiveSettings,
+      donationQrUrl: effectiveSettings.sponsorDonationQrUrl,
+      ...(effectiveSettings.sponsorDonationUseExistingBank === false ? {
+          bankName: effectiveSettings.sponsorDonationBankName || '',
+          bankAccount: effectiveSettings.sponsorDonationBankAccount || '',
+          accountName: effectiveSettings.sponsorDonationAccountName || '',
+      } : {}),
+  };
+  const openSponsorDonation = () => {
+      setDonationConfigOverride(sponsorDonationConfig);
+      setIsDonationOpen(true);
   };
 
   const registrationDeadline = tConfig.registrationDeadline;
@@ -638,6 +663,8 @@ export default function App() {
   
   const startMatchSession = (teamA: Team, teamB: Team, matchId?: string) => { 
       const finalMatchId = matchId || `M_${Date.now()}`;
+      liveSyncRef.current.discarding = false;
+      regularSyncRef.current.discarding = false;
       setMatchState({ 
           matchId: finalMatchId, 
           teamA, 
@@ -700,7 +727,47 @@ export default function App() {
   // ยิงกี่รอบผลก็เท่าเดิม (ดูหมายเหตุใน api/routes/live.php)
   const matchStateRef = useRef<MatchState | null>(null);
   matchStateRef.current = matchState;
-  const liveSyncRef = useRef({ sending: false, again: false });
+  const liveSyncRef = useRef<{
+    sending: boolean; again: boolean; discarding: boolean; pending: Promise<unknown> | null;
+  }>({ sending: false, again: false, discarding: false, pending: null });
+  const regularSyncRef = useRef<{ discarding: boolean; chain: Promise<unknown> }>({
+    discarding: false,
+    chain: Promise.resolve(),
+  });
+  const previousViewRef = useRef(currentView);
+
+  // รองรับปุ่มย้อนกลับของเบราว์เซอร์/LIFF ด้วย ไม่ใช่เฉพาะปุ่มในหน้า Match
+  // ถ้าออกจากหน้าระหว่างที่ยังไม่จบ ให้ล้างข้อมูลที่ซิงก์ไว้เบื้องหลังเช่นเดียวกัน
+  useEffect(() => {
+    const previous = previousViewRef.current;
+    previousViewRef.current = currentView;
+    if (previous !== 'match' || currentView === 'match'
+        || !matchState?.matchId || matchState.isFinished
+        || liveSyncRef.current.discarding || regularSyncRef.current.discarding) return;
+
+    const matchId = matchState.matchId;
+    liveSyncRef.current.discarding = true;
+    liveSyncRef.current.again = false;
+    regularSyncRef.current.discarding = true;
+    matchStateRef.current = null;
+    setMatchState(null);
+
+    void (async () => {
+      try {
+        await Promise.allSettled([
+          liveSyncRef.current.pending,
+          regularSyncRef.current.chain,
+        ].filter(Boolean) as Promise<unknown>[]);
+        await discardMatchDraft(matchId);
+        await loadData(true, true);
+        showNotification('ยกเลิกข้อมูลทดลองแล้ว', 'ผลที่ไม่ได้บันทึกถูกนำออกจากโต๊ะพากย์แล้ว', 'info');
+      } catch (error: any) {
+        liveSyncRef.current.discarding = false;
+        regularSyncRef.current.discarding = false;
+        showNotification('ล้างข้อมูลทดลองไม่สำเร็จ', error?.message || 'กรุณาแจ้งผู้ดูแลตรวจสอบผลการแข่งขัน', 'error');
+      }
+    })();
+  }, [currentView]);
 
   /**
    * ลายเซ็นของสิ่งที่เซิร์ฟเวอร์ควรรู้ — เปลี่ยนเมื่อไรค่อยยิง
@@ -726,20 +793,24 @@ export default function App() {
     // (กรรมการกดรัวได้เร็วกว่าเน็ตในสนามตอบ — ถ้าปล่อยให้ซ้อนกัน
     //  คำขอเก่าที่ตอบช้ากว่าจะไปเขียนทับสถานะใหม่)
     const push = async () => {
+      if (liveSyncRef.current.discarding) return;
       if (liveSyncRef.current.sending) { liveSyncRef.current.again = true; return; }
       liveSyncRef.current.sending = true;
       try {
         const s = matchStateRef.current;
         if (s && !s.isFinished && s.kicks.length > 0) {
-          await saveMatchToSheet(s, '', false, currentTournamentId || 'default');
+          const pending = saveMatchToSheet(s, '', false, currentTournamentId || 'default');
+          liveSyncRef.current.pending = pending;
+          await pending;
         }
       } catch {
         // เงียบไว้โดยตั้งใจ — กรรมการกำลังยืนจดข้างสนาม การเด้ง error ทุกครั้ง
         // ที่สัญญาณตกคือสิ่งที่ทำให้เลิกใช้ และลูกถัดไปก็ส่งสถานะทั้งชุดไปใหม่อยู่แล้ว
         // ส่วนตอนจบเกมมีการบันทึกอีกรอบที่แจ้งผลจริงถ้าล้มเหลว
       } finally {
+        liveSyncRef.current.pending = null;
         liveSyncRef.current.sending = false;
-        if (liveSyncRef.current.again && !cancelled) {
+        if (liveSyncRef.current.again && !cancelled && !liveSyncRef.current.discarding) {
           liveSyncRef.current.again = false;
           void push();
         }
@@ -810,10 +881,40 @@ export default function App() {
       message: 'คะแนน เวลา และเหตุการณ์ที่ยังไม่ได้จบการแข่งขันจะไม่ถูกบันทึก',
       isDangerous: true,
       confirmText: 'ออกโดยไม่บันทึก',
-      onConfirm: () => {
+      onConfirm: async () => {
+        const draft = matchState;
         setConfirmModal(null);
+        if (!draft?.matchId) {
+          setMatchState(null);
+          goTo('schedule');
+          return;
+        }
+
+        // หยุดคำขอซิงก์ใหม่ก่อน แล้วรอคำขอที่ออกไปแล้วให้จบ จึงค่อยล้างฝั่ง server
+        // ไม่เช่นนั้นคำขอเก่าอาจตอบทีหลังและสร้างผลทดลองกลับขึ้นมาอีกครั้ง
+        liveSyncRef.current.discarding = true;
+        liveSyncRef.current.again = false;
+        regularSyncRef.current.discarding = true;
+        matchStateRef.current = null;
         setMatchState(null);
-        goTo('schedule');
+        setIsSaving(true);
+        try {
+          await Promise.allSettled([
+            liveSyncRef.current.pending,
+            regularSyncRef.current.chain,
+          ].filter(Boolean) as Promise<unknown>[]);
+          await discardMatchDraft(draft.matchId);
+          await loadData(true, true);
+          showNotification('ยกเลิกข้อมูลทดลองแล้ว', 'ผลทดสอบจะไม่แสดงบนโต๊ะพากย์', 'info');
+          goTo('schedule');
+        } catch (error: any) {
+          liveSyncRef.current.discarding = false;
+          regularSyncRef.current.discarding = false;
+          setMatchState(draft);
+          showNotification('ออกโดยไม่บันทึกไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+        } finally {
+          setIsSaving(false);
+        }
       },
     });
   };
@@ -830,11 +931,32 @@ export default function App() {
     && currentView !== 'lineup'
     // โต๊ะพากย์ต้องใช้พื้นที่จอทั้งหมด ผู้พากย์อ่านสามคอลัมน์พร้อมกันระหว่างพูด
     && currentView !== 'commentary'
+    && currentView !== 'finance'
     && currentView !== 'checkin';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
-  const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(true); goTo('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
+  const handleFinishRegularMatch = async (finalState: MatchState) => {
+    setIsSaving(true);
+    regularSyncRef.current.discarding = true;
+    try {
+      await regularSyncRef.current.chain.catch(() => undefined);
+      await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default');
+      if (finalState.events && finalState.events.length > 0) {
+        await saveMatchEventsToSheet(finalState.events);
+      }
+      setMatchState(null);
+      showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success");
+      loadData(true);
+      goTo('home');
+    } catch (e) {
+      regularSyncRef.current.discarding = false;
+      console.error(e);
+      showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
   /**
    * ซิงก์เหตุการณ์ของแบบ 7v7/11v11 ระหว่างเกม
    *
@@ -846,15 +968,55 @@ export default function App() {
    */
   const handleUpdateRegularMatchState = useCallback((state: MatchState) => {
     if (!state.matchId) return;
-    Promise.all([
-      saveMatchToSheet(state, '', true, currentTournamentId || 'default'),
-      state.events && state.events.length > 0
-        ? saveMatchEventsToSheet(state.events) : Promise.resolve(true),
-    ]).catch(() => {
+    if (regularSyncRef.current.discarding) return;
+    regularSyncRef.current.chain = regularSyncRef.current.chain
+      .catch(() => undefined)
+      .then(() => regularSyncRef.current.discarding ? undefined : Promise.all([
+        saveMatchToSheet(state, '', true, currentTournamentId || 'default'),
+        state.events && state.events.length > 0
+          ? saveMatchEventsToSheet(state.events) : Promise.resolve(true),
+      ]))
+      .catch(() => {
       // เงียบไว้เหมือนฝั่งจุดโทษ — เหตุการณ์ถัดไปส่งสถานะทั้งชุดไปใหม่อยู่แล้ว
       // และตอนกดจบการแข่งขันมีการบันทึกอีกรอบที่แจ้งผลจริงถ้าล้มเหลว
-    });
+      });
   }, [currentTournamentId]);
+
+  const canCorrectCommentaryResult = !!currentUser
+    && ['admin', 'staff', 'referee'].includes(currentUser.role || '');
+
+  const handleCancelCommentaryKick = async (match: Match, kick: Kick): Promise<boolean> => {
+    try {
+      const score = await cancelMatchRecord({
+        matchId: match.id,
+        kind: 'kick',
+        round: kick.round,
+        teamId: kick.teamId,
+      });
+      showNotification('ยกเลิกผลการยิงแล้ว', `ปรับคะแนนเป็น ${score.scoreA}-${score.scoreB}`, 'info');
+      await loadData(true, true);
+      return true;
+    } catch (error: any) {
+      showNotification('ยกเลิกไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+      return false;
+    }
+  };
+
+  const handleCancelCommentaryGoal = async (match: Match, event: MatchEvent): Promise<boolean> => {
+    try {
+      const score = await cancelMatchRecord({
+        matchId: match.id,
+        kind: 'goal',
+        eventId: event.id,
+      });
+      showNotification('ยกเลิกประตูแล้ว', `ปรับคะแนนเป็น ${score.scoreA}-${score.scoreB}`, 'info');
+      await loadData(true, true);
+      return true;
+    } catch (error: any) {
+      showNotification('ยกเลิกไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+      return false;
+    }
+  };
 
   const handleSharePrizeSummary = () => {
       sharePrizeSummary(activeTournament?.name || "Tournament Results", prizes, activeTeams);
@@ -952,6 +1114,8 @@ export default function App() {
               tournaments={tournaments}
               config={effectiveSettings}
               onBack={() => goTo('home')}
+              onCancelKick={canCorrectCommentaryResult ? handleCancelCommentaryKick : undefined}
+              onCancelGoal={canCorrectCommentaryResult ? handleCancelCommentaryGoal : undefined}
           />
       );
   }
@@ -961,6 +1125,15 @@ export default function App() {
           ? { teams: participatingTeams, players: activePlayers, name: activeTournament?.name }
           : { teams: programmeScope.teams, players: programmeScope.players,
               name: programmeScope.tournament?.name };
+      const isSchoolViewer = !!currentUser
+          && !['admin', 'staff', 'referee'].includes(currentUser.role || '');
+      const preferredTeamIds = isSchoolViewer
+          ? scoped.teams
+              .filter(team => team.creatorId === currentUser.userId
+                || (!!currentUser.schoolId && team.schoolId === currentUser.schoolId)
+                || (!!currentUser.schoolName && team.schoolName === currentUser.schoolName))
+              .map(team => team.id)
+          : [];
       return (
           <LineupWall
               teams={scoped.teams}
@@ -968,6 +1141,10 @@ export default function App() {
               config={effectiveSettings}
               tournamentName={scoped.name}
               onBack={() => goTo('home')}
+              canEditNumbers={!!currentUser && ['admin', 'staff', 'referee'].includes(currentUser.role)}
+              onRefresh={() => loadData(true, true)}
+              notify={showNotification}
+              preferredTeamIds={preferredTeamIds}
           />
       );
   }
@@ -1058,6 +1235,13 @@ export default function App() {
     <div className="bg-slate-50 min-h-screen text-slate-900 font-sans pb-24" style={{ fontFamily: "'Kanit', sans-serif" }}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       <SystemDialogHost onNotify={showNotification} />
+      {projectDocPreviewOpen && objectiveData.docUrl && (
+        <ProjectDocumentPreview
+          url={objectiveData.docUrl}
+          title={objectiveData.title || 'รายละเอียดโครงการ'}
+          onClose={() => setProjectDocPreviewOpen(false)}
+        />
+      )}
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
       <UserLoginDialog isOpen={isUserLoginOpen} onClose={() => setIsUserLoginOpen(false)} onLoginSuccess={handleUserLoginSuccess} />
@@ -1160,8 +1344,8 @@ export default function App() {
       />
       <DonationDialog 
         isOpen={isDonationOpen} 
-        onClose={() => setIsDonationOpen(false)} 
-        config={effectiveSettings} 
+        onClose={() => { setIsDonationOpen(false); setDonationConfigOverride(null); }}
+        config={donationConfigOverride || effectiveSettings}
         tournamentName={activeTournament?.name || ''} 
         tournamentId={currentTournamentId}
         currentUser={currentUser}
@@ -1305,8 +1489,29 @@ export default function App() {
         /> 
       )}
       
-      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => goTo('home')} isLoading={isLoadingData} predictions={activePredictions} />}
+      {currentView === 'standings' && <StandingsView key={viewKey} matches={activeMatches} teams={activeTeams} players={activePlayers} onBack={() => goTo('home')} isLoading={isLoadingData} predictions={activePredictions} config={effectiveSettings} onDonate={openSponsorDonation} />}
       {currentView === 'contest' && <ContestGallery user={currentUser} onLoginRequest={() => setIsUserLoginOpen(true)} showNotification={showNotification} />}
+      {currentView === 'sponsors' && currentTournamentId && activeTournament && (
+        <SponsorPage
+          tournamentId={currentTournamentId}
+          tournamentName={activeTournament.name}
+          config={effectiveSettings}
+          canManage={isAdmin || (!!currentUser?.schoolId
+            && activeTournament.hostSchoolId === currentUser.schoolId)}
+          onBack={() => goTo('home')}
+          onDonate={openSponsorDonation}
+          onRefresh={() => loadData(true)}
+          notify={showNotification}
+        />
+      )}
+      {currentView === 'finance' && currentTournamentId && activeTournament && (
+        <TournamentFinancePage
+          tournamentId={currentTournamentId}
+          tournamentName={activeTournament.name}
+          onBack={() => goTo('home')}
+          notify={showNotification}
+        />
+      )}
       {currentView === 'login' && (
         <LoginPage
           reason={authReason}
@@ -1708,6 +1913,16 @@ export default function App() {
                           <Mic className="w-5 h-5 shrink-0" />
                           <span className="text-left leading-snug flex-1 min-w-0">โต๊ะพากย์<span className="block text-[11px] font-medium text-indigo-100 mt-1">ผลสด สถิติ และประเด็นพร้อมพูด</span></span>
                       </button>
+                      <button onClick={() => goTo('sponsors')} className="min-h-[4.5rem] rounded-xl bg-amber-400 text-amber-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-amber-300 transition text-left">
+                          <Handshake className="w-5 h-5 shrink-0" />
+                          <span className="text-left leading-snug flex-1 min-w-0">ผู้สนับสนุนการแข่งขัน<span className="block text-[11px] font-medium text-amber-800 mt-1">ดูรายชื่อและเชิญชวนผู้สนับสนุนร่วมจัดงาน</span></span>
+                      </button>
+                      {currentUser && (
+                        <button onClick={() => goTo('finance')} className="min-h-[4.5rem] rounded-xl bg-emerald-400 text-emerald-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-emerald-300 transition text-left">
+                            <DollarSign className="w-5 h-5 shrink-0" />
+                            <span className="text-left leading-snug flex-1 min-w-0">บัญชีการเงินรายการ<span className="block text-[11px] font-medium text-emerald-800 mt-1">รายรับ รายจ่าย หลักฐาน และสรุปงบประมาณ</span></span>
+                        </button>
+                      )}
                       {isAdmin && (
                         <button onClick={handleDownloadSchoolCodes} className="min-h-[4.5rem] rounded-xl bg-amber-400 text-amber-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-amber-300 transition text-left">
                             <Download className="w-5 h-5 shrink-0" />
@@ -1806,9 +2021,9 @@ export default function App() {
                                   <h3 className="font-bold text-xl text-slate-800">{objectiveData.title || "โครงการพัฒนาโรงเรียน"}</h3>
                                   <div className="flex gap-2">
                                       {objectiveData.docUrl && (
-                                          <a href={objectiveData.docUrl} target="_blank" className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-3 py-2 rounded-full font-bold text-xs shadow-sm transition flex items-center gap-1">
-                                              <Download className="w-3 h-3" /> รายละเอียด
-                                          </a>
+                                          <button type="button" onClick={() => setProjectDocPreviewOpen(true)} className="bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 px-3 py-2 rounded-full font-bold text-xs shadow-sm transition flex items-center gap-1">
+                                              <Eye className="w-3 h-3" /> เปิดอ่านรายละเอียด
+                                          </button>
                                       )}
                                       <button onClick={() => setIsDonationOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-md transition flex items-center gap-1 active:scale-95">
                                           <Heart className="w-4 h-4 fill-white" /> ร่วมบริจาค

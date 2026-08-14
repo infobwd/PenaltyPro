@@ -2,11 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, Radio, RefreshCw, Mic, History, Target, ShieldCheck, XCircle,
   Users, NotebookPen, WifiOff, Clock, MapPin, Flame, AlertTriangle, Trophy,
-  Search, X, BarChart3, CalendarClock,
+  Search, X, BarChart3, CalendarClock, Undo2, Loader2, Handshake, Building2,
+  BadgeDollarSign, Package,
 } from 'lucide-react';
-import { AppSettings, Kick, Match, MatchEvent, Player, Team, Tournament } from '../types';
+import { AppSettings, Kick, Match, MatchEvent, Player, Sponsor, Team, Tournament } from '../types';
 import { useLiveBoard } from '../hooks/useLiveBoard';
 import { headToHead, recentForm, schoolRecord } from '../services/headToHead';
+import { confirmAction } from '../services/uiService';
+import { fetchSponsors } from '../services/sheetService';
 
 /**
  * โต๊ะพากย์ — หน้าสำหรับคนถือไมค์ข้างสนาม
@@ -44,6 +47,9 @@ type Props = {
   tournaments: Tournament[];
   config: AppSettings;
   onBack: () => void;
+  /** มีเฉพาะผู้ดูแล/กรรมการที่ผ่านการเข้าสู่ระบบ ฝั่ง server ตรวจสิทธิ์ซ้ำอีกชั้น */
+  onCancelKick?: (match: Match, kick: Kick) => Promise<boolean>;
+  onCancelGoal?: (match: Match, event: MatchEvent) => Promise<boolean>;
 };
 
 const POSITION_LABEL: Record<string, string> = {
@@ -85,6 +91,26 @@ const teamNameOf = (t: Team | string | undefined): string =>
 /** ทีมจาก id ก่อน แล้วค่อยถอยไปเทียบชื่อ — นัดเก่าบางนัดไม่มี team id ผูกไว้ */
 const findTeam = (id: string | undefined, name: string, teams: Team[]): Team | null =>
   (id ? teams.find(t => t.id === id) : undefined) ?? teams.find(t => t.name === name) ?? null;
+
+const sponsorTier = (sponsor: Sponsor): 'Main' | 'Support' =>
+  String(sponsor.type || '').split('::')[0] === 'Support' ? 'Support' : 'Main';
+
+const sponsorContribution = (sponsor: Sponsor): string => {
+  if (sponsor.contributionType === 'Money') {
+    const amount = Number(sponsor.contributionAmount || 0);
+    return amount > 0
+      ? `สนับสนุนเงิน ${amount.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท`
+      : 'สนับสนุนเป็นเงิน';
+  }
+  if (sponsor.contributionType === 'Goods') {
+    const value = Number(sponsor.contributionAmount || 0);
+    const detail = sponsor.contributionDetail?.trim();
+    return value > 0
+      ? `${detail || 'สนับสนุนสิ่งของ'} · มูลค่าประมาณ ${value.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท`
+      : detail ? `สนับสนุนสิ่งของ · ${detail}` : 'สนับสนุนสิ่งของ';
+  }
+  return sponsorTier(sponsor) === 'Main' ? 'ผู้สนับสนุนหลัก' : 'ผู้ร่วมสนับสนุน';
+};
 
 const ageOf = (birthDate?: string): number | null => {
   // มาจาก API เป็น dd/mm/yyyy — Date() อ่านรูปแบบนี้ผิดถ้าโยนเข้าไปตรง ๆ
@@ -272,7 +298,7 @@ const Panel: React.FC<{ title: string; icon: React.ReactNode; children: React.Re
 
 const CommentaryDesk: React.FC<Props> = ({
   tournamentId, tournamentName, teams, players, allMatches, allTeams, tournaments,
-  config, onBack,
+  config, onBack, onCancelKick, onCancelGoal,
 }) => {
   const tournamentNames = useMemo(
     () => new Map(tournaments.map(t => [t.id, t.name])), [tournaments]);
@@ -280,6 +306,36 @@ const CommentaryDesk: React.FC<Props> = ({
 
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [mobileSection, setMobileSection] = useState<'match' | 'talk' | 'teams'>('match');
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [sponsorLoading, setSponsorLoading] = useState(true);
+  const [sponsorError, setSponsorError] = useState(false);
+
+  const loadSponsors = useCallback(async () => {
+    setSponsorLoading(true);
+    setSponsorError(false);
+    try {
+      setSponsors(await fetchSponsors());
+    } catch (loadError) {
+      console.error('Failed to load commentary sponsors', loadError);
+      setSponsorError(true);
+    } finally {
+      setSponsorLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSponsors(); }, [loadSponsors, tournamentId]);
+
+  const visibleSponsors = useMemo(() => sponsors
+    .filter(sponsor => {
+      const type = String(sponsor.type || '');
+      return !type.includes('::') || (!!tournamentId && type.endsWith(`::${tournamentId}`));
+    })
+    .sort((a, b) => {
+      const tierOrder = Number(sponsorTier(a) === 'Support') - Number(sponsorTier(b) === 'Support');
+      return tierOrder || a.name.localeCompare(b.name, 'th');
+    }), [sponsors, tournamentId]);
 
   /**
    * ทุกนัดของรายการนี้ — ค้นหาได้แม้ยังไม่เริ่มแข่ง
@@ -397,8 +453,42 @@ const CommentaryDesk: React.FC<Props> = ({
 
   const stale = updatedAt !== null && Date.now() - updatedAt > 30_000;
 
+  const requestCancelKick = async (kick: Kick) => {
+    if (!match || !onCancelKick || cancelling !== null) return;
+    const teamName = kick.teamId === 'A' ? nameA : nameB;
+    const confirmed = await confirmAction(
+      `ผลการยิงรอบ ${kick.round} ของ ${teamName} จะถูกลบ และคะแนนจะคำนวณใหม่ทันที`,
+      { title: 'ยกเลิกผลการยิงนี้?', confirmText: 'ยกเลิกผลการยิง', dangerous: true },
+    );
+    if (!confirmed) return;
+    const key = `kick:${kickSlot(kick)}`;
+    setCancelling(key);
+    try {
+      if (await onCancelKick(match, kick)) refresh();
+    } finally {
+      setCancelling(null);
+    }
+  };
+
+  const requestCancelGoal = async (event: MatchEvent) => {
+    if (!match || !onCancelGoal || cancelling !== null) return;
+    const teamName = event.teamId === 'A' ? nameA : nameB;
+    const confirmed = await confirmAction(
+      `ประตูของ ${teamName}${event.player ? ` (${event.player})` : ''} จะถูกลบ และคะแนนจะลดลง 1 ประตู`,
+      { title: 'ยกเลิกประตูนี้?', confirmText: 'ยกเลิกประตู', dangerous: true },
+    );
+    if (!confirmed) return;
+    const key = `goal:${event.id}`;
+    setCancelling(key);
+    try {
+      if (await onCancelGoal(match, event)) refresh();
+    } finally {
+      setCancelling(null);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white pb-10">
+    <div className="min-h-[100dvh] bg-slate-950 text-white pb-[calc(2.5rem+env(safe-area-inset-bottom))] overflow-x-hidden">
       {/* ── แถบบน ───────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur border-b border-white/10">
         <div className="max-w-[1600px] mx-auto px-3 py-2.5 flex items-center gap-3">
@@ -416,7 +506,7 @@ const CommentaryDesk: React.FC<Props> = ({
               <Freshness at={updatedAt} stale={stale} />
             </p>
           </div>
-          <button onClick={refresh} aria-label="ดึงข้อมูลใหม่"
+          <button onClick={() => { refresh(); void loadSponsors(); }} aria-label="ดึงข้อมูลใหม่"
             className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold
                        flex items-center gap-1.5 shrink-0">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -486,6 +576,23 @@ const CommentaryDesk: React.FC<Props> = ({
             })}
           </div>
         )}
+
+        {/* มือถือแสดงข้อมูลทีละหมวด ไม่บังคับเลื่อนผ่านสามคอลัมน์ยาวหลายจอ */}
+        <nav className="lg:hidden max-w-[1600px] mx-auto px-3 pb-2 grid grid-cols-3 gap-1.5"
+          aria-label="หมวดข้อมูลโต๊ะพากย์">
+          {([
+            ['match', 'ผลสด'], ['talk', 'บทพากย์'], ['teams', 'รายชื่อ'],
+          ] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setMobileSection(key)}
+              aria-pressed={mobileSection === key}
+              className={`min-h-10 rounded-xl text-xs font-black border transition
+                ${mobileSection === key
+                  ? 'bg-indigo-600 border-indigo-500 text-white'
+                  : 'bg-white/[0.05] border-white/10 text-slate-300'}`}>
+              {label}
+            </button>
+          ))}
+        </nav>
       </header>
 
       {error && (
@@ -528,10 +635,10 @@ const CommentaryDesk: React.FC<Props> = ({
           </p>
         </div>
       ) : (
-        <div className="max-w-[1600px] mx-auto px-3 py-4 grid gap-4 lg:grid-cols-12">
+        <div className="max-w-[1600px] mx-auto px-3 py-3 sm:py-4 grid gap-4 lg:grid-cols-12">
 
           {/* ══ ซ้าย — สกอร์และไทม์ไลน์ ══════════════════════════════ */}
-          <div className="lg:col-span-4 space-y-4">
+          <div className={`${mobileSection === 'match' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4`}>
             <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-4">
               <div className="flex items-center justify-between gap-2 mb-3">
                 <span className={`px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5
@@ -605,6 +712,20 @@ const CommentaryDesk: React.FC<Props> = ({
                                           flex items-center gap-1 text-white ${ui.cls}`}>
                           {ui.icon} {ui.label}
                         </span>
+                        {onCancelKick && (
+                          <button type="button"
+                            onClick={() => void requestCancelKick(k)}
+                            disabled={cancelling !== null}
+                            aria-label={`ยกเลิกผลการยิงรอบ ${k.round} ของ ${k.teamId === 'A' ? nameA : nameB}`}
+                            title="ยกเลิกผลการยิง"
+                            className="w-8 h-8 -my-1 rounded-lg border border-rose-400/30 bg-rose-500/10
+                                       text-rose-300 hover:bg-rose-500/25 disabled:opacity-40
+                                       flex items-center justify-center shrink-0">
+                            {cancelling === `kick:${kickSlot(k)}`
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <Undo2 className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -633,6 +754,20 @@ const CommentaryDesk: React.FC<Props> = ({
                         <span className="text-[11px] text-slate-400 shrink-0 truncate max-w-[6rem]">
                           {e.teamId === 'A' ? nameA : nameB}
                         </span>
+                        {onCancelGoal && (e.type === 'GOAL' || e.type === 'OWN_GOAL') && (
+                          <button type="button"
+                            onClick={() => void requestCancelGoal(e)}
+                            disabled={cancelling !== null}
+                            aria-label={`ยกเลิกประตูของ ${e.teamId === 'A' ? nameA : nameB}`}
+                            title="ยกเลิกประตู"
+                            className="w-8 h-8 -my-1 rounded-lg border border-rose-400/30 bg-rose-500/10
+                                       text-rose-300 hover:bg-rose-500/25 disabled:opacity-40
+                                       flex items-center justify-center shrink-0">
+                            {cancelling === `goal:${e.id}`
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <Undo2 className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -642,7 +777,74 @@ const CommentaryDesk: React.FC<Props> = ({
           </div>
 
           {/* ══ กลาง — บทพูด ═══════════════════════════════════════ */}
-          <div className="lg:col-span-4 space-y-4">
+          <div className={`${mobileSection === 'talk' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4`}>
+            <Panel title={`ผู้สนับสนุนการแข่งขัน${visibleSponsors.length > 0 ? ` (${visibleSponsors.length})` : ''}`}
+              icon={<Handshake className="w-4 h-4" />}>
+              {sponsorLoading ? (
+                <div className="flex items-center gap-2 py-2 text-sm text-slate-400">
+                  <Loader2 className="w-4 h-4 animate-spin" /> กำลังโหลดข้อมูลผู้สนับสนุน…
+                </div>
+              ) : sponsorError ? (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-amber-200">โหลดข้อมูลผู้สนับสนุนไม่สำเร็จ</p>
+                  <button type="button" onClick={() => void loadSponsors()}
+                    className="min-h-9 shrink-0 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-black hover:bg-white/10">
+                    ลองใหม่
+                  </button>
+                </div>
+              ) : visibleSponsors.length === 0 ? (
+                <p className="text-sm text-slate-400">รายการนี้ยังไม่มีข้อมูลผู้สนับสนุน</p>
+              ) : (
+                <>
+                  <p className="mb-3 text-[11px] leading-relaxed text-slate-400">
+                    ข้อมูลพร้อมอ่านขอบคุณระหว่างการพากย์ · เลื่อนด้านข้างเพื่อดูทั้งหมด
+                  </p>
+                  <div className="-mx-1 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-1 pb-2
+                                  [scrollbar-width:thin] [scrollbar-color:rgb(71_85_105)_transparent]">
+                    {visibleSponsors.map(sponsor => {
+                      const isMoney = sponsor.contributionType === 'Money';
+                      const isGoods = sponsor.contributionType === 'Goods';
+                      return (
+                        <article key={sponsor.id}
+                          className="w-[min(78vw,17rem)] shrink-0 snap-start rounded-xl border border-white/10
+                                     bg-white/[0.05] p-3 sm:w-64">
+                          <div className="flex items-start gap-3">
+                            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden
+                                            rounded-xl border border-white/10 bg-white text-slate-400">
+                              <Building2 className="h-6 w-6" />
+                              {sponsor.logoUrl && (
+                                <img src={sponsor.logoUrl} alt={`โลโก้ ${sponsor.name}`}
+                                  onError={event => { event.currentTarget.style.display = 'none'; }}
+                                  className="absolute inset-1 h-10 w-10 bg-white object-contain" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="break-words text-sm font-black leading-snug text-white">{sponsor.name}</p>
+                              <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black
+                                ${sponsorTier(sponsor) === 'Main'
+                                  ? 'bg-amber-400/15 text-amber-200'
+                                  : 'bg-indigo-400/15 text-indigo-200'}`}>
+                                {sponsorTier(sponsor) === 'Main' ? 'ผู้สนับสนุนหลัก' : 'ผู้ร่วมสนับสนุน'}
+                              </span>
+                            </div>
+                          </div>
+                          <p className={`mt-2.5 flex items-start gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold leading-relaxed
+                            ${isMoney ? 'bg-emerald-400/10 text-emerald-200'
+                              : isGoods ? 'bg-amber-400/10 text-amber-100'
+                                : 'bg-white/[0.05] text-slate-300'}`}>
+                            {isMoney ? <BadgeDollarSign className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              : isGoods ? <Package className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                : <Handshake className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                            <span className="break-words">{sponsorContribution(sponsor)}</span>
+                          </p>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </Panel>
+
             <Panel title="ประเด็นพร้อมพูด" icon={<Mic className="w-4 h-4" />}>
               {points.length === 0 ? (
                 <p className="text-sm text-slate-400">
@@ -667,7 +869,7 @@ const CommentaryDesk: React.FC<Props> = ({
               <textarea value={note} onChange={e => saveNote(e.target.value)}
                 rows={7} placeholder="คำอ่านชื่อโรงเรียน ชื่อนักกีฬาที่อ่านยาก ข้อความขอบคุณผู้สนับสนุน…"
                 className="w-full rounded-xl bg-white/[0.06] border border-white/10 p-3
-                           text-sm outline-none focus:border-indigo-500 resize-y" />
+                           text-base sm:text-sm outline-none focus:border-indigo-500 resize-y" />
               <p className="text-[11px] text-slate-500 mt-2">
                 เก็บไว้ในเครื่องนี้เท่านั้น แยกตามนัด ไม่ส่งขึ้นระบบ
               </p>
@@ -675,7 +877,7 @@ const CommentaryDesk: React.FC<Props> = ({
           </div>
 
           {/* ══ ขวา — รายชื่อสองทีม ═══════════════════════════════ */}
-          <div className="lg:col-span-4 space-y-4">
+          <div className={`${mobileSection === 'teams' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4`}>
             {[{ team: teamA, name: nameA, roster: rosterA },
               { team: teamB, name: nameB, roster: rosterB }].map(({ team, name, roster }, i) => (
               <Panel key={team?.id ?? i} title={name} icon={<Users className="w-4 h-4" />}>

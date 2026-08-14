@@ -100,6 +100,8 @@ $routes = [
     'deleteTeam'  => 'teams.php',
     'setTeamMeta' => 'teams.php',   // ย้ายสาย / เปลี่ยนโรงเรียนที่ผูก
     'setLineupMedia' => 'teams.php', // คลิปแนะนำทีม/รายคน สำหรับผังตัวนักกีฬา
+    'updatePlayerNumber' => 'teams.php', // กรรมการแก้เบอร์เสื้อก่อน/ระหว่างบันทึกผล
+    'updatePlayerLineup' => 'teams.php', // กรรมการแก้เบอร์เสื้อและตำแหน่งที่ใช้ร่วมกับ Live Wall
 
     // --- ตารางแข่ง ---------------------------------------------------------
     'generateFixtures' => 'fixtures.php',  // ประกบคู่อัตโนมัติทั้งสาย
@@ -111,6 +113,8 @@ $routes = [
     // --- ผลการแข่งขันสด ----------------------------------------------------
     'saveMatchResult'  => 'live.php',   // สกอร์ + ลูกจุดโทษ (เขียนทับทั้งนัด)
     'saveMatchEvents'  => 'live.php',   // ประตู/ใบเหลือง/เปลี่ยนตัว
+    'cancelMatchRecord'=> 'live.php',   // ยกเลิกลูกยิง/ประตูที่กดผิดจากโต๊ะพากย์
+    'discardMatchDraft'=> 'live.php',   // ออกจากหน้าบันทึกผลโดยไม่เก็บข้อมูลทดลอง
     'liveBoard'        => 'live.php',   // กระดานผลสด (อ่านอย่างเดียว ยิงซ้ำได้ถี่)
 
     // --- ไฟล์ -------------------------------------------------------------
@@ -157,6 +161,12 @@ $routes = [
     'updateDonationDetails' => 'admin.php',
     'getSponsors'       => 'admin.php',
     'manageSponsor'     => 'admin.php',
+    'saveSponsorPaymentSettings' => 'admin.php',
+    // --- บัญชีรายรับ-รายจ่ายของรายการ ------------------------------------
+    'getFinanceData'          => 'finance.php',
+    'saveFinanceEntry'        => 'finance.php',
+    'deleteFinanceEntry'      => 'finance.php',
+    'assignFinanceAccountant' => 'finance.php',
     'getMusicTracks'    => 'admin.php',
     'manageMusicTrack'  => 'admin.php',
     'getTickerMessages' => 'admin.php',

@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Team, Standing, Match, KickResult, Player, MatchEvent, Prediction } from '../types'; 
+import { AppSettings, Team, Standing, Match, KickResult, Player, MatchEvent, Prediction } from '../types';
 import { Trophy, ArrowLeft, Calendar, LayoutGrid, X, User, Phone, MapPin, Info, BarChart3, History, Sparkles, Share2, Medal, AlertTriangle, ShieldCheck, Hand, Goal, Star, ChevronRight, Crown } from 'lucide-react'; 
 import PlayerCard from './PlayerCard'; 
 import { shareGroupStandings } from '../services/liffService';
+import SponsorDonationCard from './SponsorDonationCard';
 
 interface StandingsViewProps {
   matches: Match[]; 
@@ -12,6 +13,8 @@ interface StandingsViewProps {
   onBack: () => void;
   isLoading?: boolean;
   predictions?: Prediction[];
+  config: AppSettings;
+  onDonate: () => void;
 }
 
 const matchDateValue = (match: Match): string => match.date || match.scheduledTime || '';
@@ -164,7 +167,7 @@ const TeamDetailModal: React.FC<{ team: Team, matches: Match[], players: Player[
     );
 };
 
-const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, players, onBack, isLoading, predictions = [] }) => {
+const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, players, onBack, isLoading, predictions = [], config, onDonate }) => {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [activeTab, setActiveTab] = useState<'table' | 'scorers' | 'keepers' | 'fairplay' | 'fan'>('table');
   const finishedMatches = useMemo(
@@ -428,33 +431,39 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, players, 
 
   // --- LOGIC: Fair Play ---
   const fairPlayRankings = useMemo(() => {
-      const fpMap: Record<string, { team: Team, yellow: number, red: number, points: number }> = {};
-      teams.forEach(t => { if (t.status === 'Approved') fpMap[t.name] = { team: t, yellow: 0, red: 0, points: 0 }; });
+      const fpMap = new Map<string, { team: Team, yellow: number, red: number, points: number }>();
+      const teamIdByName = new Map<string, string>();
+      teams.forEach(t => {
+          if (t.status !== 'Approved') return;
+          fpMap.set(t.id, { team: t, yellow: 0, red: 0, points: 0 });
+          teamIdByName.set(t.name, t.id);
+      });
 
       matches.forEach(m => {
           if (m.events) {
               m.events.forEach(e => {
-                  const teamName = e.teamId === 'A' 
+                  const teamName = e.teamId === 'A'
                       ? (typeof m.teamA === 'string' ? m.teamA : m.teamA.name)
                       : (typeof m.teamB === 'string' ? m.teamB : m.teamB.name);
-                  
-                  if (fpMap[teamName]) {
+                  // ใช้ teamId ก่อนเพื่อไม่ให้ชื่อ snapshot/ชื่อย่อในนัดเก่าทำชื่อทีมขาด
+                  const teamId = (e.teamId === 'A' ? m.teamAId : m.teamBId) || teamIdByName.get(teamName);
+                  const entry = teamId ? fpMap.get(teamId) : undefined;
+
+                  if (entry) {
                       if (e.type === 'YELLOW_CARD') {
-                          fpMap[teamName].yellow += 1;
-                          fpMap[teamName].points += 1;
+                          entry.yellow += 1;
+                          entry.points += 1;
                       } else if (e.type === 'RED_CARD') {
-                          fpMap[teamName].red += 1;
-                          fpMap[teamName].points += 3;
+                          entry.red += 1;
+                          entry.points += 3;
                       }
                   }
               });
           }
       });
 
-      return Object.values(fpMap)
-        .filter(t => true) 
-        .sort((a, b) => a.points - b.points) 
-        .slice(0, 20); 
+      return Array.from(fpMap.values())
+        .sort((a, b) => a.points - b.points || a.team.name.localeCompare(b.team.name, 'th'));
   }, [matches, teams]);
 
   return (
@@ -487,6 +496,8 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, players, 
                     <Sparkles className="w-4 h-4"/> Fan Zone
                 </button>
             </div>
+
+            <SponsorDonationCard config={config} onDonate={onDonate} compact className="mb-8" />
 
             {/* Content: Standings Table */}
             {activeTab === 'table' && (
@@ -718,17 +729,17 @@ const StandingsView: React.FC<StandingsViewProps> = ({ matches, teams, players, 
                         </div>
                         <div className="divide-y divide-slate-100">
                             {fairPlayRankings.map((fp, idx) => (
-                                <div key={fp.team.id} className="flex items-center justify-between p-4 hover:bg-slate-50 transition">
-                                    <div className="flex items-center gap-4">
+                                <div key={fp.team.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:gap-4 p-3 sm:p-4 hover:bg-slate-50 transition">
+                                    <div className="flex items-center gap-2 sm:gap-4 min-w-0">
                                         <div className={`w-6 text-center font-bold text-sm ${idx < 3 ? 'text-green-600' : 'text-slate-400'}`}>
                                             {idx + 1}
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            {fp.team.logoUrl ? <img src={fp.team.logoUrl} className="w-8 h-8 object-contain" /> : <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400">{fp.team.shortName}</div>}
-                                            <span className="font-bold text-slate-800 text-sm md:text-base">{fp.team.name}</span>
+                                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                            {fp.team.logoUrl ? <img src={fp.team.logoUrl} className="w-8 h-8 object-contain shrink-0" /> : <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-400 shrink-0">{fp.team.shortName}</div>}
+                                            <span className="font-bold text-slate-800 text-sm md:text-base leading-tight whitespace-normal break-words" title={fp.team.name}>{fp.team.name || fp.team.schoolName || fp.team.shortName}</span>
                                         </div>
                                     </div>
-                                    <div className="flex gap-4">
+                                    <div className="flex gap-2 sm:gap-4 shrink-0">
                                         <div className="w-8 flex justify-center">
                                             {fp.yellow > 0 ? <span className="bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold">{fp.yellow}</span> : <span className="text-slate-200">-</span>}
                                         </div>

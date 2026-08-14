@@ -20,6 +20,8 @@ function handle(string $action, array $cfg): void
     match ($action) {
         'saveMatchResult' => save_match_result(),
         'saveMatchEvents' => save_match_events(),
+        'cancelMatchRecord' => cancel_match_record(),
+        'discardMatchDraft' => discard_match_draft(),
         'liveBoard'       => live_board(),
         default           => Response::fail("ไม่รองรับ action '$action'", 404),
     };
@@ -383,6 +385,194 @@ function save_match_result(): void
         'kicksSaved' => $skipKicks ? null : (int) Db::value(
             'SELECT COUNT(*) FROM kicks WHERE match_id = :mid', [':mid' => $matchId]),
     ]);
+}
+
+/**
+ * ยกเลิกลูกยิงจุดโทษหรือประตูที่บันทึกผิดจากหน้าโต๊ะพากย์
+ *
+ * การลบกับการปรับคะแนนต้องอยู่ transaction เดียวกัน ไม่เช่นนั้น Live Wall อาจ
+ * อ่านทันช่วงกลางแล้วเห็นจำนวนลูกยิงกับคะแนนคนละเวอร์ชันกันได้
+ */
+function cancel_match_record(): void
+{
+    Auth::requireLogin();
+
+    $matchId = Input::require_str('matchId');
+    $kind = Input::enum('kind', ['kick', 'goal']);
+    $match = Db::one(
+        'SELECT match_id, tournament_id, score_a, score_b
+           FROM matches WHERE match_id = :mid',
+        [':mid' => $matchId]
+    );
+    if ($match === null) {
+        Response::fail('ไม่พบนัดนี้', 404);
+    }
+    Perm::requireTournamentManager((string) $match['tournament_id']);
+
+    $round = max(0, (int) (Input::int('round') ?? 0));
+    $side = strtoupper(Input::str('teamId'));
+    $eventId = Input::str('eventId');
+
+    if ($kind === 'kick' && ($round < 1 || !in_array($side, ['A', 'B'], true))) {
+        Response::fail('ข้อมูลลูกยิงไม่ครบ', 422);
+    }
+    if ($kind === 'goal' && $eventId === '') {
+        Response::fail('ต้องระบุ eventId', 422);
+    }
+
+    $event = null;
+    if ($kind === 'kick') {
+        $exists = Db::value(
+            'SELECT 1 FROM kicks
+              WHERE match_id = :mid_check AND round_no = :round_check
+                AND team_side = :side_check',
+            [':mid_check' => $matchId, ':round_check' => $round, ':side_check' => $side]
+        );
+        if ($exists === null) {
+            Response::fail('ไม่พบผลการยิงที่ต้องการยกเลิก', 404);
+        }
+    } else {
+        $event = Db::one(
+            'SELECT event_type, team_side FROM match_events
+              WHERE match_id = :mid_event AND event_id = :eid_event',
+            [':mid_event' => $matchId, ':eid_event' => $eventId]
+        );
+        if ($event === null || !in_array($event['event_type'], ['GOAL', 'OWN_GOAL'], true)) {
+            Response::fail('ไม่พบประตูที่ต้องการยกเลิก', 404);
+        }
+    }
+
+    $result = Db::transaction(static function () use (
+        $matchId, $kind, $round, $side, $eventId, $match, $event
+    ): array {
+        if ($kind === 'kick') {
+            $deleted = Db::exec(
+                'DELETE FROM kicks
+                  WHERE match_id = :mid AND round_no = :round AND team_side = :side',
+                [':mid' => $matchId, ':round' => $round, ':side' => $side]
+            );
+            if ($deleted === 0) {
+                throw new RuntimeException('ผลการยิงถูกยกเลิกไปแล้ว');
+            }
+
+            // ปิดช่องว่างของเลขรอบหลังลบลูกกลางรายการ โดยย้ายออกไปช่วงเลขสูงก่อน
+            // เพื่อไม่ให้ชน UNIQUE(match_id, round_no, team_side) ระหว่างไล่เลขใหม่
+            $remaining = Db::all(
+                "SELECT kick_id, team_side FROM kicks
+                  WHERE match_id = :mid2
+                  ORDER BY round_no, FIELD(team_side, 'A', 'B')",
+                [':mid2' => $matchId]
+            );
+            Db::exec(
+                'UPDATE kicks SET round_no = round_no + 1000 WHERE match_id = :mid3',
+                [':mid3' => $matchId]
+            );
+            $perSide = ['A' => 0, 'B' => 0];
+            foreach ($remaining as $kick) {
+                $kickSide = (string) $kick['team_side'];
+                $perSide[$kickSide]++;
+                Db::exec(
+                    'UPDATE kicks SET round_no = :round2 WHERE kick_id = :kid',
+                    [':round2' => $perSide[$kickSide], ':kid' => $kick['kick_id']]
+                );
+            }
+
+            $scoreA = (int) Db::value(
+                "SELECT COUNT(*) FROM kicks
+                  WHERE match_id = :mid4 AND team_side = 'A' AND result = 'GOAL'",
+                [':mid4' => $matchId]
+            );
+            $scoreB = (int) Db::value(
+                "SELECT COUNT(*) FROM kicks
+                  WHERE match_id = :mid5 AND team_side = 'B' AND result = 'GOAL'",
+                [':mid5' => $matchId]
+            );
+        } else {
+            $deleted = Db::exec(
+                'DELETE FROM match_events WHERE match_id = :mid7 AND event_id = :eid2',
+                [':mid7' => $matchId, ':eid2' => $eventId]
+            );
+            if ($deleted === 0) {
+                throw new RuntimeException('ประตูถูกยกเลิกไปแล้ว');
+            }
+
+            $creditedSide = (string) $event['team_side'];
+            if ($event['event_type'] === 'OWN_GOAL') {
+                $creditedSide = $creditedSide === 'A' ? 'B' : 'A';
+            }
+            $scoreA = max(0, (int) $match['score_a'] - ($creditedSide === 'A' ? 1 : 0));
+            $scoreB = max(0, (int) $match['score_b'] - ($creditedSide === 'B' ? 1 : 0));
+        }
+
+        // การแก้ผลหลังจบเกมต้องเปิดนัดกลับมาเป็น Live เพื่อไม่ให้ผลเดิมและผู้ชนะ
+        // ที่ตัดสินจากข้อมูลก่อนแก้ยังถูกนำไปคิดตารางคะแนนต่อ
+        Db::exec(
+            "UPDATE matches
+                SET score_a = :sa, score_b = :sb, winner = NULL, status = 'Live',
+                    row_version = row_version + 1
+              WHERE match_id = :mid8",
+            [':sa' => $scoreA, ':sb' => $scoreB, ':mid8' => $matchId]
+        );
+
+        return ['scoreA' => $scoreA, 'scoreB' => $scoreB];
+    });
+
+    Cache::flush();
+    Audit::log('match', $matchId, 'cancel_record', null, [
+        'kind' => $kind,
+        'round' => $kind === 'kick' ? $round : null,
+        'side' => $kind === 'kick' ? $side : null,
+        'eventId' => $kind === 'goal' ? $eventId : null,
+        'score' => $result['scoreA'] . '-' . $result['scoreB'],
+    ]);
+
+    Response::ok([
+        'matchId' => $matchId,
+        'scoreA' => $result['scoreA'],
+        'scoreB' => $result['scoreB'],
+        'status' => 'Live',
+    ]);
+}
+
+/**
+ * ทิ้งข้อมูลทดลองที่ถูกซิงก์ขึ้นผลสดระหว่างอยู่หน้าบันทึกผล
+ *
+ * หน้าบันทึกซิงก์ทุกลูกเพื่อให้โต๊ะพากย์เห็นสด แต่เมื่อผู้ใช้เลือก
+ * “ออกโดยไม่บันทึก” ข้อมูลเหล่านั้นต้องถูกลบจาก server ด้วย ไม่ใช่ล้างแค่ state
+ * ในโทรศัพท์ ไม่เช่นนั้น Commentary จะยังเห็นนัดทดสอบต่อไป
+ */
+function discard_match_draft(): void
+{
+    Auth::requireLogin();
+    $matchId = Input::require_str('matchId');
+    $match = Db::one(
+        'SELECT tournament_id, status FROM matches WHERE match_id = :mid',
+        [':mid' => $matchId]
+    );
+    if ($match === null) {
+        // ยังไม่เคยกดผลเลยจึงยังไม่มีแถวบน server — ถือว่าทิ้งข้อมูลสำเร็จอยู่แล้ว
+        Response::ok(['matchId' => $matchId, 'status' => 'NotSaved']);
+    }
+    Perm::requireTournamentManager((string) $match['tournament_id']);
+    if (in_array($match['status'], ['Finished', 'Walkover'], true)) {
+        Response::fail('ผลการแข่งขันนี้จบและบันทึกแล้ว ไม่สามารถทิ้งเป็นข้อมูลทดลองได้', 409);
+    }
+
+    Db::transaction(static function () use ($matchId): void {
+        Db::exec('DELETE FROM kicks WHERE match_id = :mid_kicks', [':mid_kicks' => $matchId]);
+        Db::exec('DELETE FROM match_events WHERE match_id = :mid_events', [':mid_events' => $matchId]);
+        Db::exec(
+            "UPDATE matches
+                SET score_a = 0, score_b = 0, winner = NULL, status = 'Scheduled',
+                    summary = '', played_at = NULL, row_version = row_version + 1
+              WHERE match_id = :mid_match",
+            [':mid_match' => $matchId]
+        );
+    });
+
+    Cache::flush();
+    Audit::log('match', $matchId, 'discard_draft');
+    Response::ok(['matchId' => $matchId, 'status' => 'Scheduled']);
 }
 
 /**

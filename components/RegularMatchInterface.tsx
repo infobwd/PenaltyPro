@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Team, Player, MatchState, MatchEvent, KickResult } from '../types';
-import { Play, Pause, Plus, Flag, Clock, RotateCcw, Check, ArrowLeft } from 'lucide-react';
+import { Play, Pause, Plus, Flag, Clock, RotateCcw, Check, ArrowLeft, UserRoundX } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { confirmAction } from '../services/uiService';
 
@@ -54,21 +54,27 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
   };
 
   const handleAddEvent = (type: 'GOAL' | 'YELLOW_CARD' | 'RED_CARD', teamId: 'A' | 'B') => {
+      const team = teamId === 'A' ? teamA : teamB;
+      if (getTeamRoster(team.id).length === 0) {
+          recordEvent(type, teamId, '');
+          return;
+      }
       setEventModal({ isOpen: true, type, teamId });
   };
 
-  const confirmEvent = (player: Player | string) => {
-      if (!eventModal) return;
-      
-      const playerName = typeof player === 'string' ? player : player.name;
+  const recordEvent = (
+      type: 'GOAL' | 'YELLOW_CARD' | 'RED_CARD',
+      teamId: 'A' | 'B',
+      playerName: string,
+  ) => {
       const newEvent: MatchEvent = {
           id: `E_${Date.now()}`,
           matchId,
           tournamentId,
           minute: Math.ceil(seconds / 60) || 1,
-          type: eventModal.type,
+          type,
           player: playerName,
-          teamId: eventModal.teamId,
+          teamId,
           timestamp: Date.now()
       };
 
@@ -77,10 +83,10 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
 
       // คำนวณสกอร์ใหม่ตรงนี้ ไม่ใช่อ่านจาก state หลังสั่ง setScore
       // ตัว setter เป็น async — ถ้าอ่านทันทีจะได้สกอร์ก่อนหน้าไปส่งขึ้นเซิร์ฟเวอร์
-      const nextA = scoreA + (eventModal.type === 'GOAL' && eventModal.teamId === 'A' ? 1 : 0);
-      const nextB = scoreB + (eventModal.type === 'GOAL' && eventModal.teamId === 'B' ? 1 : 0);
-      if (eventModal.type === 'GOAL') {
-          if (eventModal.teamId === 'A') setScoreA(nextA);
+      const nextA = scoreA + (type === 'GOAL' && teamId === 'A' ? 1 : 0);
+      const nextB = scoreB + (type === 'GOAL' && teamId === 'B' ? 1 : 0);
+      if (type === 'GOAL') {
+          if (teamId === 'A') setScoreA(nextA);
           else setScoreB(nextB);
       }
 
@@ -95,6 +101,11 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
           events: updatedEvents, kicks: [],
           currentRound: 0, currentTurn: 'A',
       });
+  };
+
+  const confirmEvent = (player: Player | string) => {
+      if (!eventModal) return;
+      recordEvent(eventModal.type, eventModal.teamId, typeof player === 'string' ? player : player.name);
   };
 
   const finishMatch = async () => {
@@ -189,6 +200,11 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
                    <button onClick={() => handleAddEvent('YELLOW_CARD', 'A')} className="py-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 rounded-lg font-bold text-sm shadow-sm">🟨 Yellow</button>
                    <button onClick={() => handleAddEvent('RED_CARD', 'A')} className="py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-sm shadow-sm">🟥 Red</button>
                </div>
+               {getTeamRoster(teamA.id).length === 0 && (
+                 <p className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
+                   <UserRoundX className="w-3.5 h-3.5" /> ไม่มีรายชื่อ · กดบันทึกได้ทันที
+                 </p>
+               )}
            </div>
 
            {/* Timer Controls */}
@@ -215,6 +231,11 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
                    <button onClick={() => handleAddEvent('YELLOW_CARD', 'B')} className="py-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 rounded-lg font-bold text-sm shadow-sm">🟨 Yellow</button>
                    <button onClick={() => handleAddEvent('RED_CARD', 'B')} className="py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-sm shadow-sm">🟥 Red</button>
                </div>
+               {getTeamRoster(teamB.id).length === 0 && (
+                 <p className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
+                   <UserRoundX className="w-3.5 h-3.5" /> ไม่มีรายชื่อ · กดบันทึกได้ทันที
+                 </p>
+               )}
            </div>
        </div>
 
@@ -236,7 +257,10 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
                                <div className="font-bold text-sm text-slate-800">
                                    {e.type === 'GOAL' ? '⚽ GOAL!' : e.type === 'YELLOW_CARD' ? '🟨 Yellow Card' : '🟥 Red Card'}
                                </div>
-                               <div className="text-xs text-slate-500">{e.player} ({e.teamId === 'A' ? teamA.name : teamB.name})</div>
+                               <div className="text-xs text-slate-500">
+                                 {e.player || (e.type === 'GOAL' ? 'ไม่ระบุผู้ทำประตู' : 'ไม่ระบุผู้เล่น')}
+                                 {' '}({e.teamId === 'A' ? teamA.name : teamB.name})
+                               </div>
                            </div>
                        </div>
                    ))
@@ -260,6 +284,14 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
                                <Check className="w-4 h-4 text-indigo-300 opacity-0 hover:opacity-100" />
                            </button>
                        ))}
+                       <button type="button" onClick={() => confirmEvent('')}
+                         className="w-full text-left p-3 rounded-lg flex items-center gap-3 bg-slate-50
+                                    hover:bg-slate-100 text-slate-600 transition">
+                         <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
+                           <UserRoundX className="w-4 h-4" />
+                         </div>
+                         <span className="font-bold text-sm">บันทึกโดยไม่ระบุผู้เล่น</span>
+                       </button>
                        <div className="p-2 pt-4 border-t mt-2">
                            <p className="text-xs text-slate-400 mb-2">หรือระบุชื่อเอง:</p>
                            <form onSubmit={(e) => { e.preventDefault(); const val = (e.currentTarget.elements[0] as HTMLInputElement).value; if(val) confirmEvent(val); }}>

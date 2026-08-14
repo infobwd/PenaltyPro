@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { notifyUser } from '../services/uiService';
-import { Heart, X, Copy, Check, CreditCard, Upload, FileText, Loader2, ArrowRight, ShieldAlert, CheckCircle2, FileCheck } from 'lucide-react';
+import { Heart, X, Copy, Check, CreditCard, Upload, FileText, Loader2, ArrowRight, ShieldAlert, CheckCircle2, FileCheck, QrCode } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
 import { fileToBase64 } from '../services/sheetService';
 import { submitDonation } from '../services/sheetService';
@@ -54,6 +54,7 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
   if (!isOpen) return null;
 
   const handleCopy = () => {
+    if (!config.bankAccount || config.bankAccount === '-') return;
     navigator.clipboard.writeText(config.bankAccount);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -212,13 +213,27 @@ const DonationDialog: React.FC<DonationDialogProps> = ({ isOpen, onClose, config
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center space-y-3 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 to-indigo-500"></div>
                 <p className="text-slate-500 text-xs uppercase tracking-wider font-bold">โอนเงินได้ที่</p>
-                <div className="flex flex-col items-center">
-                    <p className="font-bold text-slate-800">{config.bankName}</p>
-                    <div className="flex items-center gap-2 my-1 cursor-pointer hover:bg-slate-200 px-3 py-1 rounded transition group" onClick={handleCopy}>
-                        <span className="text-2xl font-mono font-black text-indigo-600 tracking-wider group-hover:scale-105 transition-transform">{config.bankAccount}</span>
-                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-slate-400 group-hover:text-indigo-500" />}
+                {config.donationQrUrl && (
+                    <div className="relative w-44 h-44 mx-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm flex items-center justify-center text-slate-300">
+                        <QrCode className="w-12 h-12" />
+                        <img src={config.donationQrUrl} alt="QR Code สำหรับบริจาค"
+                          onError={event => { event.currentTarget.style.display = 'none'; }}
+                          className="absolute inset-2 w-[calc(100%-1rem)] h-[calc(100%-1rem)] object-contain bg-white" />
                     </div>
-                    <p className="text-sm text-slate-600">{config.accountName}</p>
+                )}
+                <div className="flex flex-col items-center">
+                    {config.bankAccount && config.bankAccount !== '-' ? (
+                        <>
+                            <p className="font-bold text-slate-800">{config.bankName}</p>
+                            <button type="button" className="flex items-center gap-2 my-1 cursor-pointer hover:bg-slate-200 px-3 py-1 rounded transition group" onClick={handleCopy}>
+                                <span className="text-2xl font-mono font-black text-indigo-600 tracking-wider group-hover:scale-105 transition-transform break-all">{config.bankAccount}</span>
+                                {copied ? <Check className="w-4 h-4 text-green-500 shrink-0" /> : <Copy className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 shrink-0" />}
+                            </button>
+                            <p className="text-sm text-slate-600">{config.accountName}</p>
+                        </>
+                    ) : config.donationQrUrl ? (
+                        <p className="text-xs text-slate-500 flex items-center gap-1"><QrCode className="w-4 h-4" /> สแกน QR Code เพื่อโอนเงิน</p>
+                    ) : null}
                 </div>
             </div>
 

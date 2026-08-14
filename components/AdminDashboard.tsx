@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import AdminTools from './AdminTools';
 import AdminTournaments from './AdminTournaments';
 import SearchPicker, { PickerItem } from './SearchPicker';
+import LineupMediaEditor from './LineupMediaEditor';
+import { isSupportedImage, resizeImageBeforeUpload, SUPPORTED_IMAGE_ACCEPT } from '../services/imageResize';
 import AdminSchedule from './AdminSchedule';
 import { Team, Player, AppSettings, NewsItem, Tournament, UserProfile, Donation, Contest, Match } from '../types';
 import { ShieldCheck, ShieldAlert, Users, LogOut, Eye, X, Settings, MapPin, CreditCard, Save, Image, Search, FileText, Bell, Plus, Trash2, Loader2, Grid, Edit3, Paperclip, Download, Upload, Copy, Phone, User, Camera, AlertTriangle, CheckCircle2, UserPlus, ArrowRight, Hash, Palette, Briefcase, ExternalLink, FileCheck, Info, Calendar, Trophy, Lock, Heart, Target, Smartphone, ChevronLeft, ChevronRight, UserCog, Globe, DollarSign, Check, Shuffle, LayoutGrid, List, PlayCircle, StopCircle, SkipForward, Minus, Layers, RotateCcw, Sparkles, RefreshCw, MessageCircle, Printer, Share2, FileCode, Banknote, Clock, Power } from 'lucide-react';
@@ -167,7 +169,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [isEditingTeam, setIsEditingTeam] = useState(false);
-  const [modalTab, setModalTab] = useState<'info' | 'players' | 'docs'>('info'); 
+  const [modalTab, setModalTab] = useState<'info' | 'players' | 'docs' | 'media'>('info');
   const [editForm, setEditForm] = useState<{ 
       team: Team, 
       players: Player[], 
@@ -1070,11 +1072,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const downloadCSV = () => { try { const headers = "ID,ชื่อทีม,ตัวย่อ,สถานะ,กลุ่ม,อำเภอ,จังหวัด,ผู้อำนวยการ,ผู้จัดการ,เบอร์โทร,ผู้ฝึกสอน,เบอร์โทรโค้ช"; const rows: string[] = filteredTeams.map(t => `"${t.id}","${t.name}","${t.shortName}","${t.status}","${t.group || ''}","${t.district}","${t.province}","${t.directorName || ''}","${t.managerName}","'${t.managerPhone || ''}","${t.coachName}","'${t.coachPhone || ''}"` ); const csvContent = [headers, ...rows].join("\n"); const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.setAttribute("href", url); link.setAttribute("download", "teams_data.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); } catch (e) { console.error("CSV Download Error:", e); notify("ผิดพลาด", "ดาวน์โหลด CSV ไม่สำเร็จ", "error"); } };
   
-  const handleNewsImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files[0]) {
-          const file = e.target.files[0];
-          setNewsForm({ ...newsForm, imageFile: file, imagePreview: URL.createObjectURL(file) });
+  /**
+   * เลือกรูปข่าว — ย่อและแปลงเป็น WebP ตั้งแต่ในเครื่องก่อนเก็บเข้าฟอร์ม
+   *
+   * เจ้าภาพอัปรูปจากกล้องมือถือเต็มใบ (3-5 MB) ย่อก่อนเหลือหลักร้อย KB
+   * ทำให้ส่งเร็วขึ้นสิบเท่าบนเน็ตมือถือที่สนาม และไม่กินหน่วยความจำโฮสต์ตอน decode
+   * ฝั่ง server ยังแปลงซ้ำอีกชั้นเสมอ เผื่อเบราว์เซอร์เก่าที่ทำตรงนี้ไม่ได้
+   */
+  const handleNewsImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const picked = e.target.files?.[0];
+      if (!picked) return;
+
+      if (!isSupportedImage(picked)) {
+          notify('ไฟล์ไม่รองรับ', 'เลือกได้เฉพาะรูป JPG, PNG, WebP หรือ HEIC', 'warning');
+          return;
       }
+
+      // ตั้งรูปตัวอย่างจากไฟล์ต้นฉบับทันที ไม่ต้องรอบีบเสร็จ
+      // การบีบรูปใหญ่ใช้เวลาเป็นวินาที ถ้ารอจะเหมือนกดแล้วไม่มีอะไรเกิดขึ้น
+      setNewsForm(prev => ({ ...prev, imageFile: picked, imagePreview: URL.createObjectURL(picked) }));
+
+      const resized = await resizeImageBeforeUpload(picked);
+      setNewsForm(prev =>
+          // ผู้ใช้อาจเลือกรูปใหม่หรือกดลบทิ้งระหว่างที่กำลังบีบอยู่ — อย่าเขียนทับ
+          prev.imageFile === picked ? { ...prev, imageFile: resized } : prev);
   };
 
   const handleNewsDocChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1231,7 +1252,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <label className="cursor-pointer block w-full h-full">
                                       <Image className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                                       <span className="text-xs text-slate-500">คลิกเพื่ออัปโหลดรูป</span>
-                                      <input type="file" accept="image/*" className="hidden" onChange={handleNewsImageChange} />
+                                      <input type="file" accept={SUPPORTED_IMAGE_ACCEPT} className="hidden" onChange={handleNewsImageChange} />
                                   </label>
                               )}
                           </div>
@@ -1525,6 +1546,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <button onClick={() => setModalTab('info')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'info' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>ข้อมูลทั่วไป</button>
                     <button onClick={() => setModalTab('players')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'players' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>รายชื่อนักกีฬา</button>
                     <button onClick={() => setModalTab('docs')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'docs' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เอกสารหลักฐาน</button>
+                    <button onClick={() => setModalTab('media')} className={`flex-1 py-3 text-sm font-bold transition ${modalTab === 'media' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>ออกอากาศ</button>
                 </div>
 
                 {/* Content */}
@@ -1679,6 +1701,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </div>
                             </div>
                         </div>
+                    )}
+
+                    {/* คลิปแนะนำสำหรับหน้าผังตัวนักกีฬา — ใช้ตัวแก้ไขตัวเดียวกับ
+                        โมดัลของโรงเรียนเจ้าของทีม จะได้ไม่ต้องดูแลฟอร์มสองชุด
+                        ส่ง editForm.team ไม่ใช่ formData — formData คือค่าที่กำลังพิมพ์ค้างอยู่
+                        ในแท็บอื่น ส่วนตัวแก้ไขนี้อ่านค่าคลิปจากของที่บันทึกไว้จริง */}
+                    {modalTab === 'media' && (
+                        <LineupMediaEditor team={editForm.team} players={editForm.players} />
                     )}
                 </div>
 
@@ -1880,7 +1910,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   <label className="cursor-pointer block w-full h-full">
                                       <Image className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                                       <span className="text-xs text-slate-500">คลิกเพื่ออัปโหลดรูป</span>
-                                      <input type="file" accept="image/*" className="hidden" onChange={handleNewsImageChange} />
+                                      <input type="file" accept={SUPPORTED_IMAGE_ACCEPT} className="hidden" onChange={handleNewsImageChange} />
                                   </label>
                               )}
                           </div>

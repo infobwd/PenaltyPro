@@ -271,6 +271,32 @@ export const saveMatchEventsToSheet = async (events: MatchEvent[]): Promise<bool
   return true;
 };
 
+/**
+ * ยกเลิกรายการที่กดผิดจากหน้าโต๊ะพากย์
+ *
+ * ให้เซิร์ฟเวอร์เป็นผู้ลบและคำนวณคะแนนใหม่ใน transaction เดียว เพื่อไม่ให้เกิด
+ * ช่วงที่ลูกยิงหายแล้วแต่คะแนนยังเป็นค่าเดิมบน Live Wall
+ */
+export const cancelMatchRecord = async (request: {
+  matchId: string;
+  kind: 'kick' | 'goal';
+  round?: number;
+  teamId?: 'A' | 'B';
+  eventId?: string;
+}): Promise<{ scoreA: number; scoreB: number }> => {
+  const response = await apiPost<any>('cancelMatchRecord', request);
+  return {
+    scoreA: Number(response.scoreA || 0),
+    scoreB: Number(response.scoreB || 0),
+  };
+};
+
+/** ล้างผลสดที่เกิดจากการทดสอบ เมื่อกดออกจากหน้าบันทึกผลโดยไม่บันทึก */
+export const discardMatchDraft = async (matchId: string): Promise<boolean> => {
+  await apiPost('discardMatchDraft', { matchId });
+  return true;
+};
+
 /** จัดตาราง: สร้าง/แก้คู่แข่ง วันเวลา และสนาม (ยังไม่มีผลการแข่ง) */
 export const scheduleMatch = async (
   matchId: string, teamA: string, teamB: string, roundLabel: string,
@@ -378,6 +404,21 @@ export const setLineupMedia = async (data: {
   players?: { id: string; introVideoUrl: string }[];
 }) => apiPost('setLineupMedia', data);
 
+/** กรรมการแก้เฉพาะเบอร์เสื้อจากหน้าผังตัว ไม่แตะข้อมูลอื่นของนักกีฬา */
+export const updatePlayerShirtNumber = async (data: {
+  teamId: string;
+  playerId: string;
+  number: string;
+}) => apiPost('updatePlayerNumber', data);
+
+/** แก้เบอร์เสื้อและตำแหน่งมาตรฐานที่ Lineup/Live Wall ใช้ร่วมกัน */
+export const updatePlayerLineup = async (data: {
+  teamId: string;
+  playerId: string;
+  number: string;
+  position: 'GK' | 'DF' | 'MF' | 'FW' | 'Player';
+}) => apiPost('updatePlayerLineup', data);
+
 export const listSchools = async (tournamentId?: string) =>
   apiGet('listSchools', { tournamentId });
 
@@ -422,7 +463,24 @@ export const updateDonationDetails = async (donationId: string, updates: any) =>
 };
 
 export const fetchSponsors = async (): Promise<Sponsor[]> => (await apiGet('getSponsors')).sponsors ?? [];
+export const fetchSponsorPageData = async (tournamentId: string): Promise<{
+  sponsors: Sponsor[];
+  canManage: boolean;
+}> => {
+  const response = await apiGet<any>('getSponsors', { tournamentId });
+  return { sponsors: response.sponsors ?? [], canManage: Boolean(response.canManage) };
+};
 export const manageSponsor = async (data: any) => { await apiPost('manageSponsor', data); return true; };
+export const saveSponsorPaymentSettings = async (data: {
+  tournamentId: string;
+  enabled: boolean;
+  useExistingAccount: boolean;
+  qrFile?: string;
+  qrUrl?: string;
+  bankName?: string;
+  bankAccount?: string;
+  accountName?: string;
+}) => { await apiPost('saveSponsorPaymentSettings', data); return true; };
 export const fetchMusicTracks = async (): Promise<MusicTrack[]> => (await apiGet('getMusicTracks')).tracks ?? [];
 export const manageMusicTrack = async (data: any) => { await apiPost('manageMusicTrack', data); return true; };
 export const fetchTickerMessages = async (): Promise<TickerMessage[]> => (await apiGet('getTickerMessages')).messages ?? [];
