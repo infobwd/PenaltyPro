@@ -75,15 +75,26 @@ const RegularMatchInterface: React.FC<RegularMatchInterfaceProps> = ({ teamA, te
       const updatedEvents = [newEvent, ...events]; // Newest first
       setEvents(updatedEvents);
 
+      // คำนวณสกอร์ใหม่ตรงนี้ ไม่ใช่อ่านจาก state หลังสั่ง setScore
+      // ตัว setter เป็น async — ถ้าอ่านทันทีจะได้สกอร์ก่อนหน้าไปส่งขึ้นเซิร์ฟเวอร์
+      const nextA = scoreA + (eventModal.type === 'GOAL' && eventModal.teamId === 'A' ? 1 : 0);
+      const nextB = scoreB + (eventModal.type === 'GOAL' && eventModal.teamId === 'B' ? 1 : 0);
       if (eventModal.type === 'GOAL') {
-          if (eventModal.teamId === 'A') setScoreA(prev => prev + 1);
-          else setScoreB(prev => prev + 1);
+          if (eventModal.teamId === 'A') setScoreA(nextA);
+          else setScoreB(nextB);
       }
 
       setEventModal(null);
-      
-      // Auto-save state hook
-      // onUpdateState({ ... });
+
+      // ส่งสถานะปัจจุบันขึ้นไปให้หน้าแม่ซิงก์ต่อ — จอสกอร์และหน้าโต๊ะพากย์
+      // จะได้เห็นประตูทันทีที่กรรมการกด ไม่ต้องรอจบครึ่งหลัง
+      onUpdateState({
+          matchId, tournamentId, teamA, teamB,
+          scoreA: nextA, scoreB: nextB,
+          winner: null, isFinished: false,
+          events: updatedEvents, kicks: [],
+          currentRound: 0, currentTurn: 'A',
+      });
   };
 
   const finishMatch = async () => {

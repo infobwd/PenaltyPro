@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { KickResult, MatchState, Kick, Team, Player, AppSettings, School, NewsItem, Match, UserProfile, Tournament, MatchEvent, TournamentConfig, TournamentPrize, Donation, Prediction } from './types';
 import MatchSetup from './components/MatchSetup';
 import ScoreVisualizer from './components/ScoreVisualizer';
@@ -684,13 +684,71 @@ export default function App() {
               confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: nextState.winner === 'A' ? ['#2563EB', '#60A5FA'] : ['#E11D48', '#FB7185'] });
               setIsSaving(true);
               Promise.all([ saveMatchToSheet(nextState, "", false, currentTournamentId || 'default') ]).then(() => { setIsSaving(false); loadData(true); showNotification("บันทึกผลการแข่งขันเรียบร้อย", "", "success"); });
-          } else {
-              saveLiveProgress(nextState);
           }
           return nextState;
       });
       setIsProcessing(false);
   };
+
+  // ── ซิงก์ผลระหว่างแข่งขึ้นเซิร์ฟเวอร์ ──────────────────────────────────
+  //
+  // เดิมบันทึกครั้งเดียวตอนจบเกมเท่านั้น ผลระหว่างแข่งจึงอยู่แต่ในหน่วยความจำ
+  // ของเบราว์เซอร์กรรมการ — หน้าโต๊ะพากย์และกระดานผลสดไม่มีอะไรให้อ่านเลย
+  // จนกว่าเกมจะจบ (และถ้ามือถือกรรมการดับกลางคัน ลูกที่จดไว้ก็หายทั้งหมด)
+  //
+  // ยิงได้ทุกลูกเพราะ saveMatchResult ออกแบบมาให้เขียนทับทั้งนัดในทรานแซกชันเดียว
+  // ยิงกี่รอบผลก็เท่าเดิม (ดูหมายเหตุใน api/routes/live.php)
+  const matchStateRef = useRef<MatchState | null>(null);
+  matchStateRef.current = matchState;
+  const liveSyncRef = useRef({ sending: false, again: false });
+
+  /**
+   * ลายเซ็นของสิ่งที่เซิร์ฟเวอร์ควรรู้ — เปลี่ยนเมื่อไรค่อยยิง
+   *
+   * ไม่ผูกกับ matchState ทั้งก้อนเพราะโหมด 7v7 มี timer เดินทุกวินาที
+   * ถ้าผูกทั้งก้อนจะยิงวินาทีละครั้งตลอดเกม
+   *
+   * เริ่มซิงก์เมื่อมีลูกยิงแล้วเท่านั้น — กรรมการที่เปิดหน้าดูเฉย ๆ แล้วถอยออก
+   * ไม่ควรทำให้นัดนั้นค้างสถานะ "กำลังแข่ง" อยู่บนกระดานตลอดไป
+   */
+  const liveSyncSignature = matchState && matchState.matchId
+    && !matchState.isFinished && matchState.kicks.length > 0
+      ? [matchState.matchId, matchState.scoreA, matchState.scoreB,
+         matchState.kicks.map(k => `${k.round}${k.teamId}${k.result}${k.player}`).join('|'),
+        ].join('#')
+      : '';
+
+  useEffect(() => {
+    if (liveSyncSignature === '') return;
+    let cancelled = false;
+
+    // ยิงทีละคำขอ ถ้ามีของใหม่เข้ามาระหว่างรอให้ยิงต่อท้ายรอบเดียว
+    // (กรรมการกดรัวได้เร็วกว่าเน็ตในสนามตอบ — ถ้าปล่อยให้ซ้อนกัน
+    //  คำขอเก่าที่ตอบช้ากว่าจะไปเขียนทับสถานะใหม่)
+    const push = async () => {
+      if (liveSyncRef.current.sending) { liveSyncRef.current.again = true; return; }
+      liveSyncRef.current.sending = true;
+      try {
+        const s = matchStateRef.current;
+        if (s && !s.isFinished && s.kicks.length > 0) {
+          await saveMatchToSheet(s, '', false, currentTournamentId || 'default');
+        }
+      } catch {
+        // เงียบไว้โดยตั้งใจ — กรรมการกำลังยืนจดข้างสนาม การเด้ง error ทุกครั้ง
+        // ที่สัญญาณตกคือสิ่งที่ทำให้เลิกใช้ และลูกถัดไปก็ส่งสถานะทั้งชุดไปใหม่อยู่แล้ว
+        // ส่วนตอนจบเกมมีการบันทึกอีกรอบที่แจ้งผลจริงถ้าล้มเหลว
+      } finally {
+        liveSyncRef.current.sending = false;
+        if (liveSyncRef.current.again && !cancelled) {
+          liveSyncRef.current.again = false;
+          void push();
+        }
+      }
+    };
+    void push();
+
+    return () => { cancelled = true; };
+  }, [liveSyncSignature, currentTournamentId]);
 
   const requestUndoLastKick = () => { if (!matchState || matchState.kicks.length === 0) return; setConfirmModal({ isOpen: true, title: "ยกเลิกการยิงล่าสุด", message: "ต้องการลบผลการยิงลูกล่าสุดใช่หรือไม่?", onConfirm: () => { handleUndoLastKick(); setConfirmModal(null); } }); };
   const handleUndoLastKick = () => { setMatchState(prev => { if (!prev) return null; const newKicks = [...prev.kicks]; newKicks.pop(); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; const tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); showNotification("ย้อนกลับรายการล่าสุดแล้ว", "", "info"); };
@@ -777,7 +835,26 @@ export default function App() {
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
   const recentFinishedMatches = activeMatches.filter(m => m.winner).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
   const handleFinishRegularMatch = async (finalState: MatchState) => { setIsSaving(true); try { await saveMatchToSheet(finalState, '', false, currentTournamentId || 'default'); if (finalState.events && finalState.events.length > 0) { await saveMatchEventsToSheet(finalState.events); } showNotification("บันทึกผลเรียบร้อย", "จบการแข่งขันแล้ว", "success"); loadData(true); goTo('home'); } catch (e) { console.error(e); showNotification("ผิดพลาด", "บันทึกไม่สำเร็จ", "error"); } finally { setIsSaving(false); } };
-  const handleUpdateRegularMatchState = (state: MatchState) => { };
+  /**
+   * ซิงก์เหตุการณ์ของแบบ 7v7/11v11 ระหว่างเกม
+   *
+   * เดิมเป็นฟังก์ชันว่าง — RegularMatchInterface เก็บสกอร์กับเหตุการณ์ไว้เองทั้งหมด
+   * แล้วส่งขึ้นครั้งเดียวตอนกดจบการแข่งขัน ผลจึงไม่ขึ้นที่ไหนเลยระหว่างเกม
+   * เหมือนที่แบบจุดโทษเคยเป็น
+   *
+   * ยิงตรงไม่ผ่านตัวซิงก์ของ matchState เพราะโหมดนี้ไม่ได้เก็บสถานะไว้ที่หน้าแม่
+   */
+  const handleUpdateRegularMatchState = useCallback((state: MatchState) => {
+    if (!state.matchId) return;
+    Promise.all([
+      saveMatchToSheet(state, '', true, currentTournamentId || 'default'),
+      state.events && state.events.length > 0
+        ? saveMatchEventsToSheet(state.events) : Promise.resolve(true),
+    ]).catch(() => {
+      // เงียบไว้เหมือนฝั่งจุดโทษ — เหตุการณ์ถัดไปส่งสถานะทั้งชุดไปใหม่อยู่แล้ว
+      // และตอนกดจบการแข่งขันมีการบันทึกอีกรอบที่แจ้งผลจริงถ้าล้มเหลว
+    });
+  }, [currentTournamentId]);
 
   const handleSharePrizeSummary = () => {
       sharePrizeSummary(activeTournament?.name || "Tournament Results", prizes, activeTeams);
@@ -872,6 +949,7 @@ export default function App() {
               players={scoped.players}
               allMatches={matchesLog}
               allTeams={availableTeams}
+              tournaments={tournaments}
               config={effectiveSettings}
               onBack={() => goTo('home')}
           />

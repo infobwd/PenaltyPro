@@ -227,15 +227,26 @@ function save_match_result(): void
     $scoreA = max(0, (int) (Input::int('scoreA') ?? 0));
     $scoreB = max(0, (int) (Input::int('scoreB') ?? 0));
 
+    $status = Input::str('status');
+    if (!in_array($status, ['Scheduled', 'Live', 'Finished', 'Walkover'], true)) {
+        $status = 'Finished';
+    }
+
     // ผู้ชนะ: เชื่อค่าที่ส่งมาเฉพาะเมื่ออยู่ในชุดที่ถูกต้อง ไม่งั้นคำนวณจากสกอร์
     $winner = strtoupper(Input::str('winner'));
     if (!in_array($winner, ['A', 'B', 'DRAW'], true)) {
         $winner = $scoreA === $scoreB ? 'DRAW' : ($scoreA > $scoreB ? 'A' : 'B');
     }
 
-    $status = Input::str('status');
-    if (!in_array($status, ['Scheduled', 'Live', 'Finished', 'Walkover'], true)) {
-        $status = 'Finished';
+    /**
+     * นัดที่ยังไม่จบต้องไม่มีผู้ชนะ
+     *
+     * ตั้งแต่กรรมการซิงก์ผลระหว่างแข่ง สกอร์ 1-0 หลังลูกแรกจะถูกคำนวณเป็น
+     * "ทีม A ชนะแล้ว" ถ้าไม่ดักตรงนี้ — แล้วผลที่ยังไม่เกิดจะไหลไปทุกที่ที่นับ
+     * จากช่อง winner: ตารางคะแนน สถิติการเจอกัน และแถบผลล่าสุดบนหน้าแรก
+     */
+    if ($status === 'Live' || $status === 'Scheduled') {
+        $winner = null;
     }
 
     $existing = Db::one('SELECT * FROM matches WHERE match_id = :mid', [':mid' => $matchId]);

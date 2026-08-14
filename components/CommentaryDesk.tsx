@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, Radio, RefreshCw, Mic, History, Target, ShieldCheck, XCircle,
   Users, NotebookPen, WifiOff, Clock, MapPin, Flame, AlertTriangle, Trophy,
+  Search, X, BarChart3, CalendarClock,
 } from 'lucide-react';
-import { AppSettings, Kick, Match, MatchEvent, Player, Team } from '../types';
+import { AppSettings, Kick, Match, MatchEvent, Player, Team, Tournament } from '../types';
 import { useLiveBoard } from '../hooks/useLiveBoard';
-import { headToHead, recentForm } from '../services/headToHead';
+import { headToHead, recentForm, schoolRecord } from '../services/headToHead';
 
 /**
  * โต๊ะพากย์ — หน้าสำหรับคนถือไมค์ข้างสนาม
@@ -39,6 +40,8 @@ type Props = {
    * ทั้งที่สองโรงเรียนนี้เจอกันมาแล้วทุกปี
    */
   allTeams: Team[];
+  /** ใช้แปลง tournamentId เป็นชื่อรายการในตารางสถิติย้อนหลัง */
+  tournaments: Tournament[];
   config: AppSettings;
   onBack: () => void;
 };
@@ -268,24 +271,59 @@ const Panel: React.FC<{ title: string; icon: React.ReactNode; children: React.Re
 // ─────────────────────────────────────────────────────────────────────────
 
 const CommentaryDesk: React.FC<Props> = ({
-  tournamentId, tournamentName, teams, players, allMatches, allTeams, config, onBack,
+  tournamentId, tournamentName, teams, players, allMatches, allTeams, tournaments,
+  config, onBack,
 }) => {
+  const tournamentNames = useMemo(
+    () => new Map(tournaments.map(t => [t.id, t.name])), [tournaments]);
   const { matches, updatedAt, error, fallback, loading, refresh } = useLiveBoard(tournamentId);
 
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  /**
+   * ทุกนัดของรายการนี้ — ค้นหาได้แม้ยังไม่เริ่มแข่ง
+   *
+   * กระดานผลสดคืนเฉพาะนัดที่อยู่ในช่วงเวลาแข่ง ซึ่งพอดีกับตอนออกอากาศ
+   * แต่ผู้พากย์เตรียมบทล่วงหน้าทีละหลายคู่ จึงต้องเลือกนัดที่ยังไม่ถึงคิวได้ด้วย
+   */
+  const searchable = useMemo(() => {
+    const scoped = tournamentId
+      ? allMatches.filter(m => m.tournamentId === tournamentId)
+      : allMatches;
+    return [...scoped].sort((a, b) =>
+      new Date(b.scheduledTime || b.date || 0).getTime()
+      - new Date(a.scheduledTime || a.date || 0).getTime());
+  }, [allMatches, tournamentId]);
+
+  const results = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (q === '') return [];
+    return searchable.filter(m =>
+      (teamNameOf(m.teamA) + ' ' + teamNameOf(m.teamB) + ' ' + (m.roundLabel ?? '')
+        + ' ' + (m.venue ?? '')).toLowerCase().includes(q)).slice(0, 12);
+  }, [searchable, search]);
 
   /**
    * นัดที่กำลังพากย์
    *
    * ยึดที่ผู้ใช้เลือกไว้ก่อนเสมอ ถ้ายังไม่ได้เลือกค่อยหยิบนัดแรกที่กำลังแข่ง
    * ห้ามสลับให้เองเมื่อกระดานเปลี่ยน — ผู้พากย์กำลังพูดถึงคู่นี้อยู่
+   *
+   * หากระดานก่อนเสมอ แล้วค่อยถอยไปหาในรายการทั้งหมด — นัดที่ค้นเจอตอนยังไม่เริ่ม
+   * จะสลับมาใช้ข้อมูลสดให้เองทันทีที่กรรมการเริ่มบันทึกผล โดยไม่ต้องเลือกใหม่
    */
   const match = useMemo(() => {
+    const fromBoard = pickedId ? matches.find(m => m.id === pickedId) : undefined;
+    if (fromBoard) return fromBoard;
+    const fromAll = pickedId ? searchable.find(m => m.id === pickedId) : undefined;
+    if (fromAll) return fromAll;
     if (matches.length === 0) return null;
-    return matches.find(m => m.id === pickedId)
-      ?? matches.find(m => m.status === 'Live')
-      ?? matches[0];
-  }, [matches, pickedId]);
+    return matches.find(m => m.status === 'Live') ?? matches[0];
+  }, [matches, searchable, pickedId]);
+
+  /** นัดที่เลือกอยู่นอกกระดานผลสด = ยังไม่เริ่ม กำลังใช้เตรียมบท */
+  const offBoard = match !== null && !matches.some(m => m.id === match.id);
 
   const nameA = teamNameOf(match?.teamA);
   const nameB = teamNameOf(match?.teamB);
@@ -386,6 +424,49 @@ const CommentaryDesk: React.FC<Props> = ({
           </button>
         </div>
 
+        {/* ค้นหาคู่แข่งขัน — เตรียมบทล่วงหน้าได้โดยไม่ต้องรอให้นัดนั้นเริ่ม */}
+        <div className="max-w-[1600px] mx-auto px-3 pb-2 relative">
+          <Search className="w-4 h-4 text-slate-500 absolute left-6 top-1/2 -translate-y-1/2 -mt-1" />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="ค้นหาคู่แข่งขัน — ชื่อโรงเรียน รอบ หรือสนาม"
+            className="w-full h-10 pl-9 pr-9 rounded-xl bg-white/[0.06] border border-white/10
+                       text-sm outline-none focus:border-indigo-500" />
+          {search !== '' && (
+            <button onClick={() => setSearch('')} aria-label="ล้างคำค้น"
+              className="absolute right-6 top-1/2 -translate-y-1/2 -mt-1 p-1 rounded hover:bg-white/10">
+              <X className="w-4 h-4 text-slate-400" />
+            </button>
+          )}
+
+          {search.trim() !== '' && (
+            <div className="absolute left-3 right-3 top-full z-40 rounded-xl border border-white/15
+                            bg-slate-900 shadow-2xl overflow-hidden max-h-80 overflow-y-auto">
+              {results.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-slate-400">ไม่พบคู่ที่ค้นหา</p>
+              ) : results.map(m => (
+                <button key={m.id}
+                  onClick={() => { setPickedId(m.id); setSearch(''); }}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-left
+                             hover:bg-white/10 border-b border-white/5 last:border-0">
+                  <span className="text-sm font-bold flex-1 min-w-0 truncate">
+                    {teamNameOf(m.teamA)} พบ {teamNameOf(m.teamB)}
+                  </span>
+                  {m.roundLabel && (
+                    <span className="text-[11px] text-slate-400 shrink-0">{m.roundLabel}</span>
+                  )}
+                  <span className="text-[11px] text-slate-500 shrink-0 w-16 text-right">
+                    {m.status === 'Live' ? 'กำลังแข่ง'
+                      : m.scheduledTime
+                        ? new Date(m.scheduledTime).toLocaleDateString('th-TH',
+                            { day: 'numeric', month: 'short' })
+                        : ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* เลือกนัด — วันแข่งมีหลายสนามพร้อมกัน */}
         {matches.length > 1 && (
           <div className="max-w-[1600px] mx-auto px-3 pb-2 flex gap-2 overflow-x-auto">
@@ -417,13 +498,22 @@ const CommentaryDesk: React.FC<Props> = ({
         </div>
       )}
 
-      {fallback && (
+      {offBoard ? (
+        <div className="max-w-[1600px] mx-auto px-3 pt-3">
+          <p className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-2.5
+                        text-sm text-indigo-100 flex items-center gap-2">
+            <CalendarClock className="w-4 h-4 shrink-0" />
+            โหมดเตรียมบท — นัดนี้ยังไม่เริ่มแข่ง สถิติและรายชื่อใช้ได้ครบ
+            ส่วนสกอร์จะขึ้นเองเมื่อกรรมการเริ่มบันทึกผล
+          </p>
+        </div>
+      ) : fallback && (
         <div className="max-w-[1600px] mx-auto px-3 pt-3">
           <p className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5
                         text-sm text-slate-300 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
-            ตอนนี้ไม่มีนัดที่ระบบถือว่ากำลังแข่ง กำลังแสดงนัดล่าสุดแทน —
-            ถ้ากำลังแข่งอยู่จริง ให้กรรมการกดเริ่มการแข่งขันในหน้าบันทึกผล
+            ตอนนี้ไม่มีนัดที่กำลังแข่ง กำลังแสดงนัดล่าสุดแทน —
+            นัดจะขึ้นเองเมื่อกรรมการบันทึกลูกแรก หรือใช้ช่องค้นหาด้านบนเลือกคู่ที่ต้องการ
           </p>
         </div>
       )}
@@ -433,7 +523,8 @@ const CommentaryDesk: React.FC<Props> = ({
           <Radio className="w-10 h-10 text-slate-700 mx-auto mb-3" />
           <p className="font-black">ยังไม่มีนัดให้พากย์</p>
           <p className="text-sm text-slate-400 mt-1.5">
-            เมื่อกรรมการเริ่มบันทึกผลนัดไหน นัดนั้นจะขึ้นที่นี่เองภายในไม่กี่วินาที
+            เมื่อกรรมการบันทึกลูกแรกของนัดไหน นัดนั้นจะขึ้นที่นี่เองภายในไม่กี่วินาที
+            หรือใช้ช่องค้นหาด้านบนเลือกคู่ที่ต้องการเพื่อเตรียมบทล่วงหน้า
           </p>
         </div>
       ) : (
@@ -618,6 +709,16 @@ const CommentaryDesk: React.FC<Props> = ({
                 teams={allTeams} currentMatchId={match.id} />
             </Panel>
 
+            {/* ประวัติของแต่ละโรงเรียนแยกกัน — ตอบคำถามที่ผู้พากย์ถามบ่อยที่สุด
+                ก่อนเริ่มเกม ซึ่งสถิติการเจอกันตอบไม่ได้ถ้าสองทีมนี้ไม่เคยเจอกัน */}
+            {[{ team: teamA, name: nameA }, { team: teamB, name: nameB }].map(({ team, name }, i) => (
+              <Panel key={`rec-${team?.id ?? i}`} title={`สถิติย้อนหลัง · ${name}`}
+                icon={<BarChart3 className="w-4 h-4" />}>
+                <SchoolHistory team={team} matches={allMatches} teams={allTeams}
+                  tournaments={tournamentNames} currentMatchId={match.id} />
+              </Panel>
+            ))}
+
             {matches.length > 1 && (
               <Panel title="คู่อื่นในกระดาน" icon={<Trophy className="w-4 h-4" />}>
                 <div className="space-y-1.5">
@@ -640,6 +741,93 @@ const CommentaryDesk: React.FC<Props> = ({
         </div>
       )}
     </div>
+  );
+};
+
+/**
+ * ประวัติของโรงเรียนหนึ่ง ข้ามทุกรายการที่เคยลงแข่ง
+ *
+ * นับด้วยโรงเรียนไม่ใช่ทีม (ดู schoolRecord) — ทีมเป็นของแต่ละปี
+ * โรงเรียนเดิมที่มาแข่งทุกปีจึงต่อประวัติกันได้
+ */
+const SchoolHistory: React.FC<{
+  team: Team | null; matches: Match[]; teams: Team[];
+  tournaments: Map<string, string>; currentMatchId: string;
+}> = ({ team, matches, teams, tournaments, currentMatchId }) => {
+  const rec = useMemo(
+    () => schoolRecord(team?.id, matches, teams, currentMatchId),
+    [team?.id, matches, teams, currentMatchId]);
+
+  if (rec.played === 0) {
+    return (
+      <p className="text-sm text-slate-400">
+        ยังไม่มีผลการแข่งขันที่ผ่านมาของโรงเรียนนี้ในระบบ — นี่คือรายการแรก
+      </p>
+    );
+  }
+
+  const winPct = Math.round((rec.wins / rec.played) * 100);
+
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-2 text-center">
+        {[
+          { v: rec.played, l: 'ลงแข่ง', c: '' },
+          { v: rec.wins,   l: 'ชนะ',    c: 'text-emerald-400' },
+          { v: rec.draws,  l: 'เสมอ',   c: 'text-slate-300' },
+          { v: rec.losses, l: 'แพ้',    c: 'text-rose-400' },
+        ].map(x => (
+          <div key={x.l}>
+            <p className={`text-2xl font-black tabular-nums ${x.c}`}>{x.v}</p>
+            <p className="text-[11px] text-slate-400">{x.l}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex h-2 rounded-full overflow-hidden mt-3 bg-white/10">
+        {([['wins', 'bg-emerald-500'], ['draws', 'bg-slate-400'], ['losses', 'bg-rose-500']] as const)
+          .map(([k, cls]) => rec[k] > 0 && (
+            <div key={k} className={cls} style={{ width: `${(rec[k] / rec.played) * 100}%` }} />
+          ))}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-slate-400">
+        <p>ชนะ <span className="font-black text-slate-200 tabular-nums">{winPct}%</span> ของนัดที่ลง</p>
+        <p>ลงแข่งมาแล้ว <span className="font-black text-slate-200 tabular-nums">{rec.seasons}</span> รายการ</p>
+        <p>ประตู <span className="font-black text-slate-200 tabular-nums">{rec.goalsFor}–{rec.goalsAgainst}</span>
+          {' '}<span className={rec.goalDiff >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+            ({rec.goalDiff >= 0 ? '+' : ''}{rec.goalDiff})
+          </span></p>
+        {rec.bestStreak >= 2 && (
+          <p>ชนะรวดสูงสุด <span className="font-black text-slate-200 tabular-nums">{rec.bestStreak}</span> นัด</p>
+        )}
+      </div>
+
+      {rec.bySeason.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-white/10 space-y-1.5 max-h-56 overflow-y-auto">
+          {rec.bySeason.map(s => (
+            <div key={s.tournamentId} className="flex items-center gap-2 text-xs">
+              <span className="truncate flex-1 min-w-0 text-slate-300">
+                {tournaments.get(s.tournamentId) || 'ไม่ระบุรายการ'}
+              </span>
+              {s.bestRound && (
+                <span className="text-[10px] text-slate-500 shrink-0 truncate max-w-[6.5rem]">
+                  {s.bestRound}
+                </span>
+              )}
+              <span className="font-black tabular-nums shrink-0">
+                <span className="text-emerald-400">{s.wins}</span>
+                <span className="text-slate-600">-</span>
+                <span className="text-slate-300">{s.draws}</span>
+                <span className="text-slate-600">-</span>
+                <span className="text-rose-400">{s.losses}</span>
+              </span>
+            </div>
+          ))}
+          <p className="text-[10px] text-slate-500 pt-1">ชนะ-เสมอ-แพ้ ของแต่ละรายการ ใหม่ไปเก่า</p>
+        </div>
+      )}
+    </>
   );
 };
 
