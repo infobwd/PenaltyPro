@@ -484,6 +484,63 @@ const AdminTournaments: React.FC<Props> = ({
                       onChange={e => setC('halfTimeDuration', e.target.value === '' ? undefined : Number(e.target.value))} />
                   </div>
                 </div>
+
+                {/* ── เอกสารรับรองของทีม (db/20) ─────────────────────────
+                    แต่ละงานขอไม่เหมือนกัน — เดิมช่องอัปโหลดขึ้นให้ทุกโรงเรียนเสมอ
+                    ครูจึงต้องไปถามในไลน์กลุ่มทุกปีว่าต้องส่งเอกสารไหม */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+                  <label className={lbl}>เอกสารรับรองของทีม (หน้าโรงเรียน)</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      ['Off', 'ไม่รับ', 'ซ่อนช่องอัปโหลด'],
+                      ['Optional', 'รับ ไม่บังคับ', 'แนบหรือไม่ก็ได้'],
+                      ['Required', 'ต้องแนบ', 'ไม่แนบ = ส่งรายชื่อไม่ได้'],
+                    ] as const).map(([value, label, hint]) => (
+                      <button key={value} type="button" onClick={() => setC('docMode', value)}
+                        className={`min-h-16 rounded-xl border-2 px-2 py-1.5 text-center transition
+                          ${(cfg.docMode ?? 'Optional') === value
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-500'}`}>
+                        <span className="block text-xs font-black">{label}</span>
+                        <span className="block text-[10px] leading-tight mt-0.5 opacity-80">{hint}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {(cfg.docMode ?? 'Optional') !== 'Off' && (
+                    <div>
+                      <label className={lbl}>ไฟล์ตัวอย่าง / แบบฟอร์มให้ดาวน์โหลด</label>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="cursor-pointer bg-white border border-slate-300 px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                          {cfg.docTemplateUrl ? 'เปลี่ยนไฟล์' : 'อัปโหลดไฟล์'}
+                          <input type="file" accept="image/*,application/pdf,.doc,.docx" className="hidden"
+                            onChange={async e => {
+                              const f = e.target.files?.[0];
+                              if (!f) return;
+                              const url = await uploadFile(f, 'doc', 'doctpl');
+                              if (url) setC('docTemplateUrl', url);
+                            }} />
+                        </label>
+                        {cfg.docTemplateUrl && (
+                          <>
+                            <a href={cfg.docTemplateUrl} target="_blank" rel="noreferrer"
+                              className="px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold">
+                              เปิดดูไฟล์
+                            </a>
+                            <button type="button" onClick={() => setC('docTemplateUrl', '')}
+                              className="px-3 py-2 rounded-lg bg-rose-50 text-rose-600 text-xs font-bold">
+                              เอาออก
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1.5">
+                        โรงเรียนจะเห็นปุ่มดาวน์โหลดไฟล์นี้ในหน้าส่งรายชื่อ — ว่างไว้ได้ถ้าไม่มีแบบฟอร์ม
+                      </p>
+                    </div>
+                  )}
+                </div>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" className="w-4 h-4" checked={!!cfg.extraTime}
                     onChange={e => setC('extraTime', e.target.checked)} />

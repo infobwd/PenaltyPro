@@ -101,6 +101,8 @@ function handle(string $action, array $cfg): void
         'รัน db/18-project-donation-settings.sql');
     $add('col_contests_tournament', $hasCol('contests', 'tournament_id'),
         'รัน db/19-contest-tournament.sql');
+    $add('col_tournaments_doc_policy', $hasCol('tournaments', 'doc_mode'),
+        'รัน db/20-team-doc-policy.sql');
     $add('image_webp', media_can_webp(),
         function_exists('imagewebp') ? 'ใช้ GD'
             : (class_exists('Imagick') ? 'ใช้ Imagick'

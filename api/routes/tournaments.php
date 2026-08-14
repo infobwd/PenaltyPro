@@ -83,6 +83,7 @@ function update_tournament(): void
                 team_edit_deadline = :editdeadline,
                 max_teams = :maxteams, max_teams_per_school = :maxper,
                 players_per_team = :ppt, max_subs = :subs,
+                doc_mode = :docmode, doc_template_url = :doctpl,
                 half_time_duration = :half, extra_time = :extra,
                 registration_fee = :fee,
                 bank_name = :bank, bank_account = :acct, account_name = :acctname,
@@ -108,6 +109,11 @@ function update_tournament(): void
                 ':maxper'   => max(1, (int) ($cfg['maxTeamsPerSchool'] ?? 1)),
                 ':ppt'      => max(1, (int) ($cfg['playersPerTeam'] ?? 7)),
                 ':subs'     => max(0, (int) ($cfg['maxSubs'] ?? 0)),
+                // นโยบายเอกสารรับรองของทีม (db/20) — ค่าที่ไม่รู้จักถือเป็น Optional
+                // ซึ่งคือพฤติกรรมเดิม ปลอดภัยกว่าเดาเป็น Required แล้วบล็อกการสมัคร
+                ':docmode'  => in_array($cfg['docMode'] ?? '', ['Off', 'Optional', 'Required'], true)
+                    ? $cfg['docMode'] : 'Optional',
+                ':doctpl'   => mb_substr((string) ($cfg['docTemplateUrl'] ?? ''), 0, 500),
                 ':half'     => nn($cfg['halfTimeDuration'] ?? null),
                 ':extra'    => !empty($cfg['extraTime']) ? 1 : 0,
                 ':fee'      => (float) ($cfg['registrationFee'] ?? 0),

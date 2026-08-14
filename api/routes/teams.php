@@ -44,6 +44,7 @@ function load_tournament(string $id): array
         'SELECT tournament_id, name, status, registration_deadline,
                 team_editing_enabled, team_edit_deadline,
                 max_teams, max_teams_per_school, players_per_team, max_subs,
+                doc_mode, doc_template_url,
                 registration_fee, bank_name, bank_account, account_name
            FROM tournaments WHERE tournament_id = :tid',
         [':tid' => $id]
@@ -283,6 +284,9 @@ function my_teams(): void
             'bankName'    => (string) $t['bank_name'],
             'bankAccount' => (string) $t['bank_account'],
             'accountName' => (string) $t['account_name'],
+            // นโยบายเอกสารรับรอง (db/20) — ?? ไว้เผื่อโค้ดขึ้นก่อนรัน migration
+            'docMode'        => (string) ($t['doc_mode'] ?? 'Optional'),
+            'docTemplateUrl' => drive_img($t['doc_template_url'] ?? ''),
         ],
         'teams' => $out,
     ]);
@@ -775,6 +779,18 @@ function submit_team(): void
         [':tid3' => $teamId]);
     if ($playerCount === 0) {
         Response::fail('ยังไม่มีรายชื่อผู้เล่น กรุณากรอกรายชื่อก่อนส่ง', 422);
+    }
+
+    /**
+     * เอกสารรับรองที่เจ้าภาพตั้งเป็น "ต้องแนบ" (db/20)
+     *
+     * ตรวจตอนกดยืนยันส่งเท่านั้น ไม่ตรวจตอนบันทึกร่าง — ครูกรอกรายชื่อหลายวัน
+     * แล้วค่อยไปขอลายเซ็นผู้อำนวยการทีหลัง ถ้าบังคับตั้งแต่บันทึกร่างจะกรอกต่อไม่ได้เลย
+     */
+    if (($t['doc_mode'] ?? 'Optional') === 'Required'
+        && trim((string) $team['doc_url']) === '') {
+        Response::fail('รายการนี้กำหนดให้แนบเอกสารรับรองก่อนส่งรายชื่อ', 422,
+            ['need' => 'doc']);
     }
 
     Db::exec(

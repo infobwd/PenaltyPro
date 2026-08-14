@@ -85,6 +85,9 @@ function handle(string $action, array $cfg): void
                     'maxTeamsPerSchool' => (int) $t['max_teams_per_school'],
                     'playersPerTeam'   => (int) $t['players_per_team'],
                     'maxSubs'          => (int) $t['max_subs'],
+                    // นโยบายเอกสารรับรองของทีม (db/20)
+                    'docMode'        => (string) ($t['doc_mode'] ?? 'Optional'),
+                    'docTemplateUrl' => drive_img($t['doc_template_url'] ?? ''),
                     'halfTimeDuration' => $t['half_time_duration'] === null
                         ? null : (int) $t['half_time_duration'],
                     'extraTime'        => (bool) $t['extra_time'],

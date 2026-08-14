@@ -93,8 +93,16 @@ export interface TournamentConfig {
   registrationEnabled?: boolean;
   teamEditingEnabled?: boolean;
   teamEditDeadline?: string;
-  maxTeams?: number; 
-  
+  maxTeams?: number;
+
+  /**
+   * เอกสารรับรองของทีมในหน้า /school
+   * Off = ไม่รับ · Optional = รับแต่ไม่บังคับ · Required = ต้องแนบก่อนส่งรายชื่อ
+   */
+  docMode?: 'Off' | 'Optional' | 'Required';
+  /** ไฟล์ตัวอย่าง/แบบฟอร์มให้โรงเรียนดาวน์โหลด — ว่างคือไม่มี */
+  docTemplateUrl?: string;
+
   bankName?: string;
   bankAccount?: string;
   accountName?: string;

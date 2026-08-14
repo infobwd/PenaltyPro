@@ -5,7 +5,7 @@ import {
   Cloud, CloudOff,
   KeyRound, Loader2, LogOut, Plus, Trash2, Save, Send, CheckCircle2,
   AlertTriangle, ChevronLeft, Users, ShieldQuestion, Clock, XCircle, Info,
-  Camera, Upload, FileText,
+  Camera, Upload, FileText, Download,
 } from 'lucide-react';
 import { apiGet, apiPost, apiUpload, ApiError, setToken, clearTeamToken, getToken, getTokenKind } from '../services/apiConfig';
 import { confirmAction } from '../services/uiService';
@@ -68,6 +68,10 @@ interface TournamentInfo {
   teamEditDeadline?: string | null;
   isOpen: boolean;
   registrationFee?: number;
+  /** นโยบายเอกสารรับรอง (db/20) — Off = ไม่รับ, Required = ต้องแนบก่อนส่ง */
+  docMode?: 'Off' | 'Optional' | 'Required';
+  /** แบบฟอร์ม/ตัวอย่างที่เจ้าภาพเตรียมไว้ให้ดาวน์โหลด */
+  docTemplateUrl?: string;
   bankName?: string;
   bankAccount?: string;
   accountName?: string;
@@ -708,6 +712,8 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
   if (editing) {
     const limit = (tournament?.playersPerTeam ?? 7) + (tournament?.maxSubs ?? 0);
     const filled = editing.players.filter(p => p.name.trim()).length;
+    // รายการเก่าที่ยังไม่ได้ตั้งค่า (หรือโค้ดขึ้นก่อนรัน db/20) = พฤติกรรมเดิม
+    const docMode = tournament?.docMode ?? 'Optional';
     return (
       <div className="min-h-screen bg-slate-50 pb-32">
         <div className="sticky top-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3 z-20">
@@ -816,10 +822,16 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
             <h2 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
               <FileText className="w-4 h-4" /> โลโก้และเอกสารหลักฐาน
             </h2>
-            <div className="grid grid-cols-3 gap-2">
+            {/* รายการที่ตั้งเป็น "ไม่รับเอกสาร" ให้ซ่อนช่องไปเลย ดีกว่าปล่อยให้ครู
+                เดาว่าต้องส่งหรือไม่ แล้วไปตามถามในไลน์กลุ่ม (db/20) */}
+            <div className={`grid gap-2 ${docMode === 'Off' ? 'grid-cols-2' : 'grid-cols-3'}`}>
               {([
                 { key: 'logo', label: 'โลโก้ทีม', field: 'logoUrl' as const, accept: 'image/*' },
-                { key: 'doc',  label: 'เอกสารรับรอง', field: 'docUrl' as const, accept: 'image/*,application/pdf' },
+                ...(docMode === 'Off' ? [] : [{
+                  key: 'doc',
+                  label: docMode === 'Required' ? 'เอกสารรับรอง *' : 'เอกสารรับรอง',
+                  field: 'docUrl' as const, accept: 'image/*,application/pdf',
+                }]),
                 { key: 'slip', label: 'หลักฐานโอนเงิน', field: 'slipUrl' as const, accept: 'image/*,application/pdf' },
               ]).map(f => {
                 const val = (editing as any)[f.field] as string;
@@ -849,8 +861,20 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
               })}
             </div>
             <p className="text-[11px] text-slate-400">
-              รองรับรูปภาพและ PDF ไม่เกิน 8 MB · ไม่บังคับ แต่ผู้ดูแลอาจขอเพิ่มภายหลัง
+              รองรับรูปภาพและ PDF ไม่เกิน 8 MB
+              {docMode === 'Required'
+                ? ' · เอกสารรับรองต้องแนบก่อนกดยืนยันส่งรายชื่อ'
+                : ' · ไม่บังคับ แต่ผู้ดูแลอาจขอเพิ่มภายหลัง'}
             </p>
+
+            {docMode !== 'Off' && tournament?.docTemplateUrl && (
+              <a href={tournament.docTemplateUrl} target="_blank" rel="noreferrer"
+                className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50
+                           px-3 py-2.5 text-xs font-bold text-indigo-700">
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="flex-1 min-w-0">ดาวน์โหลดแบบฟอร์มเอกสารรับรอง</span>
+              </a>
+            )}
 
             {/* ซ้ำกับหน้ารายการทีมโดยตั้งใจ — ตรงนี้คือวินาทีที่ครูกำลังจะโอนจริง
                 ถ้าต้องย้อนกลับไปดูเลขบัญชีหน้าก่อน ข้อมูลที่กรอกค้างไว้จะเสี่ยงหาย */}
