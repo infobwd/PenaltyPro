@@ -2578,6 +2578,68 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </label>
                     </div>
 
+                    {/* ── หน้าจอต้อนรับก่อนเข้าเว็บ ────────────────────────
+                        ค่าที่นี่ถูกอ่านจากสำเนาในเครื่องผู้ชม จึงมีผลตั้งแต่การเข้า
+                        ครั้งถัดไปเป็นต้นไป (ครั้งแรกสุดของเครื่องยังเป็นค่าเริ่มต้น
+                        เพราะหน้านี้ถูกวาดก่อนข้อมูลตั้งค่าจะมาถึง) */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                        <div>
+                            <h4 className="font-bold text-slate-800 text-sm">หน้าจอต้อนรับก่อนเข้าเว็บ</h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                จอที่แสดงโลโก้และข้อความระหว่างรอโหลดข้อมูล — เว้นว่างไว้เพื่อใช้ค่าเริ่มต้น
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">
+                                โลโก้ / ภาพเคลื่อนไหว / วิดีโอ (ลิงก์)
+                            </label>
+                            <input type="text" placeholder="https://... (.png .gif .webp .mp4 .webm)"
+                                value={configForm.splashLogoUrl || ''}
+                                onChange={e => setConfigForm({...configForm, splashLogoUrl: e.target.value})}
+                                className="w-full p-2 border rounded-lg text-sm" />
+                            <p className="text-[11px] text-slate-500 mt-1">
+                                รองรับรูปนิ่ง, GIF/WebP เคลื่อนไหว และไฟล์วิดีโอ (.mp4 .webm) — วิดีโอจะเล่นวนแบบไม่มีเสียง
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">ข้อความหลัก</label>
+                                <input type="text" placeholder="Penalty Pro Arena"
+                                    value={configForm.splashTitle || ''}
+                                    onChange={e => setConfigForm({...configForm, splashTitle: e.target.value})}
+                                    className="w-full p-2 border rounded-lg text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">ข้อความรอง</label>
+                                <input type="text" placeholder="กำลังโหลดข้อมูลการแข่งขัน..."
+                                    value={configForm.splashSubtitle || ''}
+                                    onChange={e => setConfigForm({...configForm, splashSubtitle: e.target.value})}
+                                    className="w-full p-2 border rounded-lg text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">ข้อความด้านล่าง</label>
+                                <input type="text" placeholder="เว้นว่าง = ไม่แสดง"
+                                    value={configForm.splashFooter || ''}
+                                    onChange={e => setConfigForm({...configForm, splashFooter: e.target.value})}
+                                    className="w-full p-2 border rounded-lg text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">
+                                    ค้างจออย่างน้อย (วินาที)
+                                </label>
+                                <input type="number" min={0} max={10} step={0.5} placeholder="0"
+                                    value={configForm.splashSeconds ?? ''}
+                                    onChange={e => setConfigForm({...configForm, splashSeconds: e.target.value})}
+                                    className="w-full p-2 border rounded-lg text-sm" />
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                    0 = ปิดทันทีที่โหลดเสร็จ · สูงสุด 10 วินาที
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* ค่าสมัคร บัญชีรับเงิน และสนาม ย้ายไปอยู่ที่ "รายการแข่งขัน" ที่เดียว
                         เพราะเป็นค่าประจำแต่ละรายการ (คนละปีเก็บเงินไม่เท่ากัน คนละบัญชี คนละสนาม)
                         เดิมมีให้กรอก 2 ที่ แก้ที่นี่แล้วหน้าเว็บไม่เปลี่ยนเพราะค่าของรายการทับอยู่ */}

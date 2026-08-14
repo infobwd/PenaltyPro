@@ -35,6 +35,16 @@ export interface AppSettings {
   educationSupportAccountNumber?: string;
   showPenaltyModeCard?: boolean | string;
   showSupportButton?: boolean | string;
+  /**
+   * หน้าจอต้อนรับก่อนเข้าเว็บ — ผู้ดูแลส่วนกลางตั้งได้ (เก็บใน app_settings)
+   * splashLogoUrl รับได้ทั้งรูปนิ่ง GIF/WebP เคลื่อนไหว และลิงก์วิดีโอ (.mp4/.webm)
+   */
+  splashLogoUrl?: string;
+  splashTitle?: string;
+  splashSubtitle?: string;
+  splashFooter?: string;
+  /** วินาทีที่ค้างจออย่างน้อย — ว่างหรือ 0 = ปิดทันทีที่โหลดเสร็จ */
+  splashSeconds?: string | number;
   /** ช่องทางรับเงินผู้สนับสนุนของรายการ (ต่างจากบัญชีค่าสมัครได้) */
   sponsorDonationEnabled?: boolean;
   sponsorDonationUseExistingBank?: boolean;

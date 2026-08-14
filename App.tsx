@@ -44,6 +44,7 @@ import TeamOverviewDialog from './components/TeamOverviewDialog';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes, cancelMatchRecord, discardMatchDraft } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
+import { cacheSplash, isVideoSource, readCachedSplash, splashFromSettings } from './services/splash';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
 import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic, Handshake } from 'lucide-react';
@@ -94,28 +95,52 @@ const getDisplayUrl = (url: string) => {
 };
 
 // Beautiful Loading Component
+/** โลโก้เดิมที่ hardcode ไว้ — ใช้ต่อเมื่อผู้ดูแลยังไม่ได้ตั้งค่าอะไร */
+const DEFAULT_SPLASH_LOGO =
+  'https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif';
+
+/**
+ * หน้าจอต้อนรับก่อนเข้าเว็บ
+ *
+ * อ่านค่าจากสำเนาที่เก็บไว้ในเครื่อง ไม่ใช่จาก props — เพราะหน้านี้ถูกวาดตอนที่
+ * ข้อมูลตั้งค่ายังโหลดไม่เสร็จ (มันคือหน้าจอที่แสดงระหว่างรอโหลดนั่นเอง)
+ * ดู services/splash.ts
+ */
 const LoadingScreen = () => {
+  const splash = useMemo(() => readCachedSplash(), []);
+  const logo = splash.logoUrl || DEFAULT_SPLASH_LOGO;
+  const isVideo = isVideoSource(logo);
+
   return (
     <div className="fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center animate-in fade-in duration-500">
       <div className="relative mb-8">
         <div className="absolute inset-0 bg-indigo-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
-        <div className="relative w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center p-4 border border-slate-100">
-           <img 
-             src="https://raw.githubusercontent.com/noppharutlubbuangam-dot/vichakan/refs/heads/main/cup.gif" 
-             className="w-full h-full object-contain"
-             alt="Logo"
-           />
+        <div className="relative w-24 h-24 bg-white rounded-full shadow-xl flex items-center justify-center p-4 border border-slate-100 overflow-hidden">
+          {isVideo ? (
+            // ต้อง muted + playsInline ไม่งั้นเบราว์เซอร์บล็อกการเล่นอัตโนมัติ
+            // แล้วได้กรอบเปล่าแทนโลโก้ (อาการเดียวกับที่เคยเจอบนจอ Live Wall)
+            <video src={logo} autoPlay muted loop playsInline
+              className="w-full h-full object-contain" />
+          ) : (
+            <img src={logo} alt="" className="w-full h-full object-contain" />
+          )}
         </div>
       </div>
-      <h1 className="text-2xl font-black text-slate-800 tracking-tight mb-2">Penalty Pro <span className="text-indigo-600">Arena</span></h1>
-      <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
-        <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-        <span>กำลังโหลดข้อมูลการแข่งขัน...</span>
+
+      <h1 className="text-2xl font-black text-slate-800 tracking-tight mb-2 px-6 text-center">
+        {splash.title}
+      </h1>
+
+      <div className="flex items-center gap-2 text-slate-400 text-sm font-medium px-6 text-center">
+        <Loader2 className="w-4 h-4 animate-spin text-indigo-500 shrink-0" />
+        <span>{splash.subtitle}</span>
       </div>
-      
-      <div className="absolute bottom-10 text-xs text-slate-300 font-mono">
-        Powered by Google Gemini
-      </div>
+
+      {splash.footer !== '' && (
+        <div className="absolute bottom-10 text-xs text-slate-300 font-mono px-6 text-center">
+          {splash.footer}
+        </div>
+      )}
     </div>
   );
 };
@@ -141,6 +166,14 @@ export default function App() {
   const [initialMatchId, setInitialMatchId] = useState<string | null>(null);
   const [initialNewsId, setInitialNewsId] = useState<string | null>(null);
   const [initialTeamId, setInitialTeamId] = useState<string | null>(null);
+  /**
+   * ค้างหน้าจอต้อนรับไว้จนครบวินาทีที่ผู้ดูแลตั้งไว้
+   *
+   * ตั้งค่าเริ่มต้นจากสำเนาในเครื่อง ไม่ใช่รอ config โหลดเสร็จ — ไม่งั้นกว่าจะรู้ว่า
+   * ต้องค้างกี่วินาที ข้อมูลก็โหลดเสร็จไปแล้วและจอถูกปิดไปก่อน
+   * ตั้ง 0 (ค่าเริ่มต้น) = ปิดทันทีที่โหลดเสร็จ เหมือนพฤติกรรมเดิมทุกอย่าง
+   */
+  const [splashHolding, setSplashHolding] = useState(() => readCachedSplash().seconds > 0);
   const [editingTeamData, setEditingTeamData] = useState<{team: Team, players: Player[]} | null>(null);
 
   const [availableTeams, setAvailableTeams] = useState<Team[]>([]);
@@ -368,7 +401,10 @@ export default function App() {
                 setAvailablePlayers(data.players);
                 setMatchesLog(data.matches || []);
                 configData = { ...DEFAULT_SETTINGS, ...data.config };
-                setAppConfig(configData); 
+                setAppConfig(configData);
+                // เก็บค่าหน้าจอต้อนรับไว้ใช้วาดในการเข้าครั้งถัดไป
+                // (ตอนนั้นหน้านี้ถูกวาดก่อนข้อมูลจะมาถึง — ดู services/splash.ts)
+                cacheSplash(configData); 
                 setSchools(data.schools || []);
                 setNewsItems(data.news || []);
                 setTournaments(data.tournaments || []);
@@ -447,6 +483,15 @@ export default function App() {
     init();
 
   }, []); // Run once
+
+  // ปล่อยหน้าจอต้อนรับเมื่อครบเวลาที่ตั้งไว้ นับจากตอนเปิดแอป
+  useEffect(() => {
+    if (!splashHolding) return;
+    const ms = readCachedSplash().seconds * 1000;
+    if (ms <= 0) { setSplashHolding(false); return; }
+    const timer = setTimeout(() => setSplashHolding(false), ms);
+    return () => clearTimeout(timer);
+  }, [splashHolding]);
 
   useEffect(() => { if (userLocation && effectiveSettings.locationLat && effectiveSettings.locationLng) { const dist = calculateDistance(userLocation.lat, userLocation.lng, effectiveSettings.locationLat, effectiveSettings.locationLng); setDistanceToVenue(dist); } }, [userLocation, effectiveSettings.locationLat, effectiveSettings.locationLng]);
   useEffect(() => { if (announcements.length > 1) { const interval = setInterval(() => setAnnouncementIndex(prev => (prev + 1) % announcements.length), 5000); return () => clearInterval(interval); } }, [announcements.length]);
@@ -1068,7 +1113,7 @@ export default function App() {
       sharePrizeSummary(activeTournament?.name || "Tournament Results", prizes, activeTeams);
   };
 
-  if (isLoadingData) {
+  if (isLoadingData || splashHolding) {
       return <LoadingScreen />;
   }
 
@@ -1301,9 +1346,19 @@ export default function App() {
           open={notifOpen}
           onClose={() => setNotifOpen(false)}
           notify={showNotification}
-          onNavigate={(url) => {
+          onNavigate={(url, meta) => {
             // ลิงก์ในแจ้งเตือนเป็นเส้นทางภายในแอป เช่น /schedule?match=M_1
             const path = url.split('?')[0].replace(/^\/+/, '');
+            /**
+             * แจ้งเตือนที่ชี้ถึงทีมใดทีมหนึ่ง ("มีทีมส่งใบสมัครรอตรวจ") ให้เปิด
+             * โมดัลจัดการทีมใบนั้นเลย — AdminDashboard รับ initialTeamId แล้ว
+             * เลือกทีมให้เอง ซึ่งเป็นตัวเปิดโมดัลอยู่แล้ว
+             *
+             * เดิมพาไปหน้าจัดการทีมเฉย ๆ แล้วผู้ดูแลต้องไล่หาเองจากทีมเก้าสิบกว่าทีม
+             * ว่าใบไหนคือใบที่เพิ่งแจ้งมา
+             */
+            const teamId = typeof meta?.teamId === 'string' ? meta.teamId : null;
+            setInitialTeamId(teamId);
             goTo(path === '' ? 'home' : path);
           }}
           feed={notifications}

@@ -22,7 +22,11 @@ interface Props {
   open: boolean;
   onClose: () => void;
   notify: (title: string, msg?: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
-  onNavigate?: (url: string) => void;
+  /**
+   * @param meta ข้อมูลแนบของแจ้งเตือนใบนั้น เช่น { teamId } ของ "มีทีมส่งใบสมัคร"
+   *             หน้าแม่ใช้เปิดโมดัลให้ตรงใบที่แจ้งเลย ไม่ใช่พาไปหน้ารวมแล้วให้หาเอง
+   */
+  onNavigate?: (url: string, meta?: Record<string, any> | null) => void;
   feed: ReturnType<typeof useNotifications>;
 }
 
@@ -153,7 +157,7 @@ const NotificationCenter: React.FC<Props> = ({ open, onClose, notify, onNavigate
     if (!n.isRead) feed.markRead(n.id);
     if (n.url) {
       onClose();
-      onNavigate?.(n.url);
+      onNavigate?.(n.url, n.metadata);
     }
   };
 
