@@ -20,7 +20,7 @@ function handle(string $action, array $cfg): void
         'deleteUser'        => delete_user(),
         // ข่าวและค่าตั้ง
         'manageNews'        => manage_news($cfg),
-        'saveSettings'      => save_settings(),
+        'saveSettings'      => save_settings($cfg),
         // เงินบริจาค
         'verifyDonation'        => verify_donation(),
         'updateDonationDetails' => update_donation(),
@@ -313,7 +313,7 @@ function manage_news(array $cfg): void
 
 // ── ค่าตั้งระบบ ───────────────────────────────────────────────────────────
 
-function save_settings(): void
+function save_settings(array $cfg = []): void
 {
     Auth::requireAdmin();
 
@@ -325,10 +325,35 @@ function save_settings(): void
     // ค่าที่ห้ามส่งออกให้คนทั่วไป — ต้องตั้ง is_public=0 ตอนบันทึก
     $private = ['adminPin', 'lineChannelId'];
 
+    /**
+     * รูปที่ส่งมาเป็น data URL ให้เก็บเป็นไฟล์ก่อน แล้วบันทึกแค่ URL
+     *
+     * ⚠️ setting_value เป็น TEXT (65,535 ไบต์) — โลโก้ที่แปลงเป็น base64
+     * มักเกินนั้น MySQL จึงตัดปลายทิ้งเงียบ ๆ ได้ data URL ที่ไม่สมบูรณ์
+     * เบราว์เซอร์ฟ้อง ERR_INVALID_URL แล้วรูปหายโดยไม่มีใครรู้สาเหตุ
+     *
+     * หน้าเว็บอัปไฟล์แยกให้อยู่แล้ว ตรงนี้เป็นตาข่ายรองรับ client รุ่นเก่า
+     * และทางเดินอื่นที่อาจยังส่ง base64 มา
+     */
+    foreach ($settings as $k => $v) {
+        if (!is_string($v) || !str_starts_with($v, 'data:')) {
+            continue;
+        }
+        try {
+            $settings[$k] = store_data_url($v, 'logo', $cfg);
+        } catch (Throwable $e) {
+            Response::fail("บันทึกรูปของ $k ไม่สำเร็จ: " . $e->getMessage(), 422);
+        }
+    }
+
     Db::transaction(static function () use ($settings, $private): void {
         foreach ($settings as $k => $v) {
             if (is_array($v) || is_object($v)) {
                 continue;
+            }
+            // กันค่าที่ยาวเกินคอลัมน์หลุดเข้าไปแล้วถูกตัดกลางทาง
+            if (is_string($v) && strlen($v) > 60000) {
+                Response::fail("ค่าของ $k ยาวเกินไป", 422);
             }
             // camelCase -> snake_case ให้ตรงกับที่ ETL เขียนไว้
             $key = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', (string) $k));

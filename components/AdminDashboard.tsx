@@ -910,15 +910,43 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsDrawing(false); 
   };
 
-  const handleSettingsLogoChange = async (file: File) => {
+  /**
+   * รูปในหน้าตั้งค่า — อัปเป็นไฟล์แล้วเก็บแค่ URL
+   *
+   * ⚠️ ห้ามเก็บ base64 ลง app_settings
+   *
+   * setting_value เป็น TEXT ซึ่งจุได้ 65,535 ไบต์ ส่วนโลโก้ที่แปลงเป็น base64
+   * มักเกินนั้น (รูป 50 KB -> base64 ~67 KB) MySQL จึงตัดปลายทิ้งเงียบ ๆ
+   * ค่าที่ได้กลับมาเป็น data URL ที่ไม่สมบูรณ์ เบราว์เซอร์ฟ้อง ERR_INVALID_URL
+   * แล้วโลโก้หายไปโดยไม่มีอะไรบอกว่าเพราะอะไร
+   *
+   * ทางเดินเดียวกับที่ข่าวและทีมใช้อยู่แล้ว: อัปไฟล์ก่อน เก็บเฉพาะ URL สั้น ๆ
+   */
+  const uploadSettingsImage = async (
+      file: File,
+      field: 'competitionLogo' | 'objectiveImageUrl' | 'splashLogoUrl',
+      setPreview?: (v: string) => void,
+  ) => {
       if (!file || !validateFile(file, 'image')) return;
-      try { const preview = URL.createObjectURL(file); setSettingsLogoPreview(preview); const base64 = await fileToBase64(file); setConfigForm(prev => ({ ...prev, competitionLogo: base64 })); } catch (e) { console.error("Logo Error", e); }
+      const preview = URL.createObjectURL(file);
+      setPreview?.(preview);
+      try {
+          const url = await uploadFile(file, 'logo');
+          setConfigForm(prev => ({ ...prev, [field]: url }));
+          setPreview?.(url);
+      } catch (e: any) {
+          notify('อัปโหลดรูปไม่สำเร็จ', e?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+          setPreview?.('');
+      } finally {
+          URL.revokeObjectURL(preview);
+      }
   };
 
-  const handleObjectiveImageChange = async (file: File) => {
-      if (!file || !validateFile(file, 'image')) return;
-      try { const preview = URL.createObjectURL(file); setObjectiveImagePreview(preview); const base64 = await fileToBase64(file); setConfigForm(prev => ({ ...prev, objectiveImageUrl: base64 })); } catch (e) { console.error("Obj Img Error", e); }
-  };
+  const handleSettingsLogoChange = (file: File) =>
+      uploadSettingsImage(file, 'competitionLogo', v => setSettingsLogoPreview(v || null));
+
+  const handleObjectiveImageChange = (file: File) =>
+      uploadSettingsImage(file, 'objectiveImageUrl', v => setObjectiveImagePreview(v || null));
 
   const handleSaveConfig = async () => { 
       setIsSavingSettings(true); 
@@ -2594,12 +2622,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <label className="block text-xs font-bold text-slate-600 mb-1">
                                 โลโก้ / ภาพเคลื่อนไหว / วิดีโอ (ลิงก์)
                             </label>
-                            <input type="text" placeholder="https://... (.png .gif .webp .mp4 .webm)"
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <label className="cursor-pointer bg-white border border-slate-300 px-3 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1.5 shrink-0">
+                                    <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                                    {configForm.splashLogoUrl ? 'เปลี่ยนไฟล์' : 'อัปโหลดไฟล์'}
+                                    {/* PNG/GIF/WebP — GIF เคลื่อนไหวผ่านโดยไบต์ไม่เปลี่ยน
+                                        (ตัวแปลง WebP ข้าม GIF ไว้ ไม่งั้นจะเหลือเฟรมเดียว) */}
+                                    <input type="file" accept="image/png,image/gif,image/webp,image/jpeg" className="hidden"
+                                        onChange={e => { const f = e.target.files?.[0]; if (f) void uploadSettingsImage(f, 'splashLogoUrl'); }} />
+                                </label>
+                                {configForm.splashLogoUrl && (
+                                    <>
+                                        <div className="w-12 h-12 rounded-lg border border-slate-200 bg-white p-1 flex items-center justify-center overflow-hidden shrink-0">
+                                            <img src={configForm.splashLogoUrl} alt=""
+                                                onError={e => { e.currentTarget.style.display = 'none'; }}
+                                                className="max-w-full max-h-full object-contain" />
+                                        </div>
+                                        <button type="button" onClick={() => setConfigForm({...configForm, splashLogoUrl: ''})}
+                                            className="px-3 py-2 rounded-lg bg-rose-50 text-rose-600 text-xs font-bold shrink-0">
+                                            เอาออก
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                            <input type="text" placeholder="หรือวางลิงก์ https://... (.png .gif .webp .mp4 .webm)"
                                 value={configForm.splashLogoUrl || ''}
                                 onChange={e => setConfigForm({...configForm, splashLogoUrl: e.target.value})}
-                                className="w-full p-2 border rounded-lg text-sm" />
+                                className="w-full p-2 border rounded-lg text-sm mt-2" />
                             <p className="text-[11px] text-slate-500 mt-1">
-                                รองรับรูปนิ่ง, GIF/WebP เคลื่อนไหว และไฟล์วิดีโอ (.mp4 .webm) — วิดีโอจะเล่นวนแบบไม่มีเสียง
+                                อัปโหลด PNG / GIF / WebP ได้ หรือวางลิงก์เอง — รองรับภาพเคลื่อนไหว
+                                และไฟล์วิดีโอ (.mp4 .webm) ที่จะเล่นวนแบบไม่มีเสียง
                             </p>
                         </div>
 
