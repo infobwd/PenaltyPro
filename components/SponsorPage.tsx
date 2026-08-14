@@ -48,6 +48,8 @@ type AcknowledgementProps = {
 type PaymentSettingsProps = {
   tournamentId: string;
   config: AppSettings;
+  /** กระเป๋าที่กำลังตั้งค่า — sponsor = เงินจัดแข่งขัน, project = เงินร่วมโครงการ */
+  purpose: 'sponsor' | 'project';
   onClose: () => void;
   onSaved: () => Promise<void> | void;
   notify: Notice;
@@ -248,8 +250,28 @@ const SponsorEditorDialog: React.FC<SponsorEditorProps> = ({
 };
 
 const SponsorPaymentSettingsDialog: React.FC<PaymentSettingsProps> = ({
-  tournamentId, config, onClose, onSaved, notify,
+  tournamentId, config, purpose, onClose, onSaved, notify,
 }) => {
+  /**
+   * ค่าเริ่มต้นของกระเป๋าที่เลือก
+   *
+   * สองกระเป๋าใช้ฟอร์มเดียวกันแต่เก็บคนละคอลัมน์ — ตัวเรียกใช้ต้อง remount
+   * ด้วย key={purpose} เพราะ useState อ่านค่าตั้งต้นแค่ตอน mount ครั้งแรก
+   */
+  const isProject = purpose === 'project';
+  const saved = isProject ? {
+    useExisting: config.projectDonationUseExistingBank !== false,
+    bankName: config.projectDonationBankName || '',
+    bankAccount: config.projectDonationBankAccount || '',
+    accountName: config.projectDonationAccountName || '',
+    qrUrl: config.projectDonationQrUrl || '',
+  } : {
+    useExisting: config.sponsorDonationUseExistingBank !== false,
+    bankName: config.sponsorDonationBankName || '',
+    bankAccount: config.sponsorDonationBankAccount || '',
+    accountName: config.sponsorDonationAccountName || '',
+    qrUrl: config.sponsorDonationQrUrl || '',
+  };
   const tournamentAccount: BankAccountChoice = {
     bankName: config.bankName || '', bankAccount: config.bankAccount || '', accountName: config.accountName || '',
   };
@@ -259,23 +281,22 @@ const SponsorPaymentSettingsDialog: React.FC<PaymentSettingsProps> = ({
     accountName: config.educationSupportAccountName || '',
   };
   const savedSponsorAccount: BankAccountChoice = {
-    bankName: config.sponsorDonationBankName || '',
-    bankAccount: config.sponsorDonationBankAccount || '',
-    accountName: config.sponsorDonationAccountName || '',
+    bankName: saved.bankName, bankAccount: saved.bankAccount, accountName: saved.accountName,
   };
-  const initialSource: SponsorAccountSource = config.sponsorDonationUseExistingBank !== false
+  const initialSource: SponsorAccountSource = saved.useExisting
     ? 'tournament'
     : educationAccount.bankAccount && sameBankAccount(savedSponsorAccount, educationAccount)
       ? 'education'
       : 'custom';
 
-  const [enabled, setEnabled] = useState(config.sponsorDonationEnabled !== false);
+  // กระเป๋าโครงการเปิด/ปิดด้วย objective.isEnabled อยู่แล้ว ไม่มีสวิตช์ซ้ำที่นี่
+  const [enabled, setEnabled] = useState(isProject ? true : config.sponsorDonationEnabled !== false);
   const [accountSource, setAccountSource] = useState<SponsorAccountSource>(initialSource);
-  const [bankName, setBankName] = useState(config.sponsorDonationBankName || '');
-  const [bankAccount, setBankAccount] = useState(config.sponsorDonationBankAccount || '');
-  const [accountName, setAccountName] = useState(config.sponsorDonationAccountName || '');
+  const [bankName, setBankName] = useState(saved.bankName);
+  const [bankAccount, setBankAccount] = useState(saved.bankAccount);
+  const [accountName, setAccountName] = useState(saved.accountName);
   const [qrFile, setQrFile] = useState<File | null>(null);
-  const [qrPreview, setQrPreview] = useState(config.sponsorDonationQrUrl || '');
+  const [qrPreview, setQrPreview] = useState(saved.qrUrl);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -294,15 +315,16 @@ const SponsorPaymentSettingsDialog: React.FC<PaymentSettingsProps> = ({
         ? educationAccount
         : { bankName, bankAccount, accountName };
       const payload: Parameters<typeof saveSponsorPaymentSettings>[0] = {
-        tournamentId, enabled, useExistingAccount: accountSource === 'tournament',
+        tournamentId, purpose, enabled, useExistingAccount: accountSource === 'tournament',
         bankName: selectedAccount.bankName.trim(), bankAccount: selectedAccount.bankAccount.trim(),
         accountName: selectedAccount.accountName.trim(),
-        qrUrl: qrPreview === config.sponsorDonationQrUrl ? config.sponsorDonationQrUrl : (qrFile ? undefined : qrPreview),
+        qrUrl: qrPreview === saved.qrUrl ? saved.qrUrl : (qrFile ? undefined : qrPreview),
       };
       if (qrFile) payload.qrFile = await fileToBase64(qrFile);
       await saveSponsorPaymentSettings(payload);
       await onSaved();
-      notify('บันทึกช่องทางรับการสนับสนุนแล้ว', 'ผู้บริจาคยังแนบสลิปและรอผู้ดูแลตรวจสอบผ่านระบบเดิม', 'success');
+      notify(isProject ? 'บันทึกบัญชีรับเงินโครงการแล้ว' : 'บันทึกช่องทางรับการสนับสนุนแล้ว',
+        'ผู้บริจาคยังแนบสลิปและรอผู้ดูแลตรวจสอบผ่านระบบเดิม', 'success');
       onClose();
     } catch (error: any) {
       notify('บันทึกไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
@@ -590,7 +612,8 @@ const SponsorPage: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<{ sponsor: Sponsor | null } | null>(null);
   const [acknowledgementSponsor, setAcknowledgementSponsor] = useState<Sponsor | null>(null);
-  const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
+  /** null = ปิดอยู่ / 'sponsor' | 'project' = กำลังตั้งค่ากระเป๋าไหน */
+  const [paymentSettingsOpen, setPaymentSettingsOpen] = useState<null | 'sponsor' | 'project'>(null);
 
   const load = async () => {
     setLoading(true);
@@ -745,8 +768,9 @@ const SponsorPage: React.FC<Props> = ({
           <section className="rounded-3xl bg-white border border-indigo-100 shadow-sm p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0"><ImagePlus className="w-6 h-6" /></div>
             <div className="flex-1"><h2 className="font-black text-lg">จัดการสปอนเซอร์ของรายการ</h2><p className="text-xs text-slate-500 mt-0.5">เพิ่ม แก้ไข ลบ แยกเงิน/สิ่งของ และออกใบอนุโมทนาได้จากหน้านี้</p></div>
-            <div className="grid sm:grid-cols-2 gap-2 w-full sm:w-auto">
-              <button onClick={() => setPaymentSettingsOpen(true)} className="min-h-12 px-4 rounded-xl bg-pink-50 text-pink-700 border border-pink-200 font-black flex items-center justify-center gap-2"><Settings className="w-5 h-5" /> บัญชี / QR รับเงิน</button>
+            <div className="grid sm:grid-cols-3 gap-2 w-full sm:w-auto">
+              <button onClick={() => setPaymentSettingsOpen('sponsor')} className="min-h-12 px-4 rounded-xl bg-pink-50 text-pink-700 border border-pink-200 font-black flex items-center justify-center gap-2"><Settings className="w-5 h-5" /> บัญชีผู้สนับสนุน</button>
+              <button onClick={() => setPaymentSettingsOpen('project')} className="min-h-12 px-4 rounded-xl bg-violet-50 text-violet-700 border border-violet-200 font-black flex items-center justify-center gap-2"><Settings className="w-5 h-5" /> บัญชีร่วมโครงการ</button>
               <button onClick={() => setEditor({ sponsor: null })} className="min-h-12 px-5 rounded-xl bg-indigo-600 text-white font-black flex items-center justify-center gap-2"><Plus className="w-5 h-5" /> เพิ่มสปอนเซอร์</button>
             </div>
           </section>
@@ -781,8 +805,11 @@ const SponsorPage: React.FC<Props> = ({
           onClose={() => setAcknowledgementSponsor(null)} onSaved={load} notify={notify} />
       )}
       {paymentSettingsOpen && (
-        <SponsorPaymentSettingsDialog tournamentId={tournamentId} config={config}
-          onClose={() => setPaymentSettingsOpen(false)} onSaved={async () => { await onRefresh?.(); }} notify={notify} />
+        // key={purpose} บังคับ remount เมื่อสลับกระเป๋า — ค่าตั้งต้นของฟอร์ม
+        // อ่านครั้งเดียวตอน mount ถ้าไม่ remount จะค้างเป็นของกระเป๋าก่อนหน้า
+        <SponsorPaymentSettingsDialog key={paymentSettingsOpen} purpose={paymentSettingsOpen}
+          tournamentId={tournamentId} config={config}
+          onClose={() => setPaymentSettingsOpen(null)} onSaved={async () => { await onRefresh?.(); }} notify={notify} />
       )}
     </div>
   );

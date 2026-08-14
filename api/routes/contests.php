@@ -88,6 +88,8 @@ function list_contests(): void
             'status'      => $c['status'],
             'createdDate' => iso_dt($c['created_at']),
             'closingDate' => iso_dt($c['closing_date']),
+            // NULL = การประกวดส่วนกลาง ใช้ได้ทุกรายการ (db/19)
+            'tournamentId' => $c['tournament_id'] ?? null,
         ], Db::all('SELECT * FROM contests ORDER BY created_at DESC'));
 
         $rows = Db::all(
@@ -314,17 +316,67 @@ function manage_contest(): void
 {
     Auth::requireStaff();
 
-    $mode = strtolower(Input::str('mode') ?: 'add');
+    /**
+     * รับได้ทั้งสองสัญญา — หน้าแอดมินส่งคนละชื่อคีย์กับที่ route นี้เคยกำหนดไว้
+     *
+     * AdminDashboard ส่ง subAction/contestId ส่วนที่นี่อ่าน mode/id
+     * ผลที่เกิดจริงก่อนแก้:
+     *   - กด "แก้ไข" กลายเป็นสร้างรายการใหม่ (mode ตกเป็น 'add' และ id ว่าง)
+     *   - กดเปิด/ปิดสถานะ ได้ 422 "ต้องระบุชื่อรายการประกวด" เพราะไหลไปทาง add
+     *     ทั้งที่คำขอนั้นไม่มีชื่อมาด้วยตั้งแต่แรก
+     */
+    $mode = strtolower(Input::str('mode') ?: Input::str('subAction') ?: 'add');
+    $mode = match ($mode) {
+        'create' => 'add',
+        'update', 'updatestatus' => $mode === 'updatestatus' ? 'status' : 'edit',
+        default => $mode,
+    };
+
     $c = Input::arr('contest');
     if ($c === []) {
         // รองรับแบบส่งค่าแบนมาตรง ๆ ตามสัญญาเดิม
-        $c = ['id' => Input::str('id'), 'title' => Input::str('title'),
+        $c = ['id' => Input::str('id') ?: Input::str('contestId'),
+              'title' => Input::str('title'),
               'description' => Input::str('description'),
               'status' => Input::str('status'),
               'closingDate' => Input::str('closingDate')];
+    } elseif (($c['id'] ?? '') === '') {
+        $c['id'] = Input::str('contestId');
     }
 
-    $status = in_array($c['status'] ?? '', ['Open', 'Closed'], true) ? $c['status'] : 'Open';
+    /**
+     * เปิด/ปิดรับภาพอย่างเดียว — ไม่ต้องมีชื่อหรือรายละเอียดมาด้วย
+     *
+     * แยกออกมาก่อนถึงจุดตรวจชื่อ เพราะคำขอชนิดนี้ไม่มีชื่อโดยธรรมชาติ
+     */
+    if ($mode === 'status') {
+        $id = trim((string) ($c['id'] ?? ''));
+        if ($id === '') {
+            Response::fail('ต้องระบุ id ของรายการประกวด', 422);
+        }
+        $newStatus = in_array($c['status'] ?? '', ['Open', 'Closed'], true)
+            ? $c['status'] : 'Open';
+        $changed = Db::exec(
+            'UPDATE contests SET status = :st WHERE contest_id = :cid0',
+            [':st' => $newStatus, ':cid0' => $id]);
+        if ($changed === 0 && Db::value('SELECT 1 FROM contests WHERE contest_id = :cid1',
+                [':cid1' => $id]) === null) {
+            Response::fail('ไม่พบรายการประกวดนี้', 404);
+        }
+        Audit::log('contest', $id, 'status', null, ['status' => $newStatus]);
+        Cache::flush();
+        Response::ok(['status' => $newStatus]);
+    }
+
+    /**
+     * ไม่ส่ง status มา = ไม่ตั้งใจเปลี่ยน
+     *
+     * ฟอร์มแก้ไขในหน้าแอดมินส่งแค่ชื่อ/รายละเอียด/วันปิด ถ้าเติม 'Open' ให้เสมอ
+     * การแก้ชื่อรายการที่ปิดรับภาพไปแล้วจะเปิดรับใหม่เงียบ ๆ
+     * (สร้างใหม่ยังได้ 'Open' ตามเดิม เพราะยังไม่มีค่าเก่าให้คง)
+     */
+    $statusGiven = in_array($c['status'] ?? '', ['Open', 'Closed'], true);
+    $status = $statusGiven ? $c['status'] : 'Open';
     $closing = ($c['closingDate'] ?? '') !== ''
         ? date('Y-m-d H:i:s', (int) strtotime((string) $c['closingDate'])) : null;
 
@@ -353,13 +405,21 @@ function manage_contest(): void
         Response::fail('ต้องระบุชื่อรายการประกวด', 422);
     }
 
+    // ผูกกับรายการแข่งขัน — ว่างคือส่วนกลาง ใช้ได้ทุกรายการ (db/19)
+    $tournamentId = trim((string) ($c['tournamentId'] ?? Input::str('tournamentId')));
+    $tournamentId = ($tournamentId === '' || $tournamentId === 'global') ? null : $tournamentId;
+    if ($tournamentId !== null && Db::value(
+            'SELECT 1 FROM tournaments WHERE tournament_id = :tid', [':tid' => $tournamentId]) === null) {
+        Response::fail('ไม่พบรายการแข่งขันที่ระบุ', 404);
+    }
+
     if ($mode === 'add') {
         $id = 'CT_' . (int) (microtime(true) * 1000) . '_' . random_int(100, 999);
         Db::exec(
-            'INSERT INTO contests (contest_id, title, description, status, closing_date)
-             VALUES (:cid3, :title, :desc, :status, :close)',
+            'INSERT INTO contests (contest_id, tournament_id, title, description, status, closing_date)
+             VALUES (:cid3, :tid, :title, :desc, :status, :close)',
             [
-                ':cid3'  => $id, ':title' => $title,
+                ':cid3'  => $id, ':tid' => $tournamentId, ':title' => $title,
                 ':desc'  => (string) ($c['description'] ?? ''),
                 ':status' => $status, ':close' => $closing,
             ]
@@ -372,12 +432,15 @@ function manage_contest(): void
         }
         Db::exec(
             'UPDATE contests SET title = :title2, description = :desc2,
-                    status = :status2, closing_date = :close2
+                    status = CASE WHEN :has_status = 1 THEN :status2 ELSE status END,
+                    closing_date = :close2, tournament_id = :tid2
               WHERE contest_id = :cid4',
             [
                 ':title2' => $title,
                 ':desc2'  => (string) ($c['description'] ?? ''),
-                ':status2' => $status, ':close2' => $closing, ':cid4' => $id,
+                ':has_status' => $statusGiven ? 1 : 0, ':status2' => $status,
+                ':close2' => $closing,
+                ':tid2' => $tournamentId, ':cid4' => $id,
             ]
         );
         Audit::log('contest', $id, 'update', null, ['title' => $title]);

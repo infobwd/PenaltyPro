@@ -122,7 +122,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [contestList, setContestList] = useState<Contest[]>([]);
   const [contestEntries, setContestEntries] = useState<any[]>([]); // To count entries
   const [isContestModalOpen, setIsContestModalOpen] = useState(false);
-  const [contestForm, setContestForm] = useState<{id: string | null, title: string, description: string, closingDate: string, status: 'Open'|'Closed'}>({ id: null, title: '', description: '', closingDate: '', status: 'Open' });
+  const [contestForm, setContestForm] = useState<{id: string | null, title: string, description: string, closingDate: string, status: 'Open'|'Closed', tournamentId: string}>({ id: null, title: '', description: '', closingDate: '', status: 'Open', tournamentId: 'global' });
   const [isSavingContest, setIsSavingContest] = useState(false);
   const [contestViewMode, setContestViewMode] = useState<'grid' | 'list'>('grid');
   const [contestFilter, setContestFilter] = useState<'All' | 'Open' | 'Closed'>('All');
@@ -271,7 +271,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // --- CONTEST LOGIC ---
   const handleCreateContest = () => {
-      setContestForm({ id: null, title: '', description: '', closingDate: '', status: 'Open' });
+      setContestForm({ id: null, title: '', description: '', closingDate: '', status: 'Open',
+          tournamentId: currentTournament?.id || 'global' });
       setIsContestModalOpen(true);
   };
 
@@ -286,12 +287,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           } catch(e) {}
       }
 
-      setContestForm({ 
-          id: contest.id, 
-          title: contest.title, 
-          description: contest.description, 
-          closingDate: formattedDate, 
-          status: contest.status 
+      setContestForm({
+          id: contest.id,
+          title: contest.title,
+          description: contest.description,
+          closingDate: formattedDate,
+          status: contest.status,
+          tournamentId: contest.tournamentId || 'global',
       });
       setIsContestModalOpen(true);
   };
@@ -304,12 +306,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsContestModalOpen(false);
       executeWithReload(async () => {
           const action = contestForm.id ? 'edit' : 'create';
-          await manageContest({ 
-              subAction: action, 
-              contestId: contestForm.id, 
-              title: contestForm.title, 
+          await manageContest({
+              subAction: action,
+              contestId: contestForm.id,
+              title: contestForm.title,
               description: contestForm.description,
-              closingDate: contestForm.closingDate
+              closingDate: contestForm.closingDate,
+              // ผูกกับรายการที่กำลังดูอยู่ — จอในสนามกรองภาพด้วยค่านี้ (db/19)
+              // ส่ง 'global' เพื่อให้ใช้ได้ทุกรายการ
+              tournamentId: contestForm.tournamentId,
           });
       }, contestForm.id ? "แก้ไขกิจกรรมเรียบร้อย" : "สร้างกิจกรรมใหม่เรียบร้อย", "กำลังบันทึกกิจกรรม...");
   };
@@ -1840,6 +1845,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               onChange={e => setContestForm({...contestForm, closingDate: e.target.value})} 
                               className="w-full p-2 border rounded-lg"
                           />
+                      </div>
+                      {/* จอในสนามกรองภาพด้วยค่านี้ — ถ้าไม่ผูกรายการ ภาพของงานปีก่อน
+                          จะขึ้นปนกับงานที่กำลังจัดอยู่ (db/19) */}
+                      <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">แสดงในรายการแข่งขัน</label>
+                          <select
+                              value={contestForm.tournamentId}
+                              onChange={e => setContestForm({...contestForm, tournamentId: e.target.value})}
+                              className="w-full p-2 border rounded-lg bg-white"
+                          >
+                              <option value="global">ทุกรายการ (ส่วนกลาง)</option>
+                              {tournaments.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                          </select>
+                          <p className="text-xs text-slate-500 mt-1">
+                              เลือกรายการเพื่อให้ภาพขึ้นเฉพาะจอของงานนั้น
+                          </p>
                       </div>
                   </div>
                   <div className="flex gap-3 mt-6">

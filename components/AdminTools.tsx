@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import {
   Copy, KeyRound, CheckCircle2, XCircle, UserCog, RefreshCw,
   Printer, Loader2, AlertTriangle, ShieldCheck, Search, ReceiptText,
-  Eye, Clock3, WalletCards, UserMinus, ChevronLeft, ChevronRight,
+  Eye, Clock3, WalletCards, UserMinus, ChevronLeft, ChevronRight, Music,
 } from 'lucide-react';
 import { Tournament, Team } from '../types';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
 import SearchPicker, { PickerItem } from './SearchPicker';
+import TournamentMusicManager from './TournamentMusicManager';
 import { confirmAction, promptAction } from '../services/uiService';
 
 /**
@@ -641,6 +642,20 @@ const AdminTools: React.FC<Props> = ({
               <p className="px-3 py-4 text-xs text-slate-500 text-center">ยังไม่มีผู้ดูแลที่ได้รับมอบหมาย</p>
             )}
           </div>
+        </Card>
+
+        {/* ── เพลงประกอบจอ ──────────────────────────────────────── */}
+        <Card
+          icon={<Music className="w-5 h-5" />}
+          title="เพลงประกอบจอ Live Wall"
+          desc={`เตรียมเพลย์ลิสต์ล่วงหน้าได้จากที่นี่ ไม่ต้องไปยืนแก้ที่หน้าจอในสนาม · ${targetTournament?.name || 'เลือกรายการแข่งขัน'}`}
+        >
+          {target === '' ? (
+            <p className="text-sm text-slate-400">เลือกรายการแข่งขันด้านบนก่อน</p>
+          ) : (
+            <TournamentMusicManager tournamentId={target}
+              tournamentName={targetTournament?.name} notify={notify} />
+          )}
         </Card>
 
         {/* ── ล้างแคช ───────────────────────────────────────────── */}

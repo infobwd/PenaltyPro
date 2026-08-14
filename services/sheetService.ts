@@ -479,6 +479,8 @@ export const fetchSponsorPageData = async (tournamentId: string): Promise<{
 export const manageSponsor = async (data: any) => { await apiPost('manageSponsor', data); return true; };
 export const saveSponsorPaymentSettings = async (data: {
   tournamentId: string;
+  /** กระเป๋าที่ตั้งค่า — sponsor = เงินจัดแข่งขัน, project = เงินร่วมโครงการหน้าแรก */
+  purpose?: 'sponsor' | 'project';
   enabled: boolean;
   useExistingAccount: boolean;
   qrFile?: string;

@@ -97,6 +97,10 @@ function handle(string $action, array $cfg): void
         'รัน db/17-tournament-finance.sql');
     // แปลง WebP ไม่ได้ = อัปรูปข่าวได้ตามปกติ แต่เก็บไฟล์ต้นฉบับเต็มใบ
     // ไม่ใช่ความผิดพลาด จึงบอกไว้เฉย ๆ ให้รู้ว่าทำไมไฟล์ยังใหญ่
+    $add('col_tournaments_project_donation', $hasCol('tournaments', 'project_donation_qr_url'),
+        'รัน db/18-project-donation-settings.sql');
+    $add('col_contests_tournament', $hasCol('contests', 'tournament_id'),
+        'รัน db/19-contest-tournament.sql');
     $add('image_webp', media_can_webp(),
         function_exists('imagewebp') ? 'ใช้ GD'
             : (class_exists('Imagick') ? 'ใช้ Imagick'

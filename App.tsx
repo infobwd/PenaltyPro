@@ -253,6 +253,34 @@ export default function App() {
       sponsorDonationBankName: tConfig.sponsorDonationBankName || '',
       sponsorDonationBankAccount: tConfig.sponsorDonationBankAccount || '',
       sponsorDonationAccountName: tConfig.sponsorDonationAccountName || '',
+      projectDonationUseExistingBank: tConfig.projectDonationUseExistingBank !== false,
+      projectDonationQrUrl: tConfig.projectDonationQrUrl || '',
+      projectDonationBankName: tConfig.projectDonationBankName || '',
+      projectDonationBankAccount: tConfig.projectDonationBankAccount || '',
+      projectDonationAccountName: tConfig.projectDonationAccountName || '',
+  };
+
+  /**
+   * บัญชีของปุ่ม "ร่วมบริจาค" ในการ์ดโครงการหน้าแรก
+   *
+   * เดิมปุ่มนี้เปิดกล่องแจ้งโอนโดยไม่ส่ง override อะไรเลย จึงใช้บัญชีค่าสมัคร
+   * ของรายการเสมอ ทั้งที่เงินโครงการพัฒนาโรงเรียนมักต้องเข้าบัญชีสถานศึกษา
+   * คนละใบกับเงินจัดงาน — ตอนนี้เจ้าภาพตั้งได้เองที่ Sponsors → บัญชี/QR รับเงิน
+   *
+   * ยังคงค่าเริ่มต้นเป็นบัญชีเดิมของรายการ พฤติกรรมจึงไม่เปลี่ยนจนกว่าจะไปตั้งค่า
+   */
+  const projectDonationConfig: AppSettings = {
+      ...effectiveSettings,
+      donationQrUrl: effectiveSettings.projectDonationQrUrl,
+      ...(effectiveSettings.projectDonationUseExistingBank === false ? {
+          bankName: effectiveSettings.projectDonationBankName || '',
+          bankAccount: effectiveSettings.projectDonationBankAccount || '',
+          accountName: effectiveSettings.projectDonationAccountName || '',
+      } : {}),
+  };
+  const openProjectDonation = () => {
+      setDonationConfigOverride(projectDonationConfig);
+      setIsDonationOpen(true);
   };
 
   const sponsorDonationConfig: AppSettings = {
@@ -355,11 +383,26 @@ export default function App() {
 
                     if (urlTId && data.tournaments.find(t => t.id === urlTId)) {
                         setCurrentTournamentId(urlTId);
-                    } else if (savedTId && data.tournaments.find(t => t.id === savedTId)) { 
-                        setCurrentTournamentId(savedTId); 
-                    } else if (data.tournaments.length === 1) { 
-                        setCurrentTournamentId(data.tournaments[0].id); 
-                    } 
+                    } else if (savedTId && data.tournaments.find(t => t.id === savedTId)) {
+                        setCurrentTournamentId(savedTId);
+                    } else if (data.tournaments.length === 1) {
+                        setCurrentTournamentId(data.tournaments[0].id);
+                    } else {
+                        /**
+                         * เหลือรายการที่ยังไม่ปิดอยู่ใบเดียว → เข้าให้เลย
+                         *
+                         * เดิมเข้าอัตโนมัติเฉพาะตอนมีรายการเดียวทั้งระบบ ซึ่งเกิดแค่ปีแรก
+                         * พอจัดปีที่สองเป็นต้นไป รายการเก่าถูก Archived ไว้แต่ยังนับรวม
+                         * ผู้ชมทุกคนจึงเจอหน้าให้เลือกรายการก่อนเสมอ ทั้งที่มีงานเดียว
+                         * ที่กำลังจัดอยู่ — เป็นด่านที่ไม่ได้ให้ทางเลือกอะไรจริง ๆ
+                         *
+                         * มีมากกว่าหนึ่งรายการที่เปิดอยู่ = ต้องให้เลือกเองตามเดิม
+                         */
+                        const openOnes = data.tournaments.filter(t => t.status !== 'Archived');
+                        if (openOnes.length === 1) {
+                            setCurrentTournamentId(openOnes[0].id);
+                        }
+                    }
                 }
             }
 
@@ -1034,9 +1077,14 @@ export default function App() {
               players={activePlayers} 
               config={effectiveSettings} 
               predictions={activePredictions}
-              onClose={() => goTo('tournament')} 
+              onClose={() => goTo('tournament')}
               onRefresh={(silent) => loadData(true, silent)}
               currentUser={currentUser}
+              /* ⚠️ ห้ามลืมส่ง — LiveWall กรองสปอนเซอร์/เพลง/ประกาศด้วย
+                 `type.includes('::' + tournamentId)` ถ้าไม่ส่งจะเทียบกับ
+                 '::undefined' แล้วตัดทุกอย่างที่ผูกกับรายการทิ้งเงียบ ๆ
+                 อาการคือสไลด์ผู้สนับสนุนว่างเปล่าทั้งที่ในระบบมีข้อมูลอยู่ */
+              tournamentId={currentTournamentId || undefined}
           />
       );
   }
@@ -2025,7 +2073,7 @@ export default function App() {
                                               <Eye className="w-3 h-3" /> เปิดอ่านรายละเอียด
                                           </button>
                                       )}
-                                      <button onClick={() => setIsDonationOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-md transition flex items-center gap-1 active:scale-95">
+                                      <button onClick={openProjectDonation} className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-md transition flex items-center gap-1 active:scale-95">
                                           <Heart className="w-4 h-4 fill-white" /> ร่วมบริจาค
                                       </button>
                                   </div>

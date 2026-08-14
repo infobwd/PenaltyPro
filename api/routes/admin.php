@@ -543,7 +543,14 @@ function require_sponsor_manager(?string $tournamentId): void
     Response::fail('เฉพาะเจ้าภาพหรือผู้ดูแลรายการเท่านั้นที่จัดการสปอนเซอร์ได้', 403);
 }
 
-/** บัญชี/QR สำหรับรับผู้สนับสนุน โดยรายการที่แจ้งโอนยังเข้าตาราง donations เดิม */
+/**
+ * บัญชี/QR สำหรับรับเงิน โดยรายการที่แจ้งโอนยังเข้าตาราง donations เดิม
+ *
+ * รับได้สองกระเป๋าผ่าน purpose เดียวกัน เพื่อให้เจ้าภาพตั้งค่าที่เดียวจบ:
+ *   sponsor — เงินผู้สนับสนุนการจัดแข่งขัน (ปุ่มบนหน้า Sponsors / ตารางคะแนน)
+ *   project — เงินร่วมโครงการพัฒนาโรงเรียน (ปุ่มในการ์ดโครงการหน้าแรก)
+ *             มักเข้าบัญชีสถานศึกษาโดยตรง ไม่ปนกับเงินจัดงาน
+ */
 function save_sponsor_payment_settings(array $cfg): void
 {
     $tid = Input::require_str('tournamentId');
@@ -555,15 +562,18 @@ function save_sponsor_payment_settings(array $cfg): void
         Response::fail('ไม่พบรายการแข่งขันนี้', 404);
     }
 
+    $purpose = Input::str('purpose') === 'project' ? 'project' : 'sponsor';
+
     $useExisting = Input::bool('useExistingAccount');
-    $enabled = Input::bool('enabled');
+    // กระเป๋าโครงการไม่มีสวิตช์เปิด/ปิดของตัวเอง — คุมด้วย objective.isEnabled อยู่แล้ว
+    $enabled = $purpose === 'project' ? true : Input::bool('enabled');
     $bankName = trim(Input::str('bankName'));
     $bankAccount = trim(Input::str('bankAccount'));
     $accountName = trim(Input::str('accountName'));
     $qrUrl = Input::str('qrUrl');
     if (Input::get('qrFile', null) !== null) {
         try {
-            $qrUrl = store_data_url(Input::str('qrFile'), 'sponsor-qr', $cfg);
+            $qrUrl = store_data_url(Input::str('qrFile'), "$purpose-qr", $cfg);
         } catch (Throwable $e) {
             Response::fail('อัปโหลด QR Code ไม่สำเร็จ: ' . $e->getMessage(), 422);
         }
@@ -575,20 +585,36 @@ function save_sponsor_payment_settings(array $cfg): void
         Response::fail('บัญชีเดิมของรายการยังไม่มีเลขบัญชี กรุณาแนบ QR Code หรือเลือกกำหนดบัญชีใหม่', 422);
     }
 
-    Db::exec(
-        'UPDATE tournaments SET sponsor_donation_enabled = :enabled,
-            sponsor_donation_use_existing = :existing,
-            sponsor_donation_qr_url = :qr,
-            sponsor_bank_name = :bank, sponsor_bank_account = :account,
-            sponsor_account_name = :account_name
-          WHERE tournament_id = :id',
-        [
-            ':enabled' => $enabled ? 1 : 0, ':existing' => $useExisting ? 1 : 0,
-            ':qr' => $qrUrl, ':bank' => $bankName, ':account' => $bankAccount,
-            ':account_name' => $accountName, ':id' => $tid,
-        ]
-    );
-    Audit::log('tournament', $tid, 'sponsor_payment_settings');
+    if ($purpose === 'project') {
+        Db::exec(
+            'UPDATE tournaments SET
+                project_donation_use_existing = :existing,
+                project_donation_qr_url = :qr,
+                project_bank_name = :bank, project_bank_account = :account,
+                project_account_name = :account_name
+              WHERE tournament_id = :id',
+            [
+                ':existing' => $useExisting ? 1 : 0, ':qr' => $qrUrl,
+                ':bank' => $bankName, ':account' => $bankAccount,
+                ':account_name' => $accountName, ':id' => $tid,
+            ]
+        );
+    } else {
+        Db::exec(
+            'UPDATE tournaments SET sponsor_donation_enabled = :enabled,
+                sponsor_donation_use_existing = :existing,
+                sponsor_donation_qr_url = :qr,
+                sponsor_bank_name = :bank, sponsor_bank_account = :account,
+                sponsor_account_name = :account_name
+              WHERE tournament_id = :id',
+            [
+                ':enabled' => $enabled ? 1 : 0, ':existing' => $useExisting ? 1 : 0,
+                ':qr' => $qrUrl, ':bank' => $bankName, ':account' => $bankAccount,
+                ':account_name' => $accountName, ':id' => $tid,
+            ]
+        );
+    }
+    Audit::log('tournament', $tid, "{$purpose}_payment_settings");
     Cache::flush();
     Response::ok();
 }

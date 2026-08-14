@@ -98,6 +98,13 @@ function handle(string $action, array $cfg): void
                     'sponsorDonationBankName' => $t['sponsor_bank_name'],
                     'sponsorDonationBankAccount' => $t['sponsor_bank_account'],
                     'sponsorDonationAccountName' => $t['sponsor_account_name'],
+                    // บัญชีรับเงินร่วมโครงการ (db/18) — คนละกระเป๋ากับเงินจัดแข่งขัน
+                    // ?? ไว้เผื่อโค้ดขึ้นก่อนรัน migration จะได้ไม่ล้มทั้ง getData
+                    'projectDonationUseExistingBank' => (bool) ($t['project_donation_use_existing'] ?? 1),
+                    'projectDonationQrUrl' => drive_img($t['project_donation_qr_url'] ?? ''),
+                    'projectDonationBankName' => (string) ($t['project_bank_name'] ?? ''),
+                    'projectDonationBankAccount' => (string) ($t['project_bank_account'] ?? ''),
+                    'projectDonationAccountName' => (string) ($t['project_account_name'] ?? ''),
                     'locationName'     => $t['location_name'],
                     'locationLink'     => $t['location_link'],
                     'locationLat'      => $t['location_lat'] === null ? null : (float) $t['location_lat'],

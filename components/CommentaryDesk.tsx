@@ -288,9 +288,13 @@ const Panel: React.FC<{ title: string; icon: React.ReactNode; children: React.Re
     <section className="rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
       <h2 className="px-4 py-2.5 text-xs font-black text-slate-300 flex items-center gap-2
                      border-b border-white/10 bg-white/[0.03]">
-        {icon} {title}
+        {/* icon ต้องไม่ยุบ ส่วนชื่อต้องตัดได้ — ชื่อโรงเรียนไทยเป็นสายอักษรยาว
+            ที่ไม่มีช่องว่างให้เบราว์เซอร์ตัดบรรทัด ถ้าไม่บังคับ min-w-0 + truncate
+            หัวการ์ดจะดันความกว้างจนการ์ดล้นออกนอกจอบนมือถือ */}
+        <span className="shrink-0 flex items-center">{icon}</span>
+        <span className="min-w-0 truncate">{title}</span>
       </h2>
-      <div className="p-4">{children}</div>
+      <div className="p-4 min-w-0">{children}</div>
     </section>
   );
 
@@ -638,7 +642,7 @@ const CommentaryDesk: React.FC<Props> = ({
         <div className="max-w-[1600px] mx-auto px-3 py-3 sm:py-4 grid gap-4 lg:grid-cols-12">
 
           {/* ══ ซ้าย — สกอร์และไทม์ไลน์ ══════════════════════════════ */}
-          <div className={`${mobileSection === 'match' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4`}>
+          <div className={`${mobileSection === 'match' ? 'block' : 'hidden'} lg:block lg:col-span-4 min-w-0 space-y-4`}>
             <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-4">
               <div className="flex items-center justify-between gap-2 mb-3">
                 <span className={`px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1.5
@@ -777,7 +781,7 @@ const CommentaryDesk: React.FC<Props> = ({
           </div>
 
           {/* ══ กลาง — บทพูด ═══════════════════════════════════════ */}
-          <div className={`${mobileSection === 'talk' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4`}>
+          <div className={`${mobileSection === 'talk' ? 'block' : 'hidden'} lg:block lg:col-span-4 min-w-0 space-y-4`}>
             <Panel title={`ผู้สนับสนุนการแข่งขัน${visibleSponsors.length > 0 ? ` (${visibleSponsors.length})` : ''}`}
               icon={<Handshake className="w-4 h-4" />}>
               {sponsorLoading ? (
@@ -877,14 +881,17 @@ const CommentaryDesk: React.FC<Props> = ({
           </div>
 
           {/* ══ ขวา — รายชื่อสองทีม ═══════════════════════════════ */}
-          <div className={`${mobileSection === 'teams' ? 'block' : 'hidden'} lg:block lg:col-span-4 space-y-4`}>
+          <div className={`${mobileSection === 'teams' ? 'block' : 'hidden'} lg:block lg:col-span-4 min-w-0 space-y-4`}>
             {[{ team: teamA, name: nameA, roster: rosterA },
               { team: teamB, name: nameB, roster: rosterB }].map(({ team, name, roster }, i) => (
               <Panel key={team?.id ?? i} title={name} icon={<Users className="w-4 h-4" />}>
                 {roster.length === 0 ? (
                   <p className="text-sm text-slate-400">ทีมนี้ยังไม่ได้ส่งรายชื่อนักกีฬาเข้าระบบ</p>
                 ) : (
-                  <div className="space-y-1 max-h-72 overflow-y-auto">
+                  // บนมือถือปล่อยให้ไหลไปกับหน้า — กล่องเลื่อนซ้อนในหน้าที่เลื่อนอยู่แล้ว
+                  // ทำให้นิ้วปัดแล้วไม่รู้ว่ากำลังเลื่อนอะไร และรายชื่อถูกตัดครึ่ง
+                  // จอกว้างค่อยจำกัดความสูง เพราะสามคอลัมน์ต้องยาวเท่า ๆ กัน
+                  <div className="space-y-1 lg:max-h-72 lg:overflow-y-auto">
                     {[...roster]
                       .sort((a, b) => (Number(a.number) || 999) - (Number(b.number) || 999))
                       .map(p => {
@@ -894,7 +901,8 @@ const CommentaryDesk: React.FC<Props> = ({
                             <span className="w-8 text-center text-sm font-black tabular-nums
                                              text-indigo-400 shrink-0">{p.number || '–'}</span>
                             <span className="text-sm font-bold flex-1 min-w-0 truncate">{p.name}</span>
-                            <span className="text-[11px] text-slate-400 shrink-0">
+                            {/* ยอมให้ป้ายตำแหน่งย่อได้บนจอแคบ ดีกว่าดันแถวจนล้นจอ */}
+                            <span className="text-[11px] text-slate-400 shrink truncate max-w-[7.5rem] text-right">
                               {POSITION_LABEL[p.position] ?? p.position}
                               {age !== null && ` · ${age} ปี`}
                             </span>

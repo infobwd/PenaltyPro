@@ -42,6 +42,12 @@ export interface AppSettings {
   sponsorDonationBankName?: string;
   sponsorDonationBankAccount?: string;
   sponsorDonationAccountName?: string;
+  /** บัญชีรับเงิน "ร่วมสนับสนุนโครงการ" บนหน้าแรก — คนละกระเป๋ากับเงินจัดแข่งขัน */
+  projectDonationUseExistingBank?: boolean;
+  projectDonationQrUrl?: string;
+  projectDonationBankName?: string;
+  projectDonationBankAccount?: string;
+  projectDonationAccountName?: string;
   /** ค่าใช้ชั่วคราวเมื่อเปิดหน้าต่างแจ้งโอนจาก Sponsors/Standings */
   donationQrUrl?: string;
 }
@@ -104,6 +110,12 @@ export interface TournamentConfig {
   sponsorDonationBankName?: string;
   sponsorDonationBankAccount?: string;
   sponsorDonationAccountName?: string;
+  /** บัญชีรับเงิน "ร่วมสนับสนุนโครงการ" บนหน้าแรก — คนละกระเป๋ากับเงินจัดแข่งขัน */
+  projectDonationUseExistingBank?: boolean;
+  projectDonationQrUrl?: string;
+  projectDonationBankName?: string;
+  projectDonationBankAccount?: string;
+  projectDonationAccountName?: string;
 
   // ป้ายหน้าร้านของรายการ — ย้ายมาจากแท็บตั้งค่าระบบ
   // ทุกปีเปลี่ยนโลโก้และประกาศใหม่ ถ้าเก็บไว้ระดับระบบ พอสลับไปดูรายการเก่า
@@ -358,6 +370,8 @@ export interface UserProfile {
 
 export interface Contest {
   id: string;
+  /** รายการแข่งขันที่การประกวดนี้สังกัด — null/ว่าง = ส่วนกลาง ใช้ได้ทุกรายการ */
+  tournamentId?: string | null;
   title: string;
   description: string;
   status: 'Open' | 'Closed';
