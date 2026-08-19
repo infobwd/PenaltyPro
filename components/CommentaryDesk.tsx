@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Trash2,
   ChevronLeft, Radio, RefreshCw, Mic, History, Target, ShieldCheck, XCircle,
   Users, NotebookPen, WifiOff, Clock, MapPin, Flame, AlertTriangle, Trophy,
   Search, X, BarChart3, CalendarClock, Undo2, Loader2, Handshake, Building2,
@@ -50,6 +51,8 @@ type Props = {
   /** มีเฉพาะผู้ดูแล/กรรมการที่ผ่านการเข้าสู่ระบบ ฝั่ง server ตรวจสิทธิ์ซ้ำอีกชั้น */
   onCancelKick?: (match: Match, kick: Kick) => Promise<boolean>;
   onCancelGoal?: (match: Match, event: MatchEvent) => Promise<boolean>;
+  /** ยกเลิกผลทั้งนัด — ใช้ตอนผลผิดทั้งชุดจนแก้ทีละลูกไม่คุ้ม */
+  onResetMatch?: (match: Match) => Promise<boolean>;
 };
 
 const POSITION_LABEL: Record<string, string> = {
@@ -302,7 +305,7 @@ const Panel: React.FC<{ title: string; icon: React.ReactNode; children: React.Re
 
 const CommentaryDesk: React.FC<Props> = ({
   tournamentId, tournamentName, teams, players, allMatches, allTeams, tournaments,
-  config, onBack, onCancelKick, onCancelGoal,
+  config, onBack, onCancelKick, onCancelGoal, onResetMatch,
 }) => {
   const tournamentNames = useMemo(
     () => new Map(tournaments.map(t => [t.id, t.name])), [tournaments]);
@@ -405,6 +408,20 @@ const CommentaryDesk: React.FC<Props> = ({
   const events = useMemo(
     () => [...(match?.events ?? [])].sort((a, b) => b.minute - a.minute), [match]);
 
+  /**
+   * นัดนี้มี "ผล" ที่ล้างได้หรือยัง
+   *
+   * ไม่ดูแค่ลูกยิง เพราะโหมด 7v7 เก็บผลเป็นเหตุการณ์ และบางนัดค้างสถานะ Live
+   * โดยไม่มีทั้งลูกยิงและเหตุการณ์ (ข้อมูลทดลองที่ซิงก์ค้างไว้) ซึ่งก็ต้องล้างได้
+   * นัดที่ Scheduled และว่างเปล่าจริง ๆ ไม่ต้องมีปุ่ม เพราะไม่มีอะไรให้ล้าง
+   */
+  const hasResultToClear = Boolean(match) && (
+    kicks.length > 0
+    || events.length > 0
+    || Boolean(match?.winner)
+    || (match?.status !== undefined && match.status !== 'Scheduled')
+  );
+
   // ── ไฮไลต์สิ่งที่เพิ่งเข้ามา ──────────────────────────────────────────
   const seenRef = useRef<{ id: string; slots: Set<string> } | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
@@ -486,6 +503,34 @@ const CommentaryDesk: React.FC<Props> = ({
     setCancelling(key);
     try {
       if (await onCancelGoal(match, event)) refresh();
+    } finally {
+      setCancelling(null);
+    }
+  };
+
+  /**
+   * ยกเลิกผลทั้งนัด — ยืนยันสองชั้นเพราะกู้คืนไม่ได้
+   *
+   * ชั้นแรกบอกว่าจะลบอะไรบ้าง ชั้นสองให้ทวนชื่อคู่แข่งอีกครั้ง
+   * กันกดพลาดตอนถือมือถืออยู่ข้างสนามซึ่งเกิดขึ้นได้ง่ายมาก
+   */
+  const requestResetMatch = async () => {
+    if (!match || !onResetMatch || cancelling !== null) return;
+    const first = await confirmAction(
+      `ลูกยิงทั้งหมด ${kicks.length} ลูก` +
+      (events.length ? ` และเหตุการณ์ ${events.length} รายการ` : '') +
+      ` ของคู่นี้จะถูกลบถาวร คะแนนกลับเป็น 0-0 และนัดกลับไปเป็น "ยังไม่แข่ง"`,
+      { title: 'ยกเลิกผลทั้งนัด?', confirmText: 'ดำเนินการต่อ', dangerous: true },
+    );
+    if (!first) return;
+    const second = await confirmAction(
+      `${nameA} พบ ${nameB} — ผลที่ลบแล้วกู้คืนไม่ได้ ต้องบันทึกใหม่ทั้งหมด`,
+      { title: 'ยืนยันอีกครั้ง', confirmText: 'ยกเลิกผลทั้งนัด', dangerous: true },
+    );
+    if (!second) return;
+    setCancelling('match');
+    try {
+      if (await onResetMatch(match)) refresh();
     } finally {
       setCancelling(null);
     }
@@ -734,6 +779,35 @@ const CommentaryDesk: React.FC<Props> = ({
                     );
                   })}
                 </div>
+              </Panel>
+            )}
+
+            {/* ยกเลิกผลทั้งนัด — ต้องอยู่นอกการ์ด "ลูกจุดโทษ"
+                เดิมวางไว้ข้างในซึ่งมีเงื่อนไข kicks.length > 0 ทำให้ปุ่มหายไปเลย
+                เมื่อผลถูกบันทึกด้วยเหตุการณ์ (โหมด 7v7) หรือนัดค้างสถานะโดยไม่มีลูกยิง
+                — ซึ่งเป็นเคสที่ "ต้องล้าง" มากที่สุด */}
+            {onResetMatch && hasResultToClear && (
+              <Panel title="แก้ไขผลการแข่งขัน" icon={<Trash2 className="w-4 h-4" />}>
+                <p className="text-[11px] text-slate-400 mb-2.5">
+                  สถานะปัจจุบัน <span className="font-bold text-slate-200">{match?.status}</span>
+                  {' · '}สกอร์ <span className="font-bold text-slate-200 tabular-nums">{match?.scoreA ?? 0}-{match?.scoreB ?? 0}</span>
+                  {kicks.length > 0 && <> · ลูกยิง {kicks.length}</>}
+                  {events.length > 0 && <> · เหตุการณ์ {events.length}</>}
+                </p>
+                <button type="button"
+                  onClick={() => void requestResetMatch()}
+                  disabled={cancelling !== null}
+                  className="w-full h-11 rounded-xl border border-rose-400/40 bg-rose-500/10
+                             text-rose-300 hover:bg-rose-500/20 disabled:opacity-40
+                             text-xs font-black flex items-center justify-center gap-2">
+                  {cancelling === 'match'
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Trash2 className="w-4 h-4" />}
+                  ยกเลิกผลทั้งนัด
+                </button>
+                <p className="text-[11px] text-slate-500 mt-1.5 text-center">
+                  ล้างลูกยิงและเหตุการณ์ทั้งหมด คืนนัดเป็น &quot;ยังไม่แข่ง&quot;
+                </p>
               </Panel>
             )}
 

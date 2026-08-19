@@ -6,7 +6,7 @@ import {
   Sparkles, Trash2, Trophy, Upload, X, QrCode, Settings,
 } from 'lucide-react';
 import { AppSettings, Sponsor } from '../types';
-import { fetchSponsorPageData, fileToBase64, manageSponsor, saveSponsorPaymentSettings } from '../services/sheetService';
+import { fetchSponsorPageData, fileToBase64, issueCertificateNumbers, manageSponsor, saveSponsorPaymentSettings } from '../services/sheetService';
 import { resizeImageBeforeUpload, SUPPORTED_IMAGE_ACCEPT } from '../services/imageResize';
 import { confirmAction } from '../services/uiService';
 import SponsorDonationCard from './SponsorDonationCard';
@@ -34,11 +34,20 @@ type SponsorEditorProps = {
   notify: Notice;
 };
 
+type SignerDefaults = {
+  signerName: string;
+  signerTitle: string;
+  signatureUrl: string;
+  /** เจ้าภาพตั้งรูปแบบเลขที่ไว้แล้ว — กดจองเลขถัดไปได้เลยไม่ต้องพิมพ์เอง */
+  autoNumber: boolean;
+};
+
 type AcknowledgementProps = {
   sponsor: Sponsor;
+  tournamentId: string;
   tournamentName: string;
   competitionLogo?: string;
-  signerDefaults?: Pick<Sponsor, 'signerName' | 'signerTitle' | 'signatureUrl'>;
+  signerDefaults?: SignerDefaults;
   onClose: () => void;
   onSaved: () => Promise<void>;
   notify: Notice;
@@ -444,9 +453,10 @@ const SponsorPaymentSettingsDialog: React.FC<PaymentSettingsProps> = ({
 };
 
 const SponsorAcknowledgementDialog: React.FC<AcknowledgementProps> = ({
-  sponsor, tournamentName, competitionLogo, signerDefaults, onClose, onSaved, notify,
+  sponsor, tournamentId, tournamentName, competitionLogo, signerDefaults, onClose, onSaved, notify,
 }) => {
   const [documentNo, setDocumentNo] = useState(sponsor.acknowledgementNo || '');
+  const [numbering, setNumbering] = useState(false);
   const [documentDate, setDocumentDate] = useState(sponsor.acknowledgementDate || localIsoDate());
   const [signerName, setSignerName] = useState(sponsor.signerName || signerDefaults?.signerName || '');
   const [signerTitle, setSignerTitle] = useState(sponsor.signerTitle || signerDefaults?.signerTitle || '');
@@ -460,6 +470,36 @@ const SponsorAcknowledgementDialog: React.FC<AcknowledgementProps> = ({
     setSignaturePreview(url);
     return () => URL.revokeObjectURL(url);
   }, [signatureFile]);
+
+  /**
+   * จองเลขที่เอกสารจากชุดเลขของรายการ
+   *
+   * ใช้กลไกเดียวกับใบเกียรติบัตร (บทบาท Sponsor) เลขจึงล็อกกับผู้สนับสนุนรายนี้ —
+   * เปิดใบเดิมซ้ำกี่ครั้งก็ได้เลขเดิม และเดินคนละชุดกับนักกีฬา/กรรมการ
+   */
+  const takeNumber = async () => {
+    if (numbering) return;
+    setNumbering(true);
+    try {
+      const issued = await issueCertificateNumbers({
+        tournamentId, role: 'Sponsor',
+        subjects: [{ key: sponsor.id, name: sponsor.name }],
+      });
+      const no = issued[0]?.certNo || '';
+      if (no) setDocumentNo(no);
+    } catch (error: any) {
+      notify('ขอเลขที่เอกสารไม่สำเร็จ', error?.message || 'พิมพ์เลขเองได้ในช่องด้านบน', 'warning');
+    } finally {
+      setNumbering(false);
+    }
+  };
+
+  // ใบที่ยังไม่มีเลขและเจ้าภาพตั้งรูปแบบไว้แล้ว — เติมให้เลยตั้งแต่เปิดใบ
+  useEffect(() => {
+    if (!sponsor.acknowledgementNo && signerDefaults?.autoNumber) void takeNumber();
+    // ตั้งใจให้ทำครั้งเดียวตอนเปิดใบ ไม่ใช่ทุกครั้งที่ state ขยับ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const save = async () => {
     if (busy) return;
@@ -519,6 +559,12 @@ const SponsorAcknowledgementDialog: React.FC<AcknowledgementProps> = ({
               <label className="block">
                 <span className="text-xs font-bold text-slate-600">เลขที่เอกสาร</span>
                 <input value={documentNo} onChange={event => setDocumentNo(event.target.value)} className={`${inputClass} mt-1`} placeholder="เช่น 001/2569" />
+                {signerDefaults?.autoNumber && (
+                  <button type="button" onClick={() => void takeNumber()} disabled={numbering}
+                    className="mt-1 text-[11px] font-bold text-indigo-600 disabled:opacity-50">
+                    {numbering ? 'กำลังขอเลข…' : 'ขอเลขถัดไปจากระบบ'}
+                  </button>
+                )}
               </label>
               <label className="block">
                 <span className="text-xs font-bold text-slate-600">วันที่ออก</span>
@@ -607,6 +653,7 @@ const SponsorPage: React.FC<Props> = ({
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [serverCanManage, setServerCanManage] = useState(false);
   const [canManageGlobal, setCanManageGlobal] = useState(false);
+  const [signerDefaults, setSignerDefaults] = useState<SignerDefaults | undefined>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<{ sponsor: Sponsor | null } | null>(null);
@@ -621,6 +668,7 @@ const SponsorPage: React.FC<Props> = ({
       setSponsors(data.sponsors);
       setServerCanManage(data.canManage);
       setCanManageGlobal(data.canManageGlobal);
+      setSignerDefaults(data.signerDefaults);
     } catch (error: any) {
       notify('โหลดข้อมูลสปอนเซอร์ไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
     } finally {
@@ -653,7 +701,19 @@ const SponsorPage: React.FC<Props> = ({
   const moneyTotal = visible.filter(item => item.contributionType === 'Money')
     .reduce((sum, item) => sum + Number(item.contributionAmount || 0), 0);
   const goodsCount = visible.filter(item => item.contributionType === 'Goods').length;
-  const signerDefaults = tournamentSponsors.find(item => item.signerName || item.signatureUrl);
+  /**
+   * ผู้ลงนามมาจากค่าตั้งที่บันทึกไว้ในระบบ (หน้าเกียรติบัตร) เป็นหลัก
+   * ถ้ายังไม่ได้ตั้ง ถอยไปใช้ใบเก่าของรายการนี้เพื่อไม่ให้ของเดิมพัง
+   */
+  const previousSigner = tournamentSponsors.find(item => item.signerName || item.signatureUrl);
+  const effectiveSigner: SignerDefaults | undefined = signerDefaults?.signerName
+    ? signerDefaults
+    : (previousSigner
+        ? { signerName: previousSigner.signerName || '',
+            signerTitle: previousSigner.signerTitle || '',
+            signatureUrl: previousSigner.signatureUrl || '',
+            autoNumber: signerDefaults?.autoNumber ?? false }
+        : signerDefaults);
 
   const removeSponsor = async (sponsor: Sponsor) => {
     if (!await confirmAction(`“${sponsor.name}” จะถูกนำออกจากหน้านี้และ Live Wall`, {
@@ -799,8 +859,9 @@ const SponsorPage: React.FC<Props> = ({
 
       {editor && <SponsorEditorDialog sponsor={editor.sponsor} tournamentId={tournamentId} canManageGlobal={canManageGlobal} onClose={() => setEditor(null)} onSaved={load} notify={notify} />}
       {acknowledgementSponsor && (
-        <SponsorAcknowledgementDialog sponsor={acknowledgementSponsor} tournamentName={tournamentName}
-          competitionLogo={config.competitionLogo} signerDefaults={signerDefaults}
+        <SponsorAcknowledgementDialog sponsor={acknowledgementSponsor}
+          tournamentId={tournamentId} tournamentName={tournamentName}
+          competitionLogo={config.competitionLogo} signerDefaults={effectiveSigner}
           onClose={() => setAcknowledgementSponsor(null)} onSaved={load} notify={notify} />
       )}
       {paymentSettingsOpen && (

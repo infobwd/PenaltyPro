@@ -19,7 +19,9 @@ import NotificationBell from './components/NotificationBell';
 import NotificationCenter from './components/NotificationCenter';
 import { useNotifications } from './hooks/useNotifications';
 import { useSWUpdate, usePWABadge, clearPWABadge, canInstallApp, promptInstall } from './hooks/usePWA';
-import PinDialog from './components/PinDialog'; 
+import PinDialog from './components/PinDialog';
+import CoinTossModal from './components/CoinTossModal';
+import ExtraKicksModal from './components/ExtraKicksModal'; 
 import ScheduleList from './components/ScheduleList'; 
 import NewsFeed from './components/NewsFeed'; 
 import TournamentSelector from './components/TournamentSelector';
@@ -36,18 +38,20 @@ import LivePage from './components/LivePage';
 import CommentaryDesk from './components/CommentaryDesk';
 import SponsorPage from './components/SponsorPage';
 import TournamentFinancePage from './components/TournamentFinancePage';
+import CertificatePage from './components/CertificatePage';
+import VerifyCertificatePage from './components/VerifyCertificatePage';
 import ProjectDocumentPreview from './components/ProjectDocumentPreview';
 import MatchRecorderPanel from './components/MatchRecorderPanel';
 import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes, cancelMatchRecord, discardMatchDraft } from './services/sheetService';
+import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes, cancelMatchRecord, discardMatchDraft, resetMatchResult } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { cacheSplash, isVideoSource, readCachedSplash, splashFromSettings } from './services/splash';
 import { checkSession, logout as authLogout } from './services/authService';
 import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
-import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic, Handshake } from 'lucide-react';
+import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic, Handshake, Award } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -143,6 +147,72 @@ const LoadingScreen = () => {
       )}
     </div>
   );
+};
+
+/**
+ * ตรรกะช่วงการแตะจุดโทษ — รอบปกติ (5 คนแรก) ต่อด้วยรอบต่อเวลาที่กรรมการ
+ * เลือกเองทีละช่วงเมื่อเสมอกัน (sudden death)
+ *
+ * เดิมโค้ดฮาร์ดโค้ดว่า "ทีม A แตะก่อนเสมอ" และรอบต่อเวลาก็แค่สลับทีมไปเรื่อย ๆ
+ * โดยอัตโนมัติทีละคนไม่มีทางเลือก พอต้องรองรับ "เลือกทีมที่แตะก่อนได้" (ทั้งรอบปกติ
+ * จากการเสี่ยงทาย และรอบต่อเวลาที่กรรมการเลือกใหม่ทุกครั้ง) กับ "เลือกจำนวนคน
+ * ต่อรอบต่อเวลาได้" จึงต้องรวมเป็น "แผนผังช่วง" (phase plan) แล้วคำนวณตาไหนต่อไป
+ * จากจำนวนลูกที่แต่ละทีมยิงไปแล้วแทน ไม่ใช่ toggle A/B เดิม ๆ
+ */
+type KickPhase = { firstTeam: 'A' | 'B'; size: number };
+
+/** จำนวนคนแตะในรอบปกติ — กติกาสากลของการดวลจุดโทษ */
+const REGULATION_KICKS = 5;
+
+const phasePlanOf = (state: Pick<MatchState, 'firstKicker' | 'extraPhases'>): KickPhase[] => [
+  { firstTeam: state.firstKicker ?? 'A', size: REGULATION_KICKS },
+  ...(state.extraPhases ?? []),
+];
+
+/**
+ * หาว่าจำนวนลูกที่ยิงไปแล้ว (นับแยกทีม) อยู่ในช่วงไหนของแผนผัง
+ *
+ * คืน null เมื่อแตะครบทุกช่วงที่กำหนดไว้แล้ว — แปลว่าต้องรอกรรมการเลือกช่วง
+ * ต่อเวลาใหม่ก่อนถึงจะรู้ว่าใครแตะต่อ
+ */
+const locateKickPhase = (phases: KickPhase[], countA: number, countB: number):
+  { phase: KickPhase; offset: number } | null => {
+  let offset = 0;
+  for (const phase of phases) {
+    const end = offset + phase.size;
+    if (countA < end || countB < end) return { phase, offset };
+    offset = end;
+  }
+  return null;
+};
+
+/** ตาของทีมไหนต่อไป ณ จำนวนลูกที่แต่ละทีมยิงไปแล้ว */
+const turnAtKickCount = (phases: KickPhase[], countA: number, countB: number): 'A' | 'B' => {
+  const located = locateKickPhase(phases, countA, countB);
+  if (!located) return phases[phases.length - 1]?.firstTeam ?? 'A';
+  const inA = countA - located.offset;
+  const inB = countB - located.offset;
+  return inA === inB ? located.phase.firstTeam : (located.phase.firstTeam === 'A' ? 'B' : 'A');
+};
+
+/**
+ * ตัดช่วงต่อเวลาที่กรรมการเลือกไว้แต่ยังไม่มีลูกไหนตกลงไปเลยทิ้ง
+ *
+ * ใช้ตอนย้อน/แก้/ลบลูกยิงย้อนกลับข้ามเส้นที่เคยเสมอ — ไม่งั้นถ้ากรรมการย้อนกลับ
+ * แล้วแตะใหม่จนเสมอที่จุดเดิมอีกครั้ง ระบบจะหยิบช่วงต่อเวลาเก่าที่เลือกไว้ก่อนย้อน
+ * มาใช้ทันทีแบบเงียบ ๆ โดยไม่ถามใหม่ — ทั้งที่กรรมการควรได้เลือกใหม่ทุกครั้ง
+ */
+const trimUnusedExtraPhases = (state: MatchState, countA: number, countB: number): MatchState => {
+  const extra = state.extraPhases ?? [];
+  if (extra.length === 0) return state;
+  let offset = REGULATION_KICKS;
+  const kept: KickPhase[] = [];
+  for (const phase of extra) {
+    if (offset >= Math.max(countA, countB)) break;   // ยังไม่มีลูกไหนตกลงไปในช่วงนี้เลย
+    kept.push(phase);
+    offset += phase.size;
+  }
+  return kept.length === extra.length ? state : { ...state, extraPhases: kept };
 };
 
 export default function App() {
@@ -351,6 +421,23 @@ export default function App() {
   const isRegistrationOpen = registrationEnabled && !deadlineHasPassed(registrationDeadline) && !isRegistrationFull;
   const isTeamEditingOpen = teamEditingEnabled && !deadlineHasPassed(teamEditDeadline);
 
+  /**
+   * ปุ่มเกียรติบัตรที่หน้าแรก
+   *
+   * ผู้ใช้ทั่วไปเห็นเมื่อเจ้าภาพเปิดสวิตช์แล้ว ส่วนคนที่น่าจะมีสิทธิ์จัดการ
+   * เห็นตลอด — ไม่งั้นเจ้าภาพจะเข้าไปเปิดสวิตช์ครั้งแรกไม่ได้เลย
+   * (เดาสิทธิ์คร่าว ๆ พอให้ปุ่มโผล่ ตัวจริงฝั่ง server ตรวจอีกชั้นอยู่แล้ว)
+   *
+   * ไม่รวม staff — server (cert_can_manage) ให้เฉพาะเจ้าภาพ ผู้ดูแลรายการ
+   * และแอดมิน ถ้าโชว์ปุ่มให้ staff ตอนยังไม่เปิดสวิตช์ จะกดแล้วเจอ 403 เปล่า ๆ
+   */
+  const certPublic = Boolean(tConfig.certPublic);
+  const mayOpenCertificates = Boolean(
+    certPublic || isAdmin
+    || (currentUser?.schoolId && activeTournament?.hostSchoolId
+        && currentUser.schoolId === activeTournament.hostSchoolId),
+  );
+
   // Objective Data
   const objectiveData = tConfig.objective?.isEnabled ? {
       title: tConfig.objective.title,
@@ -545,6 +632,9 @@ export default function App() {
    * ทุก path จึงเสิร์ฟ index.html ได้โดยไม่ 404
    */
   const goTo = (view: string, replace = false) => {
+    // ออกจากหน้าจัดการแล้วต้องล้างทีมที่มาจากลิงก์แจ้งเตือนทิ้ง
+    // ไม่งั้นกลับเข้าหน้า admin อีกครั้งโมดัลจัดการทีมใบเดิมจะเด้งขึ้นมาเองซ้ำ
+    if (view !== 'admin') setInitialTeamId(null);
     setCurrentView(view);
     const path = view === 'home' ? '/' : `/${view}`;
     const url = path + window.location.search.replace(/[?&]view=[^&]*/g, '').replace(/^&/, '?');
@@ -752,52 +842,141 @@ export default function App() {
   };
   const handleLogout = () => { authLogout(); setCurrentUser(null); setIsAdmin(false); setAskSchool(false); clearPWABadge(); showNotification("ออกจากระบบแล้ว"); };
   
-  const startMatchSession = (teamA: Team, teamB: Team, matchId?: string) => { 
+  const startMatchSession = (teamA: Team, teamB: Team, matchId?: string, firstKicker: 'A' | 'B' = 'A') => {
       const finalMatchId = matchId || `M_${Date.now()}`;
       liveSyncRef.current.discarding = false;
       regularSyncRef.current.discarding = false;
-      setMatchState({ 
-          matchId: finalMatchId, 
-          teamA, 
-          teamB, 
-          currentRound: 1, 
-          currentTurn: 'A', 
-          scoreA: 0, 
-          scoreB: 0, 
-          kicks: [], 
-          events: [], 
-          isFinished: false, 
-          winner: null, 
-          tournamentId: currentTournamentId || 'default' 
-      }); 
-      goTo('match'); 
-      showNotification("เริ่มการแข่งขัน", "เข้าสู่โหมดบันทึกผล", "success"); 
+      setMatchState({
+          matchId: finalMatchId,
+          teamA,
+          teamB,
+          currentRound: 1,
+          currentTurn: firstKicker,
+          scoreA: 0,
+          scoreB: 0,
+          kicks: [],
+          events: [],
+          isFinished: false,
+          winner: null,
+          tournamentId: currentTournamentId || 'default',
+          firstKicker,
+          extraPhases: [],
+          needsExtraPhase: false,
+      });
+      goTo('match');
+      showNotification("เริ่มการแข่งขัน", "เข้าสู่โหมดบันทึกผล", "success");
   };
 
-  const handleStartMatchRequest = (teamA: Team, teamB: Team, matchId?: string) => { if (isAdmin || (currentUser && (currentUser.role === 'staff' || currentUser.role === 'referee'))) { startMatchSession(teamA, teamB, matchId); } else { setPendingMatchSetup({ teamA, teamB, matchId }); setIsPinOpen(true); } };
-  const handlePinSuccess = () => { if (pendingMatchSetup) { const { teamA, teamB, matchId } = pendingMatchSetup; startMatchSession(teamA, teamB, matchId); setPendingMatchSetup(null); setIsPinOpen(false); } };
-  const checkWinCondition = (state: MatchState): MatchState => { const kicksA = state.kicks.filter(k => k.teamId === 'A'); const kicksB = state.kicks.filter(k => k.teamId === 'B'); const scoreA = kicksA.filter(k => k.result === KickResult.GOAL).length; const scoreB = kicksB.filter(k => k.result === KickResult.GOAL).length; const roundsPlayedA = kicksA.length; const roundsPlayedB = kicksB.length; let newState = { ...state, scoreA, scoreB, winner: null, isFinished: false }; if (roundsPlayedA <= 5 && roundsPlayedB <= 5) { const remainingKicksA = 5 - roundsPlayedA; const remainingKicksB = 5 - roundsPlayedB; if (scoreA > scoreB + remainingKicksB) { newState.winner = 'A'; newState.isFinished = true; } else if (scoreB > scoreA + remainingKicksA) { newState.winner = 'B'; newState.isFinished = true; } } else { if (roundsPlayedA === roundsPlayedB && roundsPlayedA >= 5) { if (scoreA !== scoreB) { newState.winner = scoreA > scoreB ? 'A' : 'B'; newState.isFinished = true; } } } return newState; };
-  
-  const handleRecordKick = async (player: string, result: KickResult) => { 
-      if (!matchState || matchState.isFinished) return; 
-      setIsProcessing(true); 
-      const newKick: Kick = { 
-          id: Date.now().toString(), 
-          round: matchState.currentRound, 
-          teamId: matchState.currentTurn, 
-          player, 
-          result, 
-          timestamp: Date.now(), 
-          tournamentId: currentTournamentId || 'default', 
-          matchId: matchState.matchId || '' 
-      }; 
-      setMatchState(prev => { 
-          if (!prev) return null; 
-          const updatedKicks = [...prev.kicks, newKick]; 
-          const nextTurn = prev.currentTurn === 'A' ? 'B' : 'A'; 
-          const nextRound = prev.currentTurn === 'B' ? prev.currentRound + 1 : prev.currentRound; 
-          let nextState: MatchState = { ...prev, kicks: updatedKicks, currentTurn: nextTurn, currentRound: nextRound }; 
-          nextState = checkWinCondition(nextState); 
+  /**
+   * ก่อนเข้าบันทึกผลของโหมดจุดโทษ ให้เสี่ยงทายหรือเลือกเองว่าทีมไหนแตะก่อน
+   *
+   * โหมด 7v7 ปกติไม่มีแนวคิด "ใครแตะก่อน" จึงข้ามขั้นนี้ไปเริ่มแข่งตรง ๆ เหมือนเดิม
+   */
+  const [pendingCoinToss, setPendingCoinToss] = useState<{ teamA: Team; teamB: Team; matchId?: string } | null>(null);
+  const maybeStartWithCoinToss = (teamA: Team, teamB: Team, matchId?: string) => {
+    if (activeTournament?.type === 'Penalty') {
+      setPendingCoinToss({ teamA, teamB, matchId });
+    } else {
+      startMatchSession(teamA, teamB, matchId);
+    }
+  };
+  const handleCoinTossConfirm = (firstKicker: 'A' | 'B') => {
+    if (!pendingCoinToss) return;
+    const { teamA, teamB, matchId } = pendingCoinToss;
+    setPendingCoinToss(null);
+    startMatchSession(teamA, teamB, matchId, firstKicker);
+  };
+
+  const handleStartMatchRequest = (teamA: Team, teamB: Team, matchId?: string) => { if (isAdmin || (currentUser && (currentUser.role === 'staff' || currentUser.role === 'referee'))) { maybeStartWithCoinToss(teamA, teamB, matchId); } else { setPendingMatchSetup({ teamA, teamB, matchId }); setIsPinOpen(true); } };
+  const handlePinSuccess = () => { if (pendingMatchSetup) { const { teamA, teamB, matchId } = pendingMatchSetup; setPendingMatchSetup(null); setIsPinOpen(false); maybeStartWithCoinToss(teamA, teamB, matchId); } };
+  /**
+   * ตัดสินผลจากแผนผังช่วง (phasePlanOf) แทนการฮาร์ดโค้ด "5 คนแล้วจบ"
+   *
+   * ช่วงปกติ (5 คนแรก) ตัดจบก่อนครบ 5 ได้ทันทีถ้าคะแนนที่เหลือไล่ไม่ทันแล้ว — เหมือนเดิม
+   * ช่วงต่อเวลาที่กรรมการเลือกเพิ่ม (extraPhases) ใช้ตรรกะเดียวกันทุกประการ
+   * ต่างกันแค่ขนาด (size) และทีมที่แตะก่อน (firstTeam) ที่กรรมการเลือกเอง
+   * ถ้าแตะครบทุกช่วงที่กำหนดไว้แล้วยังเสมอ ให้ตั้ง needsExtraPhase ไว้ให้ UI ถามช่วงถัดไป
+   */
+  const checkWinCondition = (state: MatchState): MatchState => {
+    const kicksA = state.kicks.filter(k => k.teamId === 'A');
+    const kicksB = state.kicks.filter(k => k.teamId === 'B');
+    const scoreA = kicksA.filter(k => k.result === KickResult.GOAL).length;
+    const scoreB = kicksB.filter(k => k.result === KickResult.GOAL).length;
+    const countA = kicksA.length;
+    const countB = kicksB.length;
+    const newState: MatchState = { ...state, scoreA, scoreB, winner: null, isFinished: false, needsExtraPhase: false };
+
+    const located = locateKickPhase(phasePlanOf(state), countA, countB);
+    if (!located) {
+      // แตะครบทุกช่วงที่กำหนดไว้แล้ว
+      //
+      // ⚠️ ต้องตัดสินผู้ชนะตรงนี้ด้วย ไม่ใช่เช็คแค่กรณีเสมอ
+      // เดิมกิ่งนี้ตั้งแค่ needsExtraPhase แล้ว return ทำให้ตอนแตะครบ 5-5
+      // โดยคะแนนไม่เท่ากัน เกมไม่ถูกปิด (winner ยังเป็น null, isFinished ยัง false)
+      // ตาถัดไปจึงวนกลับไปที่ทีมที่แตะก่อนแล้วแตะเกินมาอีกคน
+      // ของจริงที่เจอ: 5-5 คน คะแนน 4-3 ควรจบ แต่ปล่อยให้แตะคนที่ 6 จนกลายเป็น 4-4
+      if (scoreA !== scoreB) {
+        newState.winner = scoreA > scoreB ? 'A' : 'B';
+        newState.isFinished = true;
+      } else {
+        newState.needsExtraPhase = true;
+      }
+      return newState;
+    }
+
+    const { phase, offset } = located;
+    const inA = countA - offset;
+    const inB = countB - offset;
+    const remainingA = phase.size - inA;
+    const remainingB = phase.size - inB;
+    if (scoreA > scoreB + remainingB) { newState.winner = 'A'; newState.isFinished = true; }
+    else if (scoreB > scoreA + remainingA) { newState.winner = 'B'; newState.isFinished = true; }
+    else if (inA === phase.size && inB === phase.size && scoreA === scoreB) { newState.needsExtraPhase = true; }
+    return newState;
+  };
+
+  /**
+   * กรรมการเลือกช่วงต่อเวลาใหม่หลังเสมอกันครบช่วงก่อนหน้า
+   *
+   * ไม่ล้างลูกที่แตะไปแล้ว แค่ต่อท้ายแผนผังช่วงแล้วให้ทีมที่เลือกแตะก่อนในช่วงใหม่
+   */
+  const handleStartExtraPhase = (firstTeam: 'A' | 'B', size: number) => {
+    setMatchState(prev => {
+      if (!prev) return null;
+      const nextState: MatchState = {
+        ...prev,
+        extraPhases: [...(prev.extraPhases ?? []), { firstTeam, size }],
+        currentTurn: firstTeam,
+        needsExtraPhase: false,
+      };
+      return checkWinCondition(nextState);
+    });
+  };
+
+  const handleRecordKick = async (player: string, result: KickResult) => {
+      if (!matchState || matchState.isFinished) return;
+      setIsProcessing(true);
+      const teamId = matchState.currentTurn;
+      const roundForTeam = matchState.kicks.filter(k => k.teamId === teamId).length + 1;
+      const newKick: Kick = {
+          id: Date.now().toString(),
+          round: roundForTeam,
+          teamId,
+          player,
+          result,
+          timestamp: Date.now(),
+          tournamentId: currentTournamentId || 'default',
+          matchId: matchState.matchId || ''
+      };
+      setMatchState(prev => {
+          if (!prev) return null;
+          const updatedKicks = [...prev.kicks, newKick];
+          const countA = updatedKicks.filter(k => k.teamId === 'A').length;
+          const countB = updatedKicks.filter(k => k.teamId === 'B').length;
+          const nextTurn = turnAtKickCount(phasePlanOf(prev), countA, countB);
+          const nextRound = Math.min(countA, countB) + 1;
+          let nextState: MatchState = { ...prev, kicks: updatedKicks, currentTurn: nextTurn, currentRound: nextRound };
+          nextState = checkWinCondition(nextState);
           if (nextState.isFinished) {
               confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: nextState.winner === 'A' ? ['#2563EB', '#60A5FA'] : ['#E11D48', '#FB7185'] });
               setIsSaving(true);
@@ -913,7 +1092,7 @@ export default function App() {
   }, [liveSyncSignature, currentTournamentId]);
 
   const requestUndoLastKick = () => { if (!matchState || matchState.kicks.length === 0) return; setConfirmModal({ isOpen: true, title: "ยกเลิกการยิงล่าสุด", message: "ต้องการลบผลการยิงลูกล่าสุดใช่หรือไม่?", onConfirm: () => { handleUndoLastKick(); setConfirmModal(null); } }); };
-  const handleUndoLastKick = () => { setMatchState(prev => { if (!prev) return null; const newKicks = [...prev.kicks]; newKicks.pop(); const kicksA = newKicks.filter(k => k.teamId === 'A'); const kicksB = newKicks.filter(k => k.teamId === 'B'); const currentTurn: 'A' | 'B' = kicksA.length > kicksB.length ? 'B' : 'A'; const currentRound = Math.floor(newKicks.length / 2) + 1; const tempState = { ...prev, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); showNotification("ย้อนกลับรายการล่าสุดแล้ว", "", "info"); };
+  const handleUndoLastKick = () => { setMatchState(prev => { if (!prev) return null; const newKicks = [...prev.kicks]; newKicks.pop(); const countA = newKicks.filter(k => k.teamId === 'A').length; const countB = newKicks.filter(k => k.teamId === 'B').length; const trimmed = trimUnusedExtraPhases(prev, countA, countB); const currentTurn = turnAtKickCount(phasePlanOf(trimmed), countA, countB); const currentRound = Math.min(countA, countB) + 1; const tempState = { ...trimmed, kicks: newKicks, currentTurn, currentRound }; return checkWinCondition(tempState); }); showNotification("ย้อนกลับรายการล่าสุดแล้ว", "", "info"); };
   /**
    * คำนวณลำดับรอบ/ตาใหม่จากรายการลูกยิงที่เหลือ
    *
@@ -935,10 +1114,14 @@ export default function App() {
     const fixed = renumberKicks(kicks);
     const a = fixed.filter(k => k.teamId === 'A').length;
     const b = fixed.filter(k => k.teamId === 'B').length;
-    // ฝั่งที่ยิงน้อยกว่าเป็นคนยิงต่อ เท่ากันให้ A เริ่มรอบใหม่
-    const currentTurn: 'A' | 'B' = a <= b ? 'A' : 'B';
+    // ตัดช่วงต่อเวลาที่ยังไม่มีลูกไหนตกลงไปทิ้งก่อน เผื่อการแก้ไข/ลบทำให้จำนวนลูก
+    // ถอยกลับไปต่ำกว่าช่วงที่กรรมการเคยเลือกไว้ — จะได้ถามใหม่แทนหยิบของเก่ามาใช้เงียบ ๆ
+    const trimmed = trimUnusedExtraPhases(prev, a, b);
+    // ตาต่อไปคำนวณจากแผนผังช่วง (regulation + ต่อเวลาที่เลือกไว้) ไม่ใช่แค่ "น้อยกว่ายิงก่อน"
+    // เพราะช่วงต่อเวลาอาจเลือกให้ทีม B แตะก่อนได้ ไม่ใช่ A เสมอไป
+    const currentTurn = turnAtKickCount(phasePlanOf(trimmed), a, b);
     const currentRound = Math.min(a, b) + 1;
-    return checkWinCondition({ ...prev, kicks: fixed, currentTurn, currentRound });
+    return checkWinCondition({ ...trimmed, kicks: fixed, currentTurn, currentRound });
   };
 
   /**
@@ -1023,6 +1206,8 @@ export default function App() {
     // โต๊ะพากย์ต้องใช้พื้นที่จอทั้งหมด ผู้พากย์อ่านสามคอลัมน์พร้อมกันระหว่างพูด
     && currentView !== 'commentary'
     && currentView !== 'finance'
+    // หน้าเกียรติบัตรมีแถบสั่งพิมพ์ตรึงอยู่ล่างสุด เมนูล่างจะทับจนกดปุ่มพิมพ์ไม่ได้
+    && currentView !== 'certificates'
     && currentView !== 'checkin';
   const resolveTeam = (t: string | Team | null | undefined): Team => { if (!t) return { id: 'unknown', name: 'Unknown Team', shortName: 'N/A', color: '#94a3b8', logoUrl: '' } as Team; if (typeof t === 'object' && 'name' in t) return t as Team; const teamName = typeof t === 'string' ? t : 'Unknown'; return availableTeams.find(team => team.name === teamName) || { id: 'temp', name: teamName, color: '#94a3b8', logoUrl: '', shortName: teamName.substring(0, 3).toUpperCase() } as Team; };
   const liveMatches = activeMatches.filter(m => m.livestreamUrl && !m.winner);
@@ -1109,9 +1294,45 @@ export default function App() {
     }
   };
 
+  /**
+   * ยกเลิกผลทั้งนัด — ล้างลูกยิงและเหตุการณ์ทั้งหมด คืนนัดเป็น "ยังไม่แข่ง"
+   *
+   * ใช้ตอนผลที่บันทึกไปผิดทั้งชุดจนแก้ทีละลูกไม่คุ้ม เช่นกรณีที่ระบบเคยปล่อยให้
+   * ทีมหนึ่งแตะเกินมาหนึ่งคนในรอบปกติ ทำให้ผลที่ควรจบกลายเป็นเสมอ
+   */
+  const handleResetMatchResult = async (match: Match): Promise<boolean> => {
+    try {
+      const r = await resetMatchResult(match.id);
+      showNotification('ยกเลิกผลทั้งนัดแล้ว',
+        `ลบลูกยิง ${r.kicksRemoved} ลูก${r.eventsRemoved ? ` และเหตุการณ์ ${r.eventsRemoved} รายการ` : ''} — นัดนี้กลับเป็นยังไม่แข่ง`,
+        'info');
+      await loadData(true, true);
+      return true;
+    } catch (error: any) {
+      showNotification('ยกเลิกไม่สำเร็จ', error?.message || 'กรุณาลองใหม่อีกครั้ง', 'error');
+      return false;
+    }
+  };
+
   const handleSharePrizeSummary = () => {
       sharePrizeSummary(activeTournament?.name || "Tournament Results", prizes, activeTeams);
   };
+
+  /**
+   * หน้าตรวจสอบเกียรติบัตร — ต้องมาก่อนจอโหลด
+   *
+   * ปลายทางของ QR บนใบ คนที่สแกนมาไม่ได้สนใจข้อมูลการแข่งขันทั้งก้อน
+   * ถ้าปล่อยให้รอ getData เสร็จก่อน จะเห็นจอโหลดค้างหลายวินาทีโดยไม่จำเป็น
+   * และถ้ารายการถูกลบไปแล้วก็จะเข้าหน้านี้ไม่ได้เลย
+   */
+  if (currentView === 'verify') {
+      return (
+          <VerifyCertificatePage
+              token={new URLSearchParams(window.location.search).get('c') || ''}
+              onHome={() => goTo('home')}
+          />
+      );
+  }
 
   if (isLoadingData || splashHolding) {
       return <LoadingScreen />;
@@ -1119,21 +1340,26 @@ export default function App() {
 
   if (currentView === 'live_wall') {
       return (
-          <LiveWall 
-              matches={activeMatches} 
-              teams={activeTeams} 
-              players={activePlayers} 
-              config={effectiveSettings} 
-              predictions={activePredictions}
-              onClose={() => goTo('tournament')}
-              onRefresh={(silent) => loadData(true, silent)}
-              currentUser={currentUser}
-              /* ⚠️ ห้ามลืมส่ง — LiveWall กรองสปอนเซอร์/เพลง/ประกาศด้วย
-                 `type.includes('::' + tournamentId)` ถ้าไม่ส่งจะเทียบกับ
-                 '::undefined' แล้วตัดทุกอย่างที่ผูกกับรายการทิ้งเงียบ ๆ
-                 อาการคือสไลด์ผู้สนับสนุนว่างเปล่าทั้งที่ในระบบมีข้อมูลอยู่ */
-              tournamentId={currentTournamentId || undefined}
-          />
+          <>
+            <LiveWall
+                matches={activeMatches}
+                teams={activeTeams}
+                players={activePlayers}
+                config={effectiveSettings}
+                predictions={activePredictions}
+                onClose={() => goTo('tournament')}
+                onRefresh={(silent) => loadData(true, silent)}
+                currentUser={currentUser}
+                /* ⚠️ ห้ามลืมส่ง — LiveWall กรองสปอนเซอร์/เพลง/ประกาศด้วย
+                   `type.includes('::' + tournamentId)` ถ้าไม่ส่งจะเทียบกับ
+                   '::undefined' แล้วตัดทุกอย่างที่ผูกกับรายการทิ้งเงียบ ๆ
+                   อาการคือสไลด์ผู้สนับสนุนว่างเปล่าทั้งที่ในระบบมีข้อมูลอยู่ */
+                tournamentId={currentTournamentId || undefined}
+            />
+            {/* LiveWall เรียก confirmAction() (เช่นตอนลบข้อความแถบวิ่ง) เหมือนหน้า
+                commentary ด้านล่าง — ต้องมี host ตัวนี้ไม่งั้นปุ่มกดแล้วไม่มีอะไรเกิดขึ้น */}
+            <SystemDialogHost onNotify={showNotification} />
+          </>
       );
   }
 
@@ -1146,11 +1372,16 @@ export default function App() {
    */
   if (!currentTournamentId && currentView === 'school') {
       return (
-          <SchoolPortal
-              onExit={() => goTo('home')}
-              notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
-              currentUser={currentUser}
-          />
+          <>
+            <SchoolPortal
+                onExit={() => goTo('home')}
+                notify={(t, m = '', ty: ToastType = 'success') => showNotification(t, m, ty)}
+                currentUser={currentUser}
+            />
+            {/* SchoolPortal เรียก confirmAction() (กรอกต่อจากร่างเดิม/ถอนทีม/ออกโดยไม่บันทึก)
+                เข้าทางนี้คือเปิดจากลิงก์ตรงโดยยังไม่ได้เลือกรายการ — ต้องมี host เหมือนกัน */}
+            <SystemDialogHost onNotify={showNotification} />
+          </>
       );
   }
 
@@ -1200,19 +1431,28 @@ export default function App() {
           : { teams: programmeScope.teams, players: programmeScope.players,
               name: programmeScope.tournament?.name };
       return (
-          <CommentaryDesk
-              tournamentId={currentTournamentId || programmeScope.tournament?.id}
-              tournamentName={scoped.name}
-              teams={scoped.teams}
-              players={scoped.players}
-              allMatches={matchesLog}
-              allTeams={availableTeams}
-              tournaments={tournaments}
-              config={effectiveSettings}
-              onBack={() => goTo('home')}
-              onCancelKick={canCorrectCommentaryResult ? handleCancelCommentaryKick : undefined}
-              onCancelGoal={canCorrectCommentaryResult ? handleCancelCommentaryGoal : undefined}
-          />
+          <>
+            <CommentaryDesk
+                tournamentId={currentTournamentId || programmeScope.tournament?.id}
+                tournamentName={scoped.name}
+                teams={scoped.teams}
+                players={scoped.players}
+                allMatches={matchesLog}
+                allTeams={availableTeams}
+                tournaments={tournaments}
+                config={effectiveSettings}
+                onBack={() => goTo('home')}
+                onCancelKick={canCorrectCommentaryResult ? handleCancelCommentaryKick : undefined}
+                onCancelGoal={canCorrectCommentaryResult ? handleCancelCommentaryGoal : undefined}
+                onResetMatch={canCorrectCommentaryResult ? handleResetMatchResult : undefined}
+            />
+            {/* หน้านี้ return แยกจากต้นไม้หลักด้านล่าง (ที่มี SystemDialogHost ประจำอยู่แล้ว)
+                confirmAction()/promptAction() ยิง CustomEvent บน window แล้วรอ resolve
+                ถ้าไม่มีตัวรับฟัง Promise จะค้างเงียบ ๆ ตลอดไป — ปุ่มยืนยันสองชั้นของ
+                "ยกเลิกผลทั้งนัด" และปุ่มยกเลิกลูกยิง/ประตูเดิมในหน้านี้จึงกดแล้วไม่มีอะไร
+                เกิดขึ้นเลย ต้องมี host ตัวนี้อยู่ทุกหน้าที่เรียก confirmAction */}
+            <SystemDialogHost onNotify={showNotification} />
+          </>
       );
   }
 
@@ -1340,6 +1580,14 @@ export default function App() {
       )}
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
       <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
+      {pendingCoinToss && (
+        <CoinTossModal
+          teamA={pendingCoinToss.teamA}
+          teamB={pendingCoinToss.teamB}
+          onConfirm={handleCoinTossConfirm}
+          onCancel={() => setPendingCoinToss(null)}
+        />
+      )}
       <UserLoginDialog isOpen={isUserLoginOpen} onClose={() => setIsUserLoginOpen(false)} onLoginSuccess={handleUserLoginSuccess} />
       {currentUser && (
         <NotificationCenter
@@ -1612,6 +1860,17 @@ export default function App() {
           notify={showNotification}
         />
       )}
+      {/* เกียรติบัตร — เปิดให้ทุกคนดูเมื่อเจ้าภาพเปิดสวิตช์
+          ปุ่มตั้งค่า/ออกแบบซ่อนในหน้านั้นตาม canManage ที่ api ตอบกลับมา */}
+      {currentView === 'certificates' && currentTournamentId && activeTournament && (
+        <CertificatePage
+          tournamentId={currentTournamentId}
+          tournamentName={activeTournament.name}
+          competitionLogo={effectiveSettings.competitionLogo}
+          onBack={() => goTo('home')}
+          notify={showNotification}
+        />
+      )}
       {currentView === 'finance' && currentTournamentId && activeTournament && (
         <TournamentFinancePage
           tournamentId={currentTournamentId}
@@ -1676,7 +1935,7 @@ export default function App() {
         />
       )}
 
-      {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={() => { setIsAdmin(false); goTo('home'); }} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} tournaments={tournaments} allTeams={availableTeams} allMatches={matchesLog} donations={donations} isLoading={isLoadingData} /> )}
+      {currentView === 'admin' && ( <AdminDashboard key={viewKey} teams={activeTeams} players={activePlayers} settings={appConfig} onLogout={handleLogout} onRefresh={() => loadData(true)} news={newsItems} showNotification={showNotification} initialTeamId={initialTeamId} currentTournament={activeTournament} tournaments={tournaments} allTeams={availableTeams} allMatches={matchesLog} donations={donations} isLoading={isLoadingData} /> )}
 
       {currentView === 'match' && matchState && (
         <div className="min-h-screen bg-slate-900 pb-20">
@@ -1694,11 +1953,25 @@ export default function App() {
                     <ScoreVisualizer kicks={matchState.kicks} teamId="B" team={matchState.teamB} />
 
                     
-                    {!matchState.isFinished ? (
-                        <PenaltyInterface 
-                            currentTurn={matchState.currentTurn} 
+                    {matchState.needsExtraPhase ? (
+                        // เสมอกันหลังแตะครบตามกำหนด — ต้องเลือกทีมที่แตะก่อนและจำนวนคน
+                        // ของรอบต่อเวลาใหม่ก่อนถึงจะกลับไปบันทึกผลต่อได้
+                        <ExtraKicksModal
+                            teamA={matchState.teamA}
+                            teamB={matchState.teamB}
+                            scoreA={matchState.scoreA}
+                            scoreB={matchState.scoreB}
+                            suggestedFirstTeam={
+                                phasePlanOf(matchState)[phasePlanOf(matchState).length - 1]?.firstTeam === 'A' ? 'B' : 'A'
+                            }
+                            onConfirm={handleStartExtraPhase}
+                        />
+                    ) : !matchState.isFinished ? (
+                        <PenaltyInterface
+                            currentTurn={matchState.currentTurn}
                             team={matchState.currentTurn === 'A' ? matchState.teamA : matchState.teamB}
                             roster={matchState.currentTurn === 'A' ? activePlayers.filter(p => p.teamId === matchState.teamA.id) : activePlayers.filter(p => p.teamId === matchState.teamB.id)}
+                            takenKicks={matchState.kicks.filter(k => k.teamId === matchState.currentTurn)}
                             onRecordResult={handleRecordKick}
                             isProcessing={isProcessing}
                         />
@@ -1771,17 +2044,24 @@ export default function App() {
                       จนชื่อรายการถูกบีบเหลือไม่กี่ตัวอักษรและปุ่มเล็กจนกดพลาด
                       จึงเหลือไว้แค่ "สมัครแข่ง" ซึ่งเป็นสิ่งที่คนเข้ามาทำมากที่สุด
                       ที่เหลือย้ายเข้าเมนู — จอ sm ขึ้นไปยังแสดงครบเหมือนเดิม */}
-                  <button
-                    onClick={handleRegisterClick}
-                    className={`text-white px-2.5 py-1.5 rounded-full text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition ${isRegistrationFull ? 'bg-slate-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
-                    disabled={isRegistrationFull}
-                  >
-                      {isRegistrationFull ? (
-                          <>เต็ม</>
-                      ) : (
-                          <><UserPlus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">สมัครแข่ง</span></>
-                      )}
-                  </button>
+                  {/* ปิดรับสมัครแล้วไม่ต้องโชว์ปุ่ม "สมัครแข่ง" ค้างไว้ให้กดแล้วเด้ง error
+                      สลับเป็น "ส่งรายชื่อ" ซึ่งเป็นสิ่งที่ทีมต้องทำต่อแทน
+                      ถ้าปิดทั้งสองอย่างแล้วก็ไม่ต้องมีปุ่มนี้เลย */}
+                  {isRegistrationOpen ? (
+                    <button
+                      onClick={handleRegisterClick}
+                      className="text-white px-2.5 py-1.5 rounded-full text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition bg-green-600 hover:bg-green-700"
+                    >
+                        <UserPlus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">สมัครแข่ง</span>
+                    </button>
+                  ) : isTeamEditingOpen ? (
+                    <button
+                      onClick={() => goTo('school')}
+                      className="text-white px-2.5 py-1.5 rounded-full text-[11px] sm:text-xs font-bold flex items-center gap-1 shadow-sm transition bg-indigo-600 hover:bg-indigo-700"
+                    >
+                        <ClipboardPenLine className="w-3.5 h-3.5" /> <span className="hidden sm:inline">ส่งรายชื่อ</span>
+                    </button>
+                  ) : null}
 
                   {/* ปุ่มที่ซ่อนบนจอเล็ก — ขึ้นมาอยู่ในเมนูแทน */}
                   <button
@@ -1983,16 +2263,13 @@ export default function App() {
                       ข้อความไทยยาว ๆ อย่าง "ส่งรายชื่อนักกีฬาและแจ้งโอนเงินค่าสมัคร"
                       จะตัดบรรทัดถี่จนอ่านยากและดูอัดแน่น */}
                   <div className="relative grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
-                      {isRegistrationOpen ? (
+                      {/* ปิดรับสมัครแล้วให้ซ่อนช่องนี้ไปเลย ไม่ต้องขึ้นการ์ด "ปิดรับสมัครแล้ว"
+                          เพราะผู้ใช้สับสนกับเมนู "ส่งรายชื่อนักกีฬาและแจ้งโอนเงินค่าสมัคร" ที่ยังเปิดอยู่ */}
+                      {isRegistrationOpen && (
                         <button onClick={handleRegisterClick} className="min-h-[4.5rem] rounded-xl bg-white text-indigo-700 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-indigo-50 transition text-left">
                             <UserPlus className="w-5 h-5 shrink-0" />
                             <span className="text-left leading-snug flex-1 min-w-0">กรอกใบสมัครส่งทีม<span className="block text-[11px] font-medium text-indigo-500 mt-1">{registrationDeadline ? `เปิดถึง ${formatDeadline(registrationDeadline)}` : 'เปิดรับสมัครอยู่'}</span></span>
                         </button>
-                      ) : (
-                        <div className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/25 text-white px-4 py-3 flex items-center gap-3 text-left" role="status">
-                            <XCircle className="w-5 h-5 shrink-0 text-rose-200" />
-                            <span className="font-black leading-snug flex-1 min-w-0">ปิดรับสมัครแล้ว<span className="block text-[11px] font-medium text-indigo-100 mt-1">{isRegistrationFull ? 'ทีมครบจำนวนที่กำหนดแล้ว' : registrationDeadline ? `ตั้งแต่ ${formatDeadline(registrationDeadline)}` : 'ปิดโดยผู้ดูแลระบบ'}</span></span>
-                        </div>
                       )}
                       {isTeamEditingOpen ? (
                         <button onClick={() => goTo('school')} className="min-h-[4.5rem] rounded-xl bg-indigo-950/35 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-indigo-950/55 transition text-left">
@@ -2025,6 +2302,12 @@ export default function App() {
                           <Handshake className="w-5 h-5 shrink-0" />
                           <span className="text-left leading-snug flex-1 min-w-0">ผู้สนับสนุนการแข่งขัน<span className="block text-[11px] font-medium text-amber-800 mt-1">ดูรายชื่อและเชิญชวนผู้สนับสนุนร่วมจัดงาน</span></span>
                       </button>
+                      {mayOpenCertificates && (
+                        <button onClick={() => goTo('certificates')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
+                            <Award className="w-5 h-5 shrink-0" />
+                            <span className="text-left leading-snug flex-1 min-w-0">เกียรติบัตร<span className="block text-[11px] font-medium text-indigo-100 mt-1">{certPublic ? 'ค้นชื่อแล้วบันทึกเป็น PDF ได้เอง' : 'ยังไม่เปิดให้ผู้ใช้ทั่วไป — เห็นเฉพาะผู้ดูแล'}</span></span>
+                        </button>
+                      )}
                       {currentUser && (
                         <button onClick={() => goTo('finance')} className="min-h-[4.5rem] rounded-xl bg-emerald-400 text-emerald-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-emerald-300 transition text-left">
                             <DollarSign className="w-5 h-5 shrink-0" />

@@ -1,25 +1,35 @@
 
-import React, { useState } from 'react';
-import { KickResult, Player, Team } from '../types';
-import { Loader2, Goal, XOctagon, Hand, User, UserRoundX } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Kick, KickResult, Player, Team } from '../types';
+import { Loader2, Goal, XOctagon, Hand, User, UserRoundX, Check } from 'lucide-react';
 import { notifyUser } from '../services/uiService';
 
 interface PenaltyInterfaceProps {
   currentTurn: 'A' | 'B';
   team: Team;
   roster: Player[];
+  /** ลูกที่ทีมนี้แตะไปแล้ว — ใช้ทำเครื่องหมายคนที่แตะแล้วในตัวเลือก ไม่ได้ห้ามเลือกซ้ำ
+   *  (รอบต่อเวลาใช้คนเดิมซ้ำได้) แค่กันเลือกผิดคนเพราะจำไม่ได้ว่าใครแตะไปแล้ว */
+  takenKicks?: Kick[];
   onRecordResult: (player: string, result: KickResult) => void;
   isProcessing: boolean;
 }
 
-const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({ 
-  currentTurn, 
+/** ต้องตรงกับรูปแบบชื่อที่บันทึกตอนยิงจริง (ดู handleRecord ด้านล่าง) */
+const formatPlayerLabel = (p: Player) => `${p.name} (#${p.number})`;
+
+const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
+  currentTurn,
   team,
   roster,
+  takenKicks = [],
   onRecordResult,
-  isProcessing 
+  isProcessing
 }) => {
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
+  const takenLabels = useMemo(
+    () => new Set(takenKicks.map(k => k.player).filter(Boolean)),
+    [takenKicks]);
   const teamColor = (() => {
     try {
       const parsed = JSON.parse(team.color || '');
@@ -65,23 +75,34 @@ const PenaltyInterface: React.FC<PenaltyInterfaceProps> = ({
           
           {roster.length > 0 ? (
              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
-                {roster.map(p => (
+                {roster.map(p => {
+                    const taken = takenLabels.has(formatPlayerLabel(p));
+                    return (
                     <button
                         key={p.id}
                         onClick={() => setSelectedPlayerId(p.id)}
-                        className={`flex flex-col items-center p-2 rounded-lg border transition active:scale-95 touch-manipulation ${selectedPlayerId === p.id ? 'ring-2 ring-indigo-500 border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                        title={taken ? `${p.name} แตะไปแล้ว — เลือกซ้ำได้ถ้าเป็นรอบต่อเวลา` : undefined}
+                        className={`relative flex flex-col items-center p-2 rounded-lg border transition active:scale-95 touch-manipulation ${selectedPlayerId === p.id ? 'ring-2 ring-indigo-500 border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}
                     >
-                        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 mb-1 shrink-0">
+                        <div className={`w-10 h-10 rounded-full overflow-hidden bg-gray-200 mb-1 shrink-0 ${taken ? 'opacity-60' : ''}`}>
                             {p.photoUrl ? (
                                 <img src={p.photoUrl} alt={p.name} className="w-full h-full object-cover" />
                             ) : (
                                 <User className="w-full h-full p-2 text-gray-400" />
                             )}
                         </div>
-                        <span className="text-xs font-bold text-gray-900 truncate w-full text-center">#{p.number}</span>
-                        <span className="text-[10px] text-gray-500 truncate w-full text-center leading-tight">{p.name}</span>
+                        {/* แตะไปแล้ว — บอกเฉย ๆ ไม่ห้ามเลือกซ้ำ เพราะรอบต่อเวลาใช้คนเดิมซ้ำได้ */}
+                        {taken && (
+                            <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-emerald-500
+                                              text-white flex items-center justify-center shadow">
+                                <Check className="w-2.5 h-2.5" strokeWidth={3} />
+                            </span>
+                        )}
+                        <span className={`text-xs font-bold truncate w-full text-center ${taken ? 'text-gray-400' : 'text-gray-900'}`}>#{p.number}</span>
+                        <span className={`text-[10px] truncate w-full text-center leading-tight ${taken ? 'text-gray-400' : 'text-gray-500'}`}>{p.name}</span>
                     </button>
-                ))}
+                    );
+                })}
              </div>
           ) : (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3

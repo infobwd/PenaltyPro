@@ -103,6 +103,32 @@ function handle(string $action, array $cfg): void
         'รัน db/19-contest-tournament.sql');
     $add('col_tournaments_doc_policy', $hasCol('tournaments', 'doc_mode'),
         'รัน db/20-team-doc-policy.sql');
+    $add('table_certificate_issues',
+        Db::value("SHOW TABLES LIKE 'certificate_issues'") !== null,
+        'รัน db/21-certificates.sql');
+    $add('col_tournaments_cert_public', $hasCol('tournaments', 'cert_public'),
+        'รัน db/22-certificate-access.sql');
+    $add('col_tournaments_cert_bg', $hasCol('tournaments', 'cert_bg_player'),
+        'รัน db/23-certificate-design.sql');
+    $add('table_certificate_templates',
+        Db::value("SHOW TABLES LIKE 'certificate_templates'") !== null,
+        'รัน db/24-certificate-template.sql');
+    $add('table_certificate_presets',
+        Db::value("SHOW TABLES LIKE 'certificate_presets'") !== null,
+        'รัน db/25-certificate-preset.sql');
+    $checks[] = ['name' => 'pdf_qrcode_installed',
+        'ok' => is_file(__DIR__ . '/../vendor/mpdf/qrcode/src/QrCode.php'),
+        'required' => false, 'detail' => 'ต้องมีถ้าจะพิมพ์ QR ตรวจสอบลงใบ'];
+    $checks[] = ['name' => 'pdf_fonts_count',
+        'ok' => count(glob(__DIR__ . '/../fonts/*.ttf') ?: []) >= 12,
+        'required' => false, 'detail' => 'ควรมี 12 ไฟล์ (6 ตระกูล x Regular/Bold)'];
+    // ไม่มี mPDF = ปุ่มดาวน์โหลด PDF ใช้ไม่ได้ แต่ส่วนอื่นของระบบยังปกติ
+    $checks[] = ['name' => 'pdf_mpdf_installed',
+        'ok' => is_file(__DIR__ . '/../vendor/mpdf/mpdf/src/Mpdf.php'), 'required' => false,
+        'detail' => 'อัปโหลด api/vendor/ ที่มี mPDF ขึ้นโฮสต์'];
+    $checks[] = ['name' => 'pdf_thai_font',
+        'ok' => is_file(__DIR__ . '/../fonts/Sarabun-Regular.ttf'), 'required' => false,
+        'detail' => 'อัปโหลด api/fonts/ (ฟอนต์ที่แพตช์ U+200B แล้ว)'];
     $add('image_webp', media_can_webp(),
         function_exists('imagewebp') ? 'ใช้ GD'
             : (class_exists('Imagick') ? 'ใช้ Imagick'

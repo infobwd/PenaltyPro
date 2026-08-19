@@ -585,12 +585,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsGeneratingCert(false);
   };
 
+  /**
+   * เปิดโมดัลจัดการทีมให้อัตโนมัติเมื่อเข้ามาจากลิงก์ในแจ้งเตือน
+   *
+   * ⚠️ ต้องเปิด "ครั้งเดียวต่อหนึ่ง initialTeamId" เท่านั้น
+   *
+   * เดิม effect นี้ผูกกับ localTeams ด้วย พอผู้ดูแลกดอนุมัติ localTeams ถูกสร้างใหม่
+   * effect จึงยิงซ้ำแล้วเปิดโมดัลขึ้นมาอีกทันที ปิดเท่าไรก็เด้งกลับมาไม่จบ
+   * (ทุกการรีเฟรชข้อมูลก็ทำให้เด้งเหมือนกัน) — จำ id ที่เปิดไปแล้วไว้ใน ref
+   * ถ้ามีแจ้งเตือนใบใหม่ที่ id ต่างออกไป ค่อยเปิดให้ใหม่
+   */
+  const openedTeamRef = useRef<string | null>(null);
   useEffect(() => {
-      if (initialTeamId && localTeams.length > 0) {
-          const found = localTeams.find(t => t.id === initialTeamId);
-          if (found) {
-              setSelectedTeam(found);
-          }
+      if (!initialTeamId) {
+          openedTeamRef.current = null;   // กลับมาหน้านี้แบบปกติ พร้อมรับใบถัดไป
+          return;
+      }
+      if (openedTeamRef.current === initialTeamId) return;   // ใบนี้เปิดไปแล้ว
+      const found = localTeams.find(t => t.id === initialTeamId);
+      if (found) {
+          openedTeamRef.current = initialTeamId;
+          setSelectedTeam(found);
       }
   }, [initialTeamId, localTeams]);
 

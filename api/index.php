@@ -115,7 +115,19 @@ $routes = [
     'saveMatchEvents'  => 'live.php',   // ประตู/ใบเหลือง/เปลี่ยนตัว
     'cancelMatchRecord'=> 'live.php',   // ยกเลิกลูกยิง/ประตูที่กดผิดจากโต๊ะพากย์
     'discardMatchDraft'=> 'live.php',   // ออกจากหน้าบันทึกผลโดยไม่เก็บข้อมูลทดลอง
+    'resetMatchResult' => 'live.php',   // ยกเลิกผลทั้งนัด (ใช้กับนัดที่จบแล้วได้)
     'liveBoard'        => 'live.php',   // กระดานผลสด (อ่านอย่างเดียว ยิงซ้ำได้ถี่)
+
+    // --- ใบเกียรติบัตร -----------------------------------------------------
+    'getCertificateData'      => 'certificates.php',
+    'saveCertificateSettings' => 'certificates.php',
+    'issueCertificates'       => 'certificates.php',
+    'downloadCertificates'    => 'certificates.php',   // ส่งกลับเป็นไฟล์ PDF ไม่ใช่ JSON
+    'saveCertificateTemplate' => 'certificates.php',
+    'verifyCertificate'       => 'certificates.php',   // เปิดสาธารณะ — สแกน QR แล้วเข้ามา
+    'listCertificatePresets'  => 'certificates.php',   // แม่แบบที่ใช้ข้ามรายการได้
+    'saveCertificatePreset'   => 'certificates.php',
+    'deleteCertificatePreset' => 'certificates.php',
 
     // --- ไฟล์ -------------------------------------------------------------
     'uploadFile'       => 'upload.php',
@@ -178,6 +190,7 @@ $routes = [
     'savePlayerCheckin' => 'checkin.php',
     'checkinTeamBulk'   => 'checkin.php',
     'checkinAllBulk'    => 'checkin.php',
+    'updateCheckinPlayer' => 'checkin.php',   // เปลี่ยนตัวหน้างาน — แก้ชื่อ/รูปคนที่มาแทน
 ];
 
 $action = (string) ($_GET['action'] ?? Input::str('action'));

@@ -1,18 +1,22 @@
 {
   "name": "bwd/penalty-pro-api",
-  "description": "API ของ Penalty Pro Arena — ใช้ composer เฉพาะการส่ง Web Push",
+  "description": "API ของ Penalty Pro Arena — Web Push และการออกไฟล์ PDF เกียรติบัตร",
   "type": "project",
   "require": {
     "php": ">=8.1",
     "ext-openssl": "*",
     "ext-mbstring": "*",
     "ext-curl": "*",
-    "minishlink/web-push": "^8.0"
+    "ext-gd": "*",
+    "minishlink/web-push": "^8.0",
+    "mpdf/mpdf": "^8.2",
+    "mpdf/qrcode": "^1.2"
   },
   "config": {
     "optimize-autoloader": true,
     "platform": {
-      "php": "8.3.30"
+      "php": "8.3.30",
+      "ext-gd": "8.3.30"
     }
   }
 }

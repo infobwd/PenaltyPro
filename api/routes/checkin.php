@@ -16,6 +16,7 @@ function handle(string $action, array $cfg): void
         'savePlayerCheckin' => save_player_checkin(),
         'checkinTeamBulk'   => checkin_team_bulk(),
         'checkinAllBulk'    => checkin_all_bulk(),
+        'updateCheckinPlayer' => update_checkin_player(),
         default => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -198,6 +199,64 @@ function save_player_checkin(): void
     Audit::log('player', $playerId, 'checkin', null, ['status' => $status]);
 
     Response::ok(['playerId' => $playerId, 'status' => $status, 'note' => $note]);
+}
+
+/**
+ * เปลี่ยนตัวนักกีฬาหน้างาน — แก้ชื่อ/รูปของคนที่มาแทน
+ *
+ * เกิดจริงบ่อย: ทีมส่งรายชื่อไว้ล่วงหน้า แต่วันแข่งมีคนป่วย/ติดภารกิจ แล้วส่งตัวสำรอง
+ * มาแทนในเบอร์เดิม กรรมการที่โต๊ะต้องแก้ชื่อให้ตรงตัวจริงและถ่ายรูปเก็บไว้เป็น
+ * หลักฐาน ณ จุดนั้นเลย ไม่งั้นรูปในระบบไม่ตรงหน้าคนที่ลงแข่ง
+ *
+ * รูปอัปโหลดผ่าน action `uploadFile` (kind=player) มาก่อน แล้วส่ง URL เข้ามาที่นี่
+ * ส่ง photoUrl ว่าง = แก้เฉพาะชื่อ ไม่แตะรูปเดิม (ไม่ใช่สั่งลบรูป)
+ *
+ * การแก้ที่นี่จะดัน players.updated_at ให้ใหม่กว่า checked_at โดยอัตโนมัติ
+ * ทำให้ธง stale ขึ้น = ถ้าเคยเช็กไปแล้วระบบเตือนให้ตรวจซ้ำ ซึ่งถูกต้อง
+ */
+function update_checkin_player(): void
+{
+    Auth::requireStaff();
+
+    $playerId = Input::require_str('playerId');
+    $name     = trim(Input::str('name'));
+    $photoUrl = trim(Input::str('photoUrl'));
+
+    if ($name === '') {
+        Response::fail('กรุณากรอกชื่อนักกีฬา', 422);
+    }
+    if (mb_strlen($name) > 150) {
+        Response::fail('ชื่อยาวเกินไป (ไม่เกิน 150 ตัวอักษร)', 422);
+    }
+
+    $row = Db::one(
+        'SELECT p.player_id, p.name, p.photo_url, p.team_id, t.tournament_id
+           FROM players p JOIN teams t ON t.team_id = p.team_id
+          WHERE p.player_id = :pid',
+        [':pid' => $playerId]
+    );
+    if ($row === null) {
+        Response::fail('ไม่พบนักกีฬาคนนี้', 404);
+    }
+
+    // ว่าง = คงรูปเดิมไว้ (แก้แต่ชื่อ) ไม่ใช่ลบรูป
+    $newPhoto = $photoUrl !== '' ? $photoUrl : (string) ($row['photo_url'] ?? '');
+
+    Db::exec(
+        'UPDATE players SET name = :name, photo_url = :photo WHERE player_id = :pid2',
+        [':name' => $name, ':photo' => $newPhoto === '' ? null : $newPhoto, ':pid2' => $playerId]
+    );
+
+    Audit::log('player', $playerId, 'checkin_substitute',
+        ['name' => (string) $row['name'], 'photoUrl' => (string) ($row['photo_url'] ?? '')],
+        ['name' => $name, 'photoUrl' => $newPhoto]);
+    Cache::flush();
+
+    Response::ok([
+        'playerId' => $playerId,
+        'name'     => $name,
+        'photoUrl' => drive_img($newPhoto),
+    ]);
 }
 
 /**

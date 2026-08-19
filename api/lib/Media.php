@@ -251,6 +251,81 @@ function store_file(string $bytes, string $kind, array $cfg, string $origName = 
     return "$publicUrl/$sub/$name";
 }
 
+/** ด้านยาวสุดของภาพพื้นหลังเกียรติบัตร — A4 แนวนอนที่ 300dpi */
+const MEDIA_CERT_BG_MAX = 3508;
+const MEDIA_CERT_BG_QUALITY = 86;
+
+/**
+ * เก็บภาพพื้นหลังเกียรติบัตร โดยบังคับให้ออกมาเป็น JPEG เสมอ
+ *
+ * ⚠️ ห้ามใช้ท่อ WebP ปกติกับงานนี้ — ไฟล์ PDF ฝังภาพ WebP ไม่ได้
+ * ถ้าเผลอเก็บเป็น WebP ผลคือใบเกียรติบัตรออกมาพื้นหลังหายทั้งใบ
+ * โดยที่หน้าเว็บยังแสดงตัวอย่างได้ปกติ (เบราว์เซอร์อ่าน WebP ได้)
+ * ซึ่งเป็นอาการที่หาสาเหตุยากมาก จึงบังคับชนิดไฟล์ไว้ตรงนี้
+ *
+ * ความโปร่งใสถูกทับด้วยพื้นขาว เพราะเป็นภาพเต็มหน้ากระดาษ ไม่มีอะไรอยู่ข้างหลัง
+ *
+ * คืนค่าว่างเมื่อแปลงไม่ได้ — ผู้เรียกต้องแจ้งผู้ใช้ ไม่ใช่เก็บไฟล์ที่ใช้ไม่ได้
+ */
+function media_to_print_jpeg(string $bytes, string $mime): ?string
+{
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+        return null;
+    }
+
+    if (class_exists('Imagick')) {
+        try {
+            $im = new Imagick();
+            $im->readImageBlob($bytes);
+            $im->autoOrient();
+            $im->stripImage();
+            $flat = new Imagick();
+            $flat->newImage($im->getImageWidth(), $im->getImageHeight(),
+                new ImagickPixel('white'));
+            $flat->compositeImage($im, Imagick::COMPOSITE_OVER, 0, 0);
+            if ($flat->getImageWidth() > MEDIA_CERT_BG_MAX
+                || $flat->getImageHeight() > MEDIA_CERT_BG_MAX) {
+                $wide = $flat->getImageWidth() >= $flat->getImageHeight();
+                $flat->resizeImage($wide ? MEDIA_CERT_BG_MAX : 0,
+                    $wide ? 0 : MEDIA_CERT_BG_MAX, Imagick::FILTER_LANCZOS, 1);
+            }
+            $flat->setImageFormat('jpeg');
+            $flat->setImageCompressionQuality(MEDIA_CERT_BG_QUALITY);
+            $out = $flat->getImageBlob();
+            $im->clear();
+            $flat->clear();
+            return $out !== '' ? $out : null;
+        } catch (Throwable $e) {
+            error_log('[media] imagick cert bg failed: ' . $e->getMessage());
+        }
+    }
+
+    if (!function_exists('imagecreatefromstring')) {
+        return null;
+    }
+    $src = @imagecreatefromstring($bytes);
+    if ($src === false) {
+        return null;
+    }
+    $w = imagesx($src);
+    $h = imagesy($src);
+    $scale = min(1.0, MEDIA_CERT_BG_MAX / max($w, $h));
+    $nw = max(1, (int) round($w * $scale));
+    $nh = max(1, (int) round($h * $scale));
+
+    $dst = imagecreatetruecolor($nw, $nh);
+    imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+    imagedestroy($src);
+
+    ob_start();
+    $ok = imagejpeg($dst, null, MEDIA_CERT_BG_QUALITY);
+    $out = (string) ob_get_clean();
+    imagedestroy($dst);
+
+    return ($ok && $out !== '') ? $out : null;
+}
+
 /**
  * รับค่าที่อาจเป็น data URL (base64), URL ที่อัปไว้แล้ว หรือค่าว่าง
  * แล้วคืน URL ที่ใช้เก็บลงฐานข้อมูลได้
@@ -272,4 +347,33 @@ function store_data_url(?string $value, string $kind, array $cfg): string
         throw new RuntimeException('ถอดรหัสไฟล์ไม่ได้');
     }
     return store_file($bytes, $kind, $cfg);
+}
+
+/**
+ * เก็บภาพพื้นหลังเกียรติบัตร — รับได้ทั้ง data URL และ URL ที่อัปไว้แล้ว
+ *
+ * แยกจาก store_data_url เพราะต้องบังคับเป็น JPEG (ดู media_to_print_jpeg)
+ */
+function store_cert_background(?string $value, array $cfg): string
+{
+    $v = trim((string) $value);
+    if ($v === '') {
+        return '';
+    }
+    if (!preg_match('#^data:([^;]+);base64,(.*)$#s', $v, $m)) {
+        return $v;   // อัปไว้แล้ว ไม่ต้องแปลงซ้ำ
+    }
+    $bytes = base64_decode($m[2], true);
+    if ($bytes === false) {
+        throw new RuntimeException('ถอดรหัสไฟล์ไม่ได้');
+    }
+
+    $mime = (string) (new finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
+    $jpeg = media_to_print_jpeg($bytes, $mime);
+    if ($jpeg === null) {
+        throw new RuntimeException(
+            'แปลงภาพพื้นหลังไม่สำเร็จ — ใช้ไฟล์ JPG หรือ PNG แล้วลองใหม่');
+    }
+
+    return store_file($jpeg, 'certbg', $cfg);
 }

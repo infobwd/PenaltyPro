@@ -88,6 +88,8 @@ function handle(string $action, array $cfg): void
                     // นโยบายเอกสารรับรองของทีม (db/20)
                     'docMode'        => (string) ($t['doc_mode'] ?? 'Optional'),
                     'docTemplateUrl' => drive_img($t['doc_template_url'] ?? ''),
+                    // เจ้าภาพเปิดสวิตช์นี้แล้วปุ่มเกียรติบัตรจึงโผล่ที่หน้าแรก (db/22)
+                    'certPublic'     => (bool) ($t['cert_public'] ?? 0),
                     'halfTimeDuration' => $t['half_time_duration'] === null
                         ? null : (int) $t['half_time_duration'],
                     'extraTime'        => (bool) $t['extra_time'],

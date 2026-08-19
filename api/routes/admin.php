@@ -520,6 +520,27 @@ function list_scoped(string $table): void
          * ค่านี้มีไว้ให้หน้าเว็บรู้ว่าควรโชว์ปุ่มให้ใคร ไม่ใช่ตัวบังคับสิทธิ์
          */
         $payload['canManageGlobal'] = can_manage_sponsors('');
+
+        /**
+         * ค่าตั้งต้นของใบอนุโมทนา — ดึงจากค่าตั้งเกียรติบัตรของรายการ (db/21-22)
+         *
+         * ก่อนหน้านี้หน้าเว็บลอกชื่อผู้ลงนามมาจากสปอนเซอร์รายก่อน ซึ่งพังทันที
+         * ที่ออกใบแรกของงาน (ยังไม่มีใครให้ลอก) และได้ชื่อผิดถ้าใบเก่าลงนามคนละคน
+         * จึงย้ายมาอ่านจากที่เดียวกับใบเกียรติบัตร — เจ้าภาพตั้งครั้งเดียวใช้ทุกใบ
+         */
+        if ($payload['canManage'] && $tid !== '') {
+            $t = Db::one(
+                'SELECT cert_signer_name, cert_signer_title, cert_signature_url,
+                        cert_no_sponsor, cert_no_digits
+                   FROM tournaments WHERE tournament_id = :tid', [':tid' => $tid]);
+            $payload['signerDefaults'] = [
+                'signerName'   => (string) ($t['cert_signer_name'] ?? ''),
+                'signerTitle'  => (string) ($t['cert_signer_title'] ?? ''),
+                'signatureUrl' => drive_img($t['cert_signature_url'] ?? ''),
+                // ว่าง = เจ้าภาพยังไม่ตั้งรูปแบบ ให้พิมพ์เลขเองเหมือนเดิม
+                'autoNumber'   => trim((string) ($t['cert_no_sponsor'] ?? '')) !== '',
+            ];
+        }
     }
     Response::ok($payload);
 }

@@ -437,6 +437,8 @@ const SchoolPortal: React.FC<Props> = ({ onExit, notify, currentUser }) => {
     clearTeamToken();
     clearAllDrafts();
     setTeams([]); setEditing(null); setSchoolName(''); setCode('');
+    // ออกจากระบบแล้วพากลับหน้าหลักเลย ไม่ใช่ทิ้งไว้ที่หน้ากรอกรหัสให้ต้องกด "กลับหน้าหลัก" ซ้ำอีกที
+    onExit();
   };
 
   const openTeam = async (t: TeamData) => {

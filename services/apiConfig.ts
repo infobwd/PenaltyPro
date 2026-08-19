@@ -232,6 +232,64 @@ export async function apiPost<T = any>(
 }
 
 /**
+ * ขอไฟล์จาก API แล้วสั่งดาวน์โหลด
+ *
+ * ทำไมไม่เปิดลิงก์ตรง ๆ: การยืนยันตัวตนของระบบนี้อยู่ใน Authorization header
+ * ไม่ใช่คุกกี้ ถ้าเปิดลิงก์ด้วย window.open หรือ <a href> เบราว์เซอร์จะไม่แนบ
+ * header ไปด้วย ทางเลือกเดียวคือยัด token ลง URL ซึ่งจะไปโผล่ใน log ของ
+ * เซิร์ฟเวอร์และในประวัติเบราว์เซอร์ จึงดึงเป็น blob แล้วค่อยสั่งบันทึกแทน
+ *
+ * ชื่อไฟล์อ่านจาก Content-Disposition ที่ server ส่งมา (รองรับชื่อภาษาไทย)
+ */
+export async function apiDownload(
+  action: string, body: any = {}, fallbackName = 'download.pdf',
+): Promise<void> {
+  const url = new URL(DB_API, window.location.origin);
+  url.searchParams.set('action', action);
+
+  const res = await fetchWithTimeout(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8', ...authHeaders() },
+    body: JSON.stringify(body),
+  }, 120000);   // สร้าง PDF หลายร้อยหน้าใช้เวลากว่าคำขอปกติ
+
+  // ผิดพลาด = server ตอบ JSON กลับมาแทนไฟล์
+  if (!res.ok || (res.headers.get('Content-Type') || '').includes('json')) {
+    const text = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(text); } catch { /* ไม่ใช่ JSON ก็ใช้ข้อความมาตรฐาน */ }
+    const err = new ApiError(
+      data?.message ?? `ดาวน์โหลดไม่สำเร็จ (HTTP ${res.status})`, res.status, data);
+    if (res.status === 401) {
+      clearExpiredToken();
+      onUnauthorized?.(err.message);
+    }
+    throw err;
+  }
+
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const plain = /filename="([^"]+)"/i.exec(disposition);
+  let name = fallbackName;
+  if (utf8) {
+    try { name = decodeURIComponent(utf8[1]); } catch { name = plain?.[1] || fallbackName; }
+  } else if (plain) {
+    name = plain[1];
+  }
+
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // ปล่อยช้าหน่อย บาง browser ยังอ่าน blob อยู่ตอน click เพิ่งจบ
+  window.setTimeout(() => URL.revokeObjectURL(href), 10000);
+}
+
+/**
  * อัปโหลดไฟล์แบบ multipart
  *
  * ห้ามตั้ง Content-Type เอง — เบราว์เซอร์ต้องใส่ boundary ให้ ถ้าตั้งทับ

@@ -309,6 +309,23 @@ export const discardMatchDraft = async (matchId: string): Promise<boolean> => {
   return true;
 };
 
+/**
+ * ยกเลิกผลทั้งนัด — ใช้กับนัดที่จบและบันทึกไปแล้วได้
+ *
+ * ต่างจาก discardMatchDraft ที่ตั้งใจกันนัด Finished ไว้ (นั่นคือทิ้งข้อมูลทดลอง)
+ * ตัวนี้คือ "ผลจริงที่บันทึกผิด ต้องล้างแล้วแข่งใหม่" นัดจะกลับเป็น Scheduled
+ * ⚠️ ลูกยิงและเหตุการณ์ทั้งหมดถูกลบถาวร กู้คืนไม่ได้
+ */
+export const resetMatchResult = async (matchId: string): Promise<{
+  kicksRemoved: number; eventsRemoved: number;
+}> => {
+  const r = await apiPost<any>('resetMatchResult', { matchId });
+  return {
+    kicksRemoved: Number(r.kicksRemoved || 0),
+    eventsRemoved: Number(r.eventsRemoved || 0),
+  };
+};
+
 /** จัดตาราง: สร้าง/แก้คู่แข่ง วันเวลา และสนาม (ยังไม่มีผลการแข่ง) */
 export const scheduleMatch = async (
   matchId: string, teamA: string, teamB: string, roundLabel: string,
@@ -484,14 +501,31 @@ export const fetchSponsorPageData = async (tournamentId: string): Promise<{
   canManage: boolean;
   /** จัดการสปอนเซอร์ส่วนกลางที่ใช้ร่วมทุกรายการได้ — เจ้าหน้าที่ส่วนกลางเท่านั้น */
   canManageGlobal: boolean;
+  /** ผู้ลงนามที่บันทึกไว้ในระบบ ใช้เติมใบอนุโมทนาให้อัตโนมัติ (undefined = ไม่มีสิทธิ์) */
+  signerDefaults?: {
+    signerName: string;
+    signerTitle: string;
+    signatureUrl: string;
+    /** เจ้าภาพตั้งรูปแบบเลขที่ไว้แล้ว — ระบบจองเลขให้เองได้ */
+    autoNumber: boolean;
+  };
 }> => {
   const response = await apiGet<any>('getSponsors', { tournamentId });
   return {
     sponsors: response.sponsors ?? [],
     canManage: Boolean(response.canManage),
     canManageGlobal: Boolean(response.canManageGlobal),
+    signerDefaults: response.signerDefaults ?? undefined,
   };
 };
+
+/** จองเลขที่เอกสารจากชุดเลขของบทบาทนั้น — เรียกซ้ำได้ คนเดิมได้เลขเดิม */
+export const issueCertificateNumbers = async (payload: {
+  tournamentId: string;
+  role: 'Player' | 'Coach' | 'Referee' | 'Sponsor';
+  subjects: { key: string; name: string; team?: string }[];
+}): Promise<{ key: string; seq: number; certNo: string }[]> =>
+  (await apiPost<any>('issueCertificates', payload)).issued ?? [];
 export const manageSponsor = async (data: any) => { await apiPost('manageSponsor', data); return true; };
 export const saveSponsorPaymentSettings = async (data: {
   tournamentId: string;

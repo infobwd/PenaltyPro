@@ -113,6 +113,12 @@ export interface TournamentConfig {
   /** ไฟล์ตัวอย่าง/แบบฟอร์มให้โรงเรียนดาวน์โหลด — ว่างคือไม่มี */
   docTemplateUrl?: string;
 
+  /**
+   * เปิดหน้าเกียรติบัตรให้ผู้ใช้ทั่วไป
+   * ปิดอยู่ = เห็นและเข้าได้เฉพาะเจ้าภาพ/ผู้ดูแล (ตั้งค่าที่หน้า /certificates)
+   */
+  certPublic?: boolean;
+
   bankName?: string;
   bankAccount?: string;
   accountName?: string;
@@ -316,6 +322,15 @@ export interface MatchState {
   winner: 'A' | 'B' | null;
   roundLabel?: string;
   tournamentId?: string;
+  /** ทีมที่แตะก่อนในรอบปกติ (5 คนแรก) — เลือกจากเสี่ยงทายหัวก้อยหรือเลือกเองก่อนเริ่มบันทึก ไม่ระบุ = A */
+  firstKicker?: 'A' | 'B';
+  /**
+   * รอบต่อเวลาหลังเสมอในรอบปกติ (sudden death) — เพิ่มทีละช่วงเมื่อกรรมการเลือก
+   * ทีมที่แตะก่อนและจำนวนคนที่จะแตะของรอบนั้น หลังแตะครบแล้วถ้ายังเสมออยู่จะถามใหม่อีกครั้ง
+   */
+  extraPhases?: { firstTeam: 'A' | 'B'; size: number }[];
+  /** แตะครบทุกช่วงที่กำหนดไว้แล้วแต่ยังเสมอ — ต้องให้กรรมการเลือกช่วงต่อเวลาใหม่ก่อนแตะต่อได้ */
+  needsExtraPhase?: boolean;
 }
 
 export interface RegistrationData {

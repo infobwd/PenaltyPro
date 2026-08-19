@@ -3,8 +3,11 @@ import { createPortal } from 'react-dom';
 import {
   ChevronLeft, Search, Loader2, CheckCircle2, XCircle, AlertTriangle,
   RefreshCw, UserCheck, Users, Phone, ShieldCheck, X, Printer, CloudOff, RotateCcw,
+  Camera, Pencil, UserCog,
 } from 'lucide-react';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
+import { uploadFile } from '../services/sheetService';
+import { resizeImageBeforeUpload, SUPPORTED_IMAGE_ACCEPT } from '../services/imageResize';
 import { ToastType } from './Toast';
 
 /**
@@ -58,6 +61,19 @@ const STATUS_UI = {
 
 const ORDER: (keyof typeof STATUS_UI)[] = ['present', 'absent', 'issue'];
 
+/**
+ * ตัวกรองรายชื่อในทีม — กรรมการยืนโต๊ะแล้วอยากเห็น "คนที่ยังไม่ได้เช็ก" ทันที
+ * ไม่ต้องเลื่อนผ่านคนที่เช็กไปแล้ว และเวลาตามหาคนที่ติดปัญหาก็กดดูเฉพาะกลุ่มได้
+ */
+type PlayerFilter = 'all' | 'pending' | 'present' | 'absent' | 'issue';
+const PLAYER_FILTERS: { key: PlayerFilter; label: string; active: string }[] = [
+  { key: 'all',     label: 'ทั้งหมด',  active: 'bg-slate-900 border-slate-900 text-white' },
+  { key: 'pending', label: 'ค้างอยู่', active: 'bg-indigo-600 border-indigo-600 text-white' },
+  { key: 'present', label: 'มา',       active: 'bg-emerald-600 border-emerald-600 text-white' },
+  { key: 'absent',  label: 'ไม่มา',    active: 'bg-rose-600 border-rose-600 text-white' },
+  { key: 'issue',   label: 'ติดปัญหา', active: 'bg-amber-500 border-amber-500 text-white' },
+];
+
 const QUEUE_KEY = 'penalty_pro_checkin_queue';
 
 const calcAge = (birth: string | null): string => {
@@ -69,6 +85,33 @@ const calcAge = (birth: string | null): string => {
   const m = now.getMonth() - d.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
   return age >= 0 && age < 100 ? `${age} ปี` : '';
+};
+
+/**
+ * ช่องหมายเหตุรายคน — เก็บสถานะพิมพ์ไว้ในตัวเอง แล้วค่อยบันทึกตอน blur/Enter
+ *
+ * ไม่ยิงทุกตัวอักษรเพราะสนามเน็ตแย่ และไม่ดัน state ของทั้งกริดให้ re-render
+ * ทุกครั้งที่พิมพ์ กรรมการพิมพ์เสร็จแล้วแตะที่อื่น = บันทึกทันที
+ */
+const NoteField: React.FC<{
+  value: string; placeholder: string; issue: boolean; onSave: (t: string) => void;
+}> = ({ value, placeholder, issue, onSave }) => {
+  const [text, setText] = useState(value);
+  useEffect(() => { setText(value); }, [value]);
+  return (
+    <input
+      value={text}
+      onChange={e => setText(e.target.value)}
+      onBlur={() => onSave(text.trim())}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      placeholder={placeholder}
+      maxLength={255}
+      className={`mt-2 w-full h-10 px-3 rounded-lg border text-sm outline-none transition
+                  focus:ring-2 ${issue
+        ? 'border-amber-300 bg-amber-50/60 focus:ring-amber-400 placeholder:text-amber-600/60'
+        : 'border-slate-300 bg-white focus:ring-indigo-400'}`}
+    />
+  );
 };
 
 const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
@@ -92,6 +135,15 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
   const [flushing, setFlushing] = useState(false);
   const [allBusy, setAllBusy] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
+  // ตัวกรอง + ค้นหาภายในทีมที่เปิดอยู่ — รีเซ็ตทุกครั้งที่เปิดทีมใหม่
+  const [pFilter, setPFilter] = useState<PlayerFilter>('all');
+  const [pSearch, setPSearch] = useState('');
+  // เปลี่ยนตัวหน้างาน — แก้ชื่อ/ถ่ายรูปคนที่มาแทน
+  const [editing, setEditing] = useState<Player | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editFile, setEditFile] = useState<File | null>(null);
+  const [editPreview, setEditPreview] = useState('');   // object URL ของรูปที่เพิ่งถ่าย
+  const [editSaving, setEditSaving] = useState(false);
 
   const loadTeams = async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -107,6 +159,7 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
 
   const openTeamDetail = async (t: TeamRow) => {
     setLoadingTeam(true);
+    setPFilter('all'); setPSearch('');   // เริ่มทีมใหม่ = เห็นทุกคนก่อนเสมอ
     setOpenTeam({
       id: t.id, name: t.name, logoUrl: t.logoUrl, group: t.group,
       schoolName: t.schoolName, managerName: '', managerPhone: '',
@@ -131,10 +184,14 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
   const setStatus = async (p: Player, next: Player['status']) => {
     const value = p.status === next ? null : next;   // กดซ้ำ = ยกเลิก
     const before = players;
-    setPlayers(prev => prev.map(x => x.id === p.id ? { ...x, status: value } : x));
+    // ยกเลิกสถานะ = ลบแถวทั้งหมดฝั่ง server หมายเหตุจึงหายไปด้วย ล้างในจอให้ตรงกัน
+    setPlayers(prev => prev.map(x => x.id === p.id
+      ? { ...x, status: value, note: value ? x.note : '' } : x));
     setSaving(prev => new Set(prev).add(p.id));
     try {
-      await apiPost('savePlayerCheckin', { playerId: p.id, status: value ?? '' });
+      // ส่ง note เดิมไปด้วยเมื่อยังมีสถานะ ไม่งั้น ON DUPLICATE KEY UPDATE จะทับ note เป็นค่าว่าง
+      await apiPost('savePlayerCheckin',
+        { playerId: p.id, status: value ?? '', note: value ? (p.note || '') : '' });
       setTeams(prev => prev.map(t => t.id === openTeam?.id
         ? recount(t, before, p.id, value)
         : t));
@@ -151,6 +208,94 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
       }
     } finally {
       setSaving(prev => { const n = new Set(prev); n.delete(p.id); return n; });
+    }
+  };
+
+  /**
+   * บันทึกหมายเหตุของคนที่มีสถานะแล้ว (เช่น ระบุว่าติดปัญหาอะไร)
+   *
+   * ต้องมีสถานะก่อนถึงจะมีแถวให้ผูกหมายเหตุ — ส่ง status เดิมไปพร้อมกันเสมอ
+   * หมายเหตุเป็นข้อมูลรอง ถ้าเน็ตหลุดไม่เข้าคิวเหมือนสถานะ แต่คงข้อความไว้บนจอ
+   * ให้กรรมการแตะแก้แล้วลองใหม่ได้เอง
+   */
+  const saveNote = async (p: Player, text: string) => {
+    if (!p.status) return;
+    if ((p.note || '') === text) return;   // ไม่เปลี่ยน ไม่ต้องยิง
+    const before = players;
+    setPlayers(prev => prev.map(x => x.id === p.id ? { ...x, note: text } : x));
+    setSaving(prev => new Set(prev).add(p.id));
+    try {
+      await apiPost('savePlayerCheckin', { playerId: p.id, status: p.status, note: text });
+    } catch (e) {
+      const err = e as ApiError;
+      if (err.status && err.status < 500) {
+        setPlayers(before);
+        notify('บันทึกหมายเหตุไม่สำเร็จ', err.message, 'error');
+      } else {
+        notify('หมายเหตุยังไม่ถูกส่ง', 'เน็ตไม่พร้อม แตะที่ช่องแล้วลองใหม่เมื่อสัญญาณกลับมา', 'warning');
+      }
+    } finally {
+      setSaving(prev => { const n = new Set(prev); n.delete(p.id); return n; });
+    }
+  };
+
+  /**
+   * เปิด/ปิดกล่องเปลี่ยนตัว
+   *
+   * รูปพรีวิวเป็น object URL ต้อง revoke เองตอนปิด ไม่งั้นรั่วหน่วยความจำ
+   * ถ้ากรรมการเปลี่ยนตัวหลายทีมติดกันในกะเดียว
+   */
+  const openEdit = (p: Player) => {
+    setEditing(p);
+    setEditName(p.name);
+    setEditFile(null);
+    setEditPreview('');
+  };
+
+  const closeEdit = () => {
+    if (editPreview) URL.revokeObjectURL(editPreview);
+    setEditing(null);
+    setEditFile(null);
+    setEditPreview('');
+  };
+
+  const pickEditPhoto = async (file: File) => {
+    if (editPreview) URL.revokeObjectURL(editPreview);
+    const resized = await resizeImageBeforeUpload(file);
+    setEditFile(resized);
+    setEditPreview(URL.createObjectURL(resized));
+  };
+
+  /**
+   * บันทึกตัวที่มาแทน — อัปโหลดรูปก่อน (ถ้าถ่ายใหม่) แล้วค่อยผูกชื่อ+รูปกับคนเดิม
+   *
+   * ไม่ล้างผลรายงานตัวเดิมทิ้ง เพราะคนที่โต๊ะอาจกดสถานะให้ตัวสำรองไว้ก่อนแล้ว
+   * ค่อยกดใหม่ทีหลังก็ได้ ระบบจะขึ้นธง "แก้ข้อมูลหลังรายงานตัว" ให้เตือนตรวจซ้ำเอง
+   */
+  const saveSubstitute = async () => {
+    if (!editing) return;
+    const name = editName.trim();
+    if (!name) {
+      notify('กรุณากรอกชื่อนักกีฬา', '', 'warning');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      let photoUrl = '';
+      if (editFile) {
+        photoUrl = await uploadFile(editFile, 'player');
+      }
+      const r = await apiPost('updateCheckinPlayer',
+        { playerId: editing.id, name, photoUrl });
+      setPlayers(prev => prev.map(x => x.id === editing.id
+        ? { ...x, name: r.name ?? name, photoUrl: r.photoUrl ?? (photoUrl || x.photoUrl) }
+        : x));
+      notify('เปลี่ยนตัวแล้ว', `บันทึกเป็น ${name}`, 'success');
+      closeEdit();
+    } catch (e) {
+      notify('เปลี่ยนตัวไม่สำเร็จ', (e as ApiError).message, 'error');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -246,7 +391,7 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
     const rows = players.map((p, i) => `<tr>
         <td>${i + 1}</td><td>${esc(p.number)}</td><td>${esc(p.name)}</td>
         <td>${esc(p.position)}</td><td>${esc(calcAge(p.birthDate))}</td>
-        <td>${esc(label(p.status))}</td><td></td></tr>`).join('');
+        <td>${esc(label(p.status))}</td><td>${esc(p.note || '')}</td></tr>`).join('');
     const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
       <title>รายงานตัว ${esc(openTeam.name)}</title><style>
       *{font-family:'Sarabun','TH Sarabun New',sans-serif}
@@ -317,6 +462,28 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
       t.name.toLowerCase().includes(q) || t.schoolName.toLowerCase().includes(q));
   }, [teams, search]);
 
+  // จำนวนต่อสถานะ ใช้โชว์บนชิปตัวกรอง กรรมการเห็นเลย "ค้างอยู่กี่คน" ไม่ต้องนับเอง
+  const playerCounts = useMemo(() => ({
+    all:     players.length,
+    pending: players.filter(p => !p.status).length,
+    present: players.filter(p => p.status === 'present').length,
+    absent:  players.filter(p => p.status === 'absent').length,
+    issue:   players.filter(p => p.status === 'issue').length,
+  }), [players]);
+
+  const visiblePlayers = useMemo(() => {
+    const q = pSearch.trim().toLowerCase();
+    return players.filter(p => {
+      const okStatus =
+        pFilter === 'all'     ? true
+        : pFilter === 'pending' ? !p.status
+        : p.status === pFilter;
+      if (!okStatus) return false;
+      if (!q) return true;
+      return p.name.toLowerCase().includes(q) || p.number.toLowerCase().includes(q);
+    });
+  }, [players, pFilter, pSearch]);
+
   const totals = useMemo(() => teams.reduce(
     (a, t) => ({
       players: a.players + t.total,
@@ -346,6 +513,78 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
         <p className="text-center text-sm mt-1" style={{ color: '#cbd5e1' }}>
           {[zoom.position, calcAge(zoom.birthDate)].filter(Boolean).join(' · ') || 'ไม่มีข้อมูลเพิ่มเติม'}
         </p>
+      </div>
+    </div>, document.body) : null;
+
+  /**
+   * กล่องเปลี่ยนตัวหน้างาน
+   *
+   * ปุ่ม "ถ่ายรูปใหม่" ใช้ input[type=file] ซ่อนไว้ พร้อม capture="environment"
+   * เพื่อเปิดกล้องหลังตรงบนมือถือทันที ไม่ต้องเข้าคลังรูปก่อน — กรรมการยืนหน้า
+   * ตัวจริงอยู่แล้ว ถ่ายสดย่อมตรงกว่าไปควานรูปเก่าในเครื่อง
+   */
+  const substituteModal = editing ? createPortal(
+    <div className="fixed inset-0 z-[2100] bg-black/60 flex items-center justify-center p-4"
+      onClick={closeEdit} role="dialog" aria-modal="true">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <p className="font-black text-slate-900 flex items-center gap-1.5">
+            <UserCog className="w-4 h-4 text-indigo-600" /> เปลี่ยนตัวหน้างาน
+          </p>
+          <button onClick={closeEdit} aria-label="ปิด" className="p-1.5 -m-1.5 rounded-lg hover:bg-slate-100">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 mb-3">
+          {editing.number ? `เบอร์ ${editing.number} · ` : ''}เดิมชื่อ {editing.name || 'ไม่ระบุชื่อ'}
+        </p>
+
+        <label className="relative block w-28 h-28 mx-auto rounded-xl overflow-hidden bg-slate-100
+                           border-2 border-dashed border-slate-300 cursor-pointer group">
+          <input type="file" accept={SUPPORTED_IMAGE_ACCEPT} capture="environment" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) pickEditPhoto(f); e.target.value = ''; }} />
+          {editPreview
+            ? <img src={editPreview} alt="" className="w-full h-full object-cover" />
+            : editing.photoUrl
+              ? <img src={editing.photoUrl} alt="" className="w-full h-full object-cover opacity-60" />
+              : <div className="w-full h-full flex items-center justify-center">
+                  <Users className="w-8 h-8 text-slate-300" />
+                </div>}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center">
+            <span className="flex flex-col items-center gap-1 text-white opacity-0 group-hover:opacity-100 transition">
+              <Camera className="w-6 h-6" />
+              <span className="text-[10px] font-bold">ถ่ายรูปใหม่</span>
+            </span>
+          </div>
+          {editFile && (
+            <span className="absolute bottom-1 right-1 bg-emerald-600 text-white rounded-full p-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </span>
+          )}
+        </label>
+        <p className="text-center text-[11px] text-slate-400 mt-1.5">แตะรูปเพื่อถ่ายรูปคนที่มาแทน</p>
+
+        <label className="block text-xs font-bold text-slate-500 mt-4 mb-1">ชื่อ-สกุลตัวจริง</label>
+        <div className="relative">
+          <Pencil className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input value={editName} onChange={e => setEditName(e.target.value)}
+            placeholder="ชื่อนักกีฬาที่มาแทน" autoFocus
+            className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-300 text-base
+                       outline-none focus:ring-2 focus:ring-indigo-400" />
+        </div>
+
+        <div className="flex gap-2 mt-4">
+          <button onClick={closeEdit} disabled={editSaving}
+            className="px-4 h-11 rounded-xl border-2 border-slate-300 text-slate-600 font-bold text-sm">
+            ยกเลิก
+          </button>
+          <button onClick={saveSubstitute} disabled={editSaving || !editName.trim()}
+            className="flex-1 h-11 rounded-xl bg-indigo-600 text-white font-black text-sm
+                       disabled:opacity-50 flex items-center justify-center gap-2">
+            {editSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCog className="w-4 h-4" />}
+            บันทึกตัวที่มาแทน
+          </button>
+        </div>
       </div>
     </div>, document.body) : null;
 
@@ -433,9 +672,42 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
           ) : players.length === 0 ? (
             <p className="text-center text-sm text-slate-400 py-16">ทีมนี้ยังไม่มีรายชื่อนักกีฬาในระบบ</p>
           ) : (
+           <>
+            {/* ค้นหา + กรองตามสถานะ — ทีมใหญ่ ๆ หาคนที่ยังค้างหรือคนที่เดินมาโต๊ะได้เร็ว */}
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input value={pSearch} onChange={e => setPSearch(e.target.value)}
+                  placeholder="ค้นหาชื่อหรือเบอร์เสื้อในทีมนี้"
+                  className="w-full h-11 pl-9 pr-9 rounded-xl border border-slate-300 bg-white text-base
+                             outline-none focus:ring-2 focus:ring-indigo-400" />
+                {pSearch && (
+                  <button onClick={() => setPSearch('')} aria-label="ล้างคำค้น"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-400 hover:bg-slate-100">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                {PLAYER_FILTERS.map(f => {
+                  const on = pFilter === f.key;
+                  return (
+                    <button key={f.key} onClick={() => setPFilter(f.key)} aria-pressed={on}
+                      className={`shrink-0 h-9 px-3 rounded-full text-xs font-black border-2 transition tabular-nums
+                                  ${on ? f.active : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                      {f.label} {playerCounts[f.key]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {visiblePlayers.length === 0 ? (
+              <p className="text-center text-sm text-slate-400 py-16">ไม่พบนักกีฬาที่ตรงกับตัวกรอง</p>
+            ) : (
             /* มือถือ 1 คอลัมน์ / แท็บเล็ต 2 / จอใหญ่ 3 — แท็บเล็ตแนวนอนมีที่พอวาง 2 ใบเต็ม ๆ */
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {players.map(p => {
+              {visiblePlayers.map(p => {
                 const ui = p.status ? STATUS_UI[p.status] : null;
                 return (
                   <div key={p.id}
@@ -464,6 +736,11 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
                           <p className="font-black text-slate-900 leading-snug break-words flex-1">
                             {p.name || <span className="text-rose-500">ยังไม่กรอกชื่อ</span>}
                           </p>
+                          {/* เปลี่ยนตัวหน้างาน — ทีมส่งตัวสำรองมาแทนคนในเบอร์เดิม */}
+                          <button onClick={() => openEdit(p)} title="เปลี่ยนตัว (แก้ชื่อ/ถ่ายรูปใหม่)"
+                            className="shrink-0 p-1.5 -m-1 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50">
+                            <UserCog className="w-4 h-4" />
+                          </button>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1">
                           {[p.position, calcAge(p.birthDate)].filter(Boolean).join(' · ') || '—'}
@@ -500,10 +777,23 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
                         );
                       })}
                     </div>
+
+                    {/* หมายเหตุ — โผล่เมื่อมีสถานะแล้ว โดยเฉพาะ "ติดปัญหา" ที่ต้องบอกเหตุ */}
+                    {p.status && (
+                      <NoteField
+                        value={p.note}
+                        issue={p.status === 'issue'}
+                        placeholder={p.status === 'issue'
+                          ? 'ระบุปัญหา เช่น ไม่มีบัตร / อายุเกิน / รูปไม่ตรง'
+                          : 'หมายเหตุ (ถ้ามี)'}
+                        onSave={t => saveNote(p, t)} />
+                    )}
                   </div>
                 );
               })}
             </div>
+            )}
+           </>
           )}
         </div>
 
@@ -526,6 +816,7 @@ const CheckInPage: React.FC<Props> = ({ onExit, notify, tournamentId }) => {
           </div>
         )}
         {photoZoom}
+        {substituteModal}
       </div>
     );
   }

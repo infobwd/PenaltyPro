@@ -22,6 +22,7 @@ function handle(string $action, array $cfg): void
         'saveMatchEvents' => save_match_events(),
         'cancelMatchRecord' => cancel_match_record(),
         'discardMatchDraft' => discard_match_draft(),
+        'resetMatchResult' => reset_match_result(),
         'liveBoard'       => live_board(),
         default           => Response::fail("ไม่รองรับ action '$action'", 404),
     };
@@ -98,6 +99,13 @@ function live_board(): void
      * เคสจริงที่เจอบ่อย: กรรมการบันทึกสกอร์แต่ไม่เคยกดเปลี่ยนสถานะเป็น Live
      * และตารางแข่งหลายรายการไม่ได้ใส่เวลานัดไว้เลย ถ้ายึดตามช่วงเวลาอย่างเดียว
      * ผู้พากย์จะเปิดหน้ามาแล้วเจอจอว่างทั้งที่การแข่งขันดำเนินอยู่ตรงหน้า
+     *
+     * ⚠️ เดิมเรียงด้วย COALESCE(played_at, scheduled_time) DESC ตัวเดียว
+     * ทำให้นัดที่ Finished จริง (played_at เป็นเวลาปัจจุบัน) แพ้นัด Scheduled
+     * ที่ตั้ง scheduled_time ไว้ล่วงหน้าเป็นเดือน (เช่นวันแข่งจริงในอนาคต)
+     * เพราะเทียบกันตรง ๆ วันที่ในอนาคตย่อมมากกว่าเวลาปัจจุบันเสมอ ผลที่เพิ่ง
+     * บันทึกจึงตกหล่นไปอยู่นอก 8 อันดับ ทั้งที่นี่คือ "นัดล่าสุดที่มีผล" ตามชื่อฟังก์ชัน
+     * แก้โดยให้นัดที่มีผลจริง (Live/Finished/Walkover) ขึ้นก่อนเสมอ
      */
     $fallback = false;
     if ($rows === []) {
@@ -109,8 +117,15 @@ function live_board(): void
                LEFT JOIN teams ta ON ta.team_id = m.team_a_id
                LEFT JOIN teams tb ON tb.team_id = m.team_b_id
               WHERE 1 = 1 $scope
-              ORDER BY COALESCE(m.played_at, m.scheduled_time) IS NULL,
-                       COALESCE(m.played_at, m.scheduled_time) DESC
+              ORDER BY CASE
+                          WHEN m.status = 'Live' THEN 0
+                          WHEN m.status IN ('Finished', 'Walkover') THEN 1
+                          ELSE 2
+                       END,
+                       CASE WHEN m.status IN ('Finished', 'Walkover')
+                            THEN m.played_at END DESC,
+                       CASE WHEN m.status NOT IN ('Finished', 'Walkover')
+                            THEN m.scheduled_time END ASC
               LIMIT 8",
             $params
         );
@@ -531,6 +546,68 @@ function cancel_match_record(): void
         'scoreA' => $result['scoreA'],
         'scoreB' => $result['scoreB'],
         'status' => 'Live',
+    ]);
+}
+
+/**
+ * ยกเลิกผลทั้งนัด — ใช้ได้แม้นัดจบและบันทึกไปแล้ว
+ *
+ * ต่างจาก discard_match_draft ตรงที่ตัวนั้นตั้งใจกันนัดที่ Finished ไว้
+ * เพราะมันคือ "ทิ้งข้อมูลทดลอง" ที่เผลอซิงก์ขึ้นไประหว่างเปิดหน้าบันทึกผล
+ * ส่วนตัวนี้คือ "ผลจริงที่บันทึกผิด ต้องล้างแล้วแข่งใหม่" ซึ่งเป็นคนละเจตนา
+ *
+ * เกิดขึ้นจริงจากบั๊กที่ปล่อยให้ทีมหนึ่งแตะเกินมาหนึ่งคนในรอบปกติ ทำให้ผล
+ * ที่ควรจบ 4-3 กลายเป็นเสมอ 4-4 — กรณีแบบนี้ยกเลิกทีละลูกได้แต่ช้าและพลาดง่าย
+ *
+ * ล้างทุกอย่างในทรานแซกชันเดียวแล้วคืนนัดเป็น Scheduled เหมือนยังไม่เคยแข่ง
+ * ตารางคะแนนที่คิดจาก winner จึงกลับไปถูกต้องทันที
+ */
+function reset_match_result(): void
+{
+    Auth::requireLogin();
+
+    $matchId = Input::require_str('matchId');
+    $match = Db::one(
+        'SELECT match_id, tournament_id, status, score_a, score_b, winner
+           FROM matches WHERE match_id = :mid',
+        [':mid' => $matchId]
+    );
+    if ($match === null) {
+        Response::fail('ไม่พบนัดนี้', 404);
+    }
+    Perm::requireTournamentManager((string) $match['tournament_id']);
+
+    $before = [
+        'status' => $match['status'],
+        'score'  => $match['score_a'] . '-' . $match['score_b'],
+        'winner' => $match['winner'],
+    ];
+
+    $removed = Db::transaction(static function () use ($matchId): array {
+        $kicks  = Db::exec('DELETE FROM kicks WHERE match_id = :mid_k', [':mid_k' => $matchId]);
+        $events = Db::exec('DELETE FROM match_events WHERE match_id = :mid_e', [':mid_e' => $matchId]);
+        Db::exec(
+            "UPDATE matches
+                SET score_a = 0, score_b = 0, winner = NULL, status = 'Scheduled',
+                    summary = '', played_at = NULL, row_version = row_version + 1
+              WHERE match_id = :mid_m",
+            [':mid_m' => $matchId]
+        );
+        return ['kicks' => $kicks, 'events' => $events];
+    });
+
+    Cache::flush();
+    // เก็บค่าก่อนแก้ไว้ด้วย — ผลที่ถูกล้างไปแล้วกู้คืนไม่ได้ ต้องตรวจย้อนได้ว่าเดิมคืออะไร
+    Audit::log('match', $matchId, 'reset_result', $before, [
+        'kicksRemoved'  => $removed['kicks'],
+        'eventsRemoved' => $removed['events'],
+    ]);
+
+    Response::ok([
+        'matchId'       => $matchId,
+        'status'        => 'Scheduled',
+        'kicksRemoved'  => $removed['kicks'],
+        'eventsRemoved' => $removed['events'],
     ]);
 }
 
