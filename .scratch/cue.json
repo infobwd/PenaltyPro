@@ -1,0 +1,1 @@
+{"ok":true,"name":"GOAL","results":[{"step":"markReplayTimestamp","label":"จดเวลาไว้ทำรีเพลย์","ok":true},{"step":"overlay","label":"ขึ้นกราฟิกประตู","ok":true},{"step":"wait","label":null,"ok":true},{"step":"scene","label":"ตัดไปกองเชียร์","ok":true,"scene":"05_CROWD"},{"step":"wait","label":null,"ok":true},{"step":"scene","label":"กลับภาพสนาม","ok":true,"scene":"02_FIELD"}]}

@@ -1,0 +1,16 @@
+retry: 3000
+
+data: {"type":"snapshot","state":{"startedAt":"2026-08-19T03:50:38.113Z","obs":{"connected":true,"version":"5.7.4","currentScene":"05_CROWD","recording":true,"streaming":false,"error":null},"cameras":{"CAM_WIDE":{"online":true,"checkedAt":"2026-08-19T03:50:38.203Z","error":null},"CAM_TELE":{"online":true,"checkedAt":"2026-08-19T03:50:38.203Z","error":null}},"ring":{"running":false,"segments":0,"oldestAt":null,"newestAt":null},"cloud":{"reachable":null,"lastSyncAt":null,"queued":0},"autoMode":false,"lastCue":null}}
+
+data: {"type":"state","section":"ring","value":{"running":true,"segments":549,"oldestAt":"2026-08-19T03:27:57.788Z","newestAt":"2026-08-19T03:50:41.845Z","sizeMB":414.7}}
+
+data: {"type":"state","section":"obs","value":{"connected":true,"version":"5.7.4","currentScene":"02_FIELD","recording":true,"streaming":false,"error":null}}
+
+data: {"type":"state","section":"ring","value":{"running":true,"segments":552,"oldestAt":"2026-08-19T03:27:57.788Z","newestAt":"2026-08-19T03:50:47.803Z","sizeMB":416.6}}
+
+data: {"type":"state","section":"cameras","value":{"CAM_WIDE":{"online":true,"checkedAt":"2026-08-19T03:50:48.192Z","error":null},"CAM_TELE":{"online":true,"checkedAt":"2026-08-19T03:50:48.192Z","error":null}}}
+
+data: {"type":"state","section":"obs","value":{"connected":true,"version":"5.7.4","currentScene":"03_SHOOTER","recording":true,"streaming":false,"error":null}}
+
+data: {"type":"state","section":"ring","value":{"running":true,"segments":553,"oldestAt":"2026-08-19T03:27:57.788Z","newestAt":"2026-08-19T03:50:53.136Z","sizeMB":418.2}}
+

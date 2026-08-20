@@ -118,6 +118,14 @@ $routes = [
     'resetMatchResult' => 'live.php',   // ยกเลิกผลทั้งนัด (ใช้กับนัดที่จบแล้วได้)
     'liveBoard'        => 'live.php',   // กระดานผลสด (อ่านอย่างเดียว ยิงซ้ำได้ถี่)
 
+    // --- เครื่องถ่ายทอดสด (Production Node) --------------------------------
+    // เพิ่มใหม่ล้วน ไม่แตะ action เดิม — ถ้าลบสี่บรรทัดนี้กับ production.php ทิ้ง
+    // ระบบเดิมยังทำงานได้ครบเหมือนไม่เคยมี
+    'productionEvents'    => 'production.php',  // เวลาเหตุการณ์ระดับมิลลิวินาที (ส่งเป็นชุด กันซ้ำ)
+    'productionTimeline'  => 'production.php',  // ไทม์ไลน์ของนัด สำหรับสร้างรายการรีเพลย์
+    'productionHeartbeat' => 'production.php',  // เครื่องถ่ายทอดรายงานตัวนาทีละครั้ง
+    'productionNodes'     => 'production.php',  // รายชื่อเครื่องถ่ายทอด (แอดมินเท่านั้น)
+
     // --- ใบเกียรติบัตร -----------------------------------------------------
     'getCertificateData'      => 'certificates.php',
     'saveCertificateSettings' => 'certificates.php',
