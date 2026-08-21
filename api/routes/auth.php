@@ -18,6 +18,8 @@ function handle(string $action, array $cfg): void
         'changePassword'   => do_change_password(),
         'setMySchool'      => set_my_school(),
         'teamLoginByAccount' => team_login_by_account($cfg),
+        'scorerLogin'      => scorer_login($cfg),
+        'scorerSession'    => scorer_session(),
         default            => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -484,5 +486,99 @@ function team_login_by_account(array $cfg): void
             'status'    => $m['status'],
             'teamCount' => (int) $m['team_count'],
         ], $mine),
+    ]);
+}
+
+/**
+ * ── กรรมการเข้าด้วย "รหัสเริ่มแข่ง" ──────────────────────────────────
+ *
+ * ทำไมต้องมี: คนจดผลหน้าสนามคือครูที่ถูกวานมาช่วยวันนั้น การให้ทุกคนมีบัญชี
+ * ก่อนงานเริ่มไม่เคยเกิดขึ้นจริง — สิ่งที่เกิดจริงคือมีคนถือมือถือยืนอยู่ข้างสนาม
+ * แล้วต้องจดผลให้ทันลูกถัดไป
+ *
+ * สิ่งที่รหัสนี้ให้ได้คือ "บันทึกผลของรายการนี้" อย่างเดียว ไม่มีอย่างอื่นเลย
+ * (ดู Perm::requireScorer — ตั้งใจไม่ให้ผ่าน managesTournament)
+ *
+ * ⚠️ ใช้ตาราง access_attempts ร่วมกับรหัสโรงเรียนโดยตั้งใจ
+ * ทั้งสองอย่างคือ "รหัสสั้นที่ไล่เดาได้" การนับรวมกันต่อ IP ทำให้คนที่กำลัง
+ * ไล่เดาถูกจำกัดเร็วขึ้น ไม่ใช่ได้โควตาเพิ่มเป็นสองเท่าเพราะเดาคนละช่อง
+ */
+function scorer_login(array $cfg): void
+{
+    $tournamentId = Input::require_str('tournamentId');
+    $code = preg_replace('/s+/', '', Input::require_str('code'));
+
+    $limits   = $cfg['access_code'] ?? [];
+    $window   = (int) ($limits['window_seconds'] ?? 900);
+    $maxTry   = (int) ($limits['max_attempts_per_ip'] ?? 5);
+    $lockTry  = (int) ($limits['lockout_attempts'] ?? 10);
+    $lockSecs = (int) ($limits['lockout_seconds'] ?? 3600);
+    $ip = Auth::ipHash();
+
+    $recent = (int) Db::value(
+        'SELECT COUNT(*) FROM access_attempts
+          WHERE ip_hash = :ip AND succeeded = 0
+            AND attempted_at > DATE_SUB(NOW(), INTERVAL :win SECOND)',
+        [':ip' => $ip, ':win' => $window]
+    );
+    if ($recent >= $lockTry) {
+        Db::exec('INSERT INTO access_attempts (ip_hash, succeeded) VALUES (:ip2, 0)',
+            [':ip2' => $ip]);
+        Response::fail('ใส่รหัสผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่', 429,
+            ['retryAfterSeconds' => $lockSecs]);
+    }
+    if ($recent >= $maxTry) {
+        usleep(1500000);
+    }
+
+    $row = Db::one(
+        'SELECT tournament_id, name, scorer_code_hash FROM tournaments
+          WHERE tournament_id = :tid',
+        [':tid' => $tournamentId]
+    );
+    if ($row === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+
+    // ยังไม่ได้ตั้งรหัส = ปิดทางนี้ไว้ ไม่ใช่ "รหัสอะไรก็ผ่าน"
+    $hash = (string) ($row['scorer_code_hash'] ?? '');
+    if ($hash === '') {
+        Response::fail(
+            'รายการนี้ยังไม่ได้เปิดให้บันทึกผลด้วยรหัส — กรุณาเข้าสู่ระบบ '
+            . 'หรือแจ้งผู้ดูแลให้ตั้งรหัสเริ่มแข่งก่อน',
+            409, ['codeEnabled' => false]
+        );
+    }
+
+    if (!password_verify($code, $hash)) {
+        Db::exec('INSERT INTO access_attempts (ip_hash, succeeded) VALUES (:ip3, 0)',
+            [':ip3' => $ip]);
+        usleep(300000);
+        Response::fail('รหัสเริ่มแข่งไม่ถูกต้อง', 401);
+    }
+
+    Db::exec('INSERT INTO access_attempts (ip_hash, succeeded) VALUES (:ip4, 1)',
+        [':ip4' => $ip]);
+
+    $session = Auth::issueScorer($tournamentId, Input::str('label'));
+    Audit::log('tournament', $tournamentId, 'scorer_login', null,
+        ['label' => Input::str('label')]);
+
+    Response::ok([
+        'scorerToken'  => $session['token'],
+        'expiresAt'    => $session['expiresAt'],
+        'tournamentId' => $tournamentId,
+        'tournamentName' => $row['name'],
+    ]);
+}
+
+/** เครื่องที่ถือ token อยู่ยังบันทึกผลได้ไหม — ให้หน้าเว็บถามก่อนเปิดหน้าจดผล */
+function scorer_session(): void
+{
+    $tid = Auth::scorerTournamentId();
+    Response::ok([
+        'active'       => $tid !== null,
+        'tournamentId' => $tid,
+        'label'        => Auth::scorerLabel(),
     ]);
 }

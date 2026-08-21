@@ -78,6 +78,11 @@ $routes = [
     'setTournamentHost'       => 'tournaments.php',  // โรงเรียนเจ้าภาพของรายการ
     'assignTournamentManager' => 'tournaments.php',  // มอบสิทธิ์ผู้ดูแลประจำรายการ
     'listTournamentManagers'  => 'tournaments.php',
+    // รหัสเริ่มแข่ง — ให้กรรมการที่ไม่มีบัญชีบันทึกผลได้ (db/28)
+    'getScorerCodeStatus'     => 'tournaments.php',
+    'setScorerCode'           => 'tournaments.php',
+    'scorerLogin'             => 'auth.php',
+    'scorerSession'           => 'auth.php',
     'flushCache'              => 'tournaments.php',  // ล้าง cache หลังแก้ DB ตรง
 
     // --- โรงเรียนและรหัสเข้าใช้งาน ----------------------------------------
@@ -195,6 +200,7 @@ $routes = [
     'saveFinanceEntry'        => 'finance.php',
     'deleteFinanceEntry'      => 'finance.php',
     'assignFinanceAccountant' => 'finance.php',
+    'listRegistrationSlips'   => 'finance.php',  // ตรวจสลิปจากหน้าบัญชีได้เลย
     'getMusicTracks'    => 'admin.php',
     'manageMusicTrack'  => 'admin.php',
     'getTickerMessages' => 'admin.php',

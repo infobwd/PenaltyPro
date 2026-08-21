@@ -143,10 +143,47 @@ function update_user(): void
     if (!in_array($role, ['admin', 'staff', 'referee', 'user'], true)) {
         $role = $before['role'];
     }
-    // เลื่อนเป็นแอดมิน/สตาฟ ต้องมีรหัสผ่าน ไม่งั้นเข้าหลังบ้านไม่ได้เลย
-    if (in_array($role, ['admin', 'staff', 'referee'], true)
-        && $before['password_hash'] === null && $password === '') {
-        Response::fail('ต้องตั้งรหัสผ่านให้บัญชีนี้ก่อนเลื่อนเป็นผู้ดูแล/เจ้าหน้าที่', 422);
+    /*
+     * ── บัญชีที่มีสิทธิ์ต้องมี "ทั้ง" ชื่อผู้ใช้และรหัสผ่าน ──
+     *
+     * chk_staff_has_password ใน schema เขียนไว้ว่า
+     *     role = 'user' OR (username IS NOT NULL AND password_hash IS NOT NULL)
+     * แต่โค้ดตรงนี้เดิมตรวจแค่รหัสผ่านอย่างเดียว
+     *
+     * ผลคือพอเลื่อนสิทธิ์ให้บัญชีที่เข้าด้วย LINE (ซึ่งไม่มี username เลย)
+     * คำสั่ง UPDATE จะไปชนกฎของฐานข้อมูลแล้วเด้งกลับมาเป็น "ฐานข้อมูลผิดพลาด"
+     * ซึ่งผู้ดูแลอ่านแล้วไม่มีทางเดาได้ว่าต้องไปตั้งชื่อผู้ใช้ก่อน
+     *
+     * ⚠️ กฎในฐานข้อมูลกับการตรวจในโค้ดต้องพูดเรื่องเดียวกันเสมอ
+     * ถ้าโค้ดตรวจหลวมกว่า ผู้ใช้จะเจอข้อความที่แก้ปัญหาไม่ได้
+     * ถ้าโค้ดตรวจเข้มกว่า จะมีงานที่ทำได้จริงแต่ระบบไม่ยอมให้ทำ
+     */
+    $username = $before['username'];
+    $newUsername = Input::str('username');
+
+    // ชื่อผู้ใช้เดิมห้ามเปลี่ยน — มันคือสิ่งที่เจ้าตัวใช้เข้าระบบอยู่
+    // เติมได้เฉพาะบัญชีที่ยังไม่เคยมี (บัญชี LINE ล้วน)
+    if (($username === null || $username === '') && $newUsername !== '') {
+        if (!preg_match('/^[A-Za-z0-9._-]{3,100}$/', $newUsername)) {
+            Response::fail('ชื่อผู้ใช้ใช้ได้เฉพาะ a-z A-Z 0-9 . _ - ยาว 3-100 ตัวอักษร', 422);
+        }
+        if (Db::value('SELECT 1 FROM users WHERE username = :un AND user_id <> :uid3',
+                [':un' => $newUsername, ':uid3' => $uid]) !== null) {
+            Response::fail('ชื่อผู้ใช้นี้มีอยู่แล้ว', 409);
+        }
+        $username = $newUsername;
+    }
+
+    $privileged = in_array($role, ['admin', 'staff', 'referee'], true);
+    if ($privileged && $before['password_hash'] === null && $password === '') {
+        Response::fail('ต้องตั้งรหัสผ่านให้บัญชีนี้ก่อนเลื่อนเป็นผู้ดูแล/เจ้าหน้าที่/กรรมการ', 422);
+    }
+    if ($privileged && ($username === null || $username === '')) {
+        Response::fail(
+            'บัญชีนี้เข้าระบบด้วย LINE จึงยังไม่มีชื่อผู้ใช้ — '
+            . 'กรอกชื่อผู้ใช้และรหัสผ่านให้ก่อน จึงจะเลื่อนสิทธิ์ได้',
+            422
+        );
     }
 
     // โรงเรียนต้นสังกัด — ส่งมาเมื่อไหร่ถึงจะแก้ ไม่ส่งมาก็ไม่แตะของเดิม
@@ -164,6 +201,10 @@ function update_user(): void
     Db::exec(
         'UPDATE users SET
             display_name = :name, phone = :phone, role = :role,
+            -- ไม่มีชื่อผู้ใช้ต้องเก็บเป็น NULL ไม่ใช่สตริงว่าง
+            -- เพราะ UNIQUE ยอมให้ NULL ซ้ำกันได้ แต่สตริงว่างซ้ำกันไม่ได้
+            -- และบัญชี LINE ที่ไม่มีชื่อผู้ใช้มีหลายคน
+            username = :un3,
             school_id = CASE WHEN :touch = 1 THEN :sid2 ELSE school_id END,
             school_set_at = CASE WHEN :touch2 = 1 THEN NOW() ELSE school_set_at END,
             -- ผู้ดูแลเป็นคนผูกให้ = รับรองแล้ว เข้าจัดการทีมได้โดยไม่ต้องกรอกรหัส
@@ -176,6 +217,7 @@ function update_user(): void
           WHERE user_id = :uid2',
         [
             ':name'  => Input::str('displayName') ?: $before['display_name'],
+            ':un3'   => ($username ?? '') !== '' ? $username : null,
             ':phone' => Input::str('phone'),
             ':role'  => $role,
             ':touch' => $touchSchool ? 1 : 0,
@@ -203,12 +245,20 @@ function update_user_role(): void
     if (!in_array($role, ['admin', 'staff', 'referee', 'user'], true)) {
         Response::fail('บทบาทไม่ถูกต้อง', 422);
     }
-    $u = Db::one('SELECT role, password_hash FROM users WHERE user_id = :uid', [':uid' => $uid]);
+    $u = Db::one('SELECT role, username, password_hash FROM users WHERE user_id = :uid',
+        [':uid' => $uid]);
     if ($u === null) {
         Response::fail('ไม่พบผู้ใช้นี้', 404);
     }
-    if (in_array($role, ['admin', 'staff', 'referee'], true) && $u['password_hash'] === null) {
-        Response::fail('บัญชีนี้ยังไม่มีรหัสผ่าน — ตั้งรหัสผ่านก่อนจึงจะเลื่อนสิทธิ์ได้', 422);
+    // เส้นนี้เปลี่ยนได้แต่บทบาท เติมชื่อผู้ใช้/รหัสผ่านไม่ได้
+    // จึงบอกให้ไปใช้หน้าแก้ไขผู้ใช้แทน ดีกว่าปล่อยให้ชน chk_staff_has_password
+    if (in_array($role, ['admin', 'staff', 'referee'], true)) {
+        if ($u['password_hash'] === null) {
+            Response::fail('บัญชีนี้ยังไม่มีรหัสผ่าน — ตั้งรหัสผ่านก่อนจึงจะเลื่อนสิทธิ์ได้', 422);
+        }
+        if (($u['username'] ?? '') === '') {
+            Response::fail('บัญชีนี้ยังไม่มีชื่อผู้ใช้ — ตั้งชื่อผู้ใช้ก่อนจึงจะเลื่อนสิทธิ์ได้', 422);
+        }
     }
     Db::exec('UPDATE users SET role = :role WHERE user_id = :uid2',
         [':role' => $role, ':uid2' => $uid]);

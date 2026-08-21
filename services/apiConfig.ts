@@ -87,9 +87,57 @@ const clearExpiredToken = () => {
   else clearToken();
 };
 
+/**
+ * ── token ของกรรมการที่เข้าด้วยรหัสเริ่มแข่ง ──────────────────────────
+ *
+ * เก็บคนละช่องกับ token ของบัญชี และส่งคนละ header โดยตั้งใจ
+ *
+ * ครูที่เข้าระบบอยู่แล้วอาจกรอกรหัสเริ่มแข่งเพื่อช่วยจดผลหน้าสนาม
+ * ถ้าใช้ช่องเดียวกัน token ของบัญชีจะถูกทับ แล้วเขาจะหลุดจากบัญชีตัวเอง
+ * ทันทีที่ไปช่วยจดผล — เป็นอาการเดียวกับที่เคยเกิดกับ session โรงเรียน
+ *
+ * แยกช่องไว้ ทั้งสองใบจึงอยู่ด้วยกันได้ server เลือกใช้ใบที่เหมาะกับงานนั้น
+ */
+const SCORER_TOKEN_KEY = 'penalty_pro_scorer_token';
+const SCORER_TID_KEY = 'penalty_pro_scorer_tournament';
+
+export const getScorerToken = (): string | null => localStorage.getItem(SCORER_TOKEN_KEY);
+export const getScorerTournamentId = (): string | null => localStorage.getItem(SCORER_TID_KEY);
+
+export const setScorerToken = (token: string, tournamentId: string) => {
+  localStorage.setItem(SCORER_TOKEN_KEY, token);
+  localStorage.setItem(SCORER_TID_KEY, tournamentId);
+};
+
+export const clearScorerToken = () => {
+  localStorage.removeItem(SCORER_TOKEN_KEY);
+  localStorage.removeItem(SCORER_TID_KEY);
+};
+
+/**
+ * 401 มีสองความหมาย ต้องแยกให้ออกก่อนตัดสินใจ
+ *
+ * ⚠️ ถ้าเหมารวมว่า 401 = บัญชีหมดอายุ จะเกิดอาการนี้: กรรมการที่กรอกรหัส
+ * เริ่มแข่งไว้เมื่อวานเปิดหน้าเดิม รหัสหมดอายุแล้ว server ตอบ 401
+ * แล้วระบบดันเตะ "ครูที่เข้าระบบอยู่" ออกจากบัญชีตัวเองไปด้วย
+ * ทั้งที่ token ของบัญชียังใช้ได้ปกติ — คนละใบกันคนละเรื่องกัน
+ */
+const handle401 = (err: ApiError) => {
+  if ((err.payload as any)?.needScorerCode) {
+    clearScorerToken();     // ใบที่หมดอายุคือของกรรมการ ไม่ใช่ของบัญชี
+    return;                 // ให้หน้าจอถามรหัสใหม่เอง ไม่ต้องเด้งออกจากระบบ
+  }
+  clearExpiredToken();
+  onUnauthorized?.(err.message);
+};
+
 const authHeaders = (): Record<string, string> => {
+  const h: Record<string, string> = {};
   const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
+  if (t) h.Authorization = `Bearer ${t}`;
+  const s = getScorerToken();
+  if (s) h['X-Scorer-Token'] = s;
+  return h;
 };
 
 /**
@@ -178,8 +226,7 @@ export async function apiGet<T = any>(
     // คำขอเบื้องหลัง (เช่น poll การแจ้งเตือน) ห้ามสั่ง logout ทั้งระบบ
     // ผู้ใช้ไม่ได้กดอะไรเลย การเด้งออกจึงดูเหมือนระบบพังโดยไม่มีสาเหตุ
     if (res.status === 401 && !opts.background) {
-      clearExpiredToken();
-      onUnauthorized?.(err.message);
+      handle401(err);
     }
     throw err;
   }
@@ -223,8 +270,7 @@ export async function apiPost<T = any>(
     const err = new ApiError(
       data?.message ?? `คำขอล้มเหลว (HTTP ${res.status})`, res.status, data);
     if (res.status === 401 && !opts.background) {
-      clearExpiredToken();
-      onUnauthorized?.(err.message);
+      handle401(err);
     }
     throw err;
   }

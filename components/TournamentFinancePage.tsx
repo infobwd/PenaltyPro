@@ -6,8 +6,10 @@ import {
   Search, Trash2, UserMinus, UserPlus, Users, WalletCards, X,
 } from 'lucide-react';
 import { apiGet, apiPost, ApiError } from '../services/apiConfig';
-import { fileToBase64 } from '../services/sheetService';
-import { confirmAction } from '../services/uiService';
+import {
+  fileToBase64, RegistrationSlip, fetchRegistrationSlips, reviewRegistrationPayment,
+} from '../services/sheetService';
+import { confirmAction, promptAction } from '../services/uiService';
 
 type Notice = (title: string, message?: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
 
@@ -249,6 +251,19 @@ const EntryDialog: React.FC<{
   );
 };
 
+
+/** สีและคำอ่านของสถานะการชำระเงิน — ชุดเดียวกับที่หน้า /admin ใช้ */
+const SLIP_STYLE: Record<string, string> = {
+  Verified: 'bg-emerald-100 text-emerald-700',
+  Pending: 'bg-amber-100 text-amber-700',
+  Unpaid: 'bg-slate-100 text-slate-600',
+  Rejected: 'bg-rose-100 text-rose-700',
+};
+const SLIP_LABEL: Record<string, string> = {
+  Verified: 'จ่ายแล้ว', Pending: 'รอตรวจ',
+  Unpaid: 'ยังไม่ยืนยันชำระ', Rejected: 'สลิปไม่ผ่าน',
+};
+
 const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, onBack, notify }) => {
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -260,6 +275,97 @@ const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, 
   const [selectedUserId, setSelectedUserId] = useState('');
   const [busy, setBusy] = useState('');
   const [visibleCount, setVisibleCount] = useState(30);
+
+  /*
+   * ── ตรวจสลิปค่าสมัครจากหน้านี้ได้เลย ───────────────────────────────
+   *
+   * เหรัญญิกคือคนที่นั่งกระทบยอดกับสมุดบัญชี แต่ปุ่มยืนยันการชำระเงิน
+   * เคยอยู่แต่ในหน้า /admin ซึ่งเขาไม่มีเหตุต้องเข้าไปเลย
+   * ยอด "ค่าสมัครที่ยืนยันแล้ว" ด้านบนจึงค้างต่ำกว่าเงินที่เข้าบัญชีจริง
+   *
+   * ⚠️ ใช้ action เดียวกับหน้า /admin (reviewRegistrationPayment)
+   * ตั้งใจไม่เขียนตรรกะการตัดสินขึ้นใหม่ที่นี่ — สถานะการชำระเงินมีชุดเดียว
+   * อยู่ในคอลัมน์ของทีมนั้น ตรวจฝั่งไหนอีกฝั่งจึงเห็นเหมือนกันทันที
+   * ถ้าแยกกันเขียน วันหนึ่งสองหน้าจะให้คำตอบคนละอย่างแล้วไม่มีใครรู้ว่าอันไหนจริง
+   */
+  const [slips, setSlips] = useState<RegistrationSlip[] | null>(null);
+  const [slipCounts, setSlipCounts] = useState<Record<string, number>>({});
+  const [canReviewSlips, setCanReviewSlips] = useState(false);
+  const [slipFilter, setSlipFilter] = useState<'All' | 'Unpaid' | 'Pending' | 'Verified' | 'Rejected'>('Pending');
+  const [slipQuery, setSlipQuery] = useState('');
+  const [slipOpen, setSlipOpen] = useState<RegistrationSlip | null>(null);
+
+  const loadSlips = async () => {
+    try {
+      const r = await fetchRegistrationSlips(tournamentId);
+      setSlips(r.teams);
+      setSlipCounts(r.counts);
+      setCanReviewSlips(r.canReview);
+    } catch {
+      setSlips([]);            // ดึงไม่ได้ก็แค่ไม่มีแผงนี้ ไม่ทำให้ทั้งหน้าล่ม
+    }
+  };
+  useEffect(() => { void loadSlips(); }, [tournamentId]);
+
+  const filteredSlips = useMemo(() => {
+    const q = slipQuery.trim().toLocaleLowerCase('th-TH');
+    return (slips || []).filter(t => {
+      if (slipFilter !== 'All' && t.status !== slipFilter) return false;
+      if (!q) return true;
+      return `${t.name} ${t.schoolName} ${t.group}`.toLocaleLowerCase('th-TH').includes(q);
+    });
+  }, [slips, slipFilter, slipQuery]);
+
+  /**
+   * ตัดสินผลตรวจสลิป แล้วโหลดยอดใหม่ทั้งสองที่
+   *
+   * ต้อง load() ด้วยไม่ใช่แค่ loadSlips() เพราะยอด "ค่าสมัครที่ยืนยันแล้ว"
+   * ด้านบนคิดจากจำนวนทีมที่ Verified — ถ้าโหลดแค่รายการสลิป ตัวเลขบนสุด
+   * จะยังเป็นของเก่าแล้วดูเหมือนกดยืนยันไปแล้วไม่มีอะไรเกิดขึ้น
+   */
+  const decideSlip = async (
+    team: RegistrationSlip,
+    decision: 'verify' | 'verify_manual' | 'reject' | 'reset',
+  ) => {
+    let note = '';
+    if (decision === 'reject') {
+      const reason = await promptAction(
+        `สลิปของ “${team.name}” ไม่ผ่านเพราะอะไร?`,
+        { title: 'ระบุเหตุผล', placeholder: 'เช่น ยอดไม่ตรง / สลิปซ้ำกับทีมอื่น', confirmText: 'บันทึก' },
+      );
+      if (reason === null || !reason.trim()) return;
+      note = reason.trim();
+    }
+    if (decision === 'verify_manual') {
+      const detail = await promptAction(
+        `ยืนยันว่า “${team.name}” ชำระนอกระบบด้วยช่องทางใด?`,
+        { title: 'ชำระนอกระบบ', placeholder: 'เช่น เงินสด รับที่สนาม วันที่ 20 ส.ค.', confirmText: 'ยืนยัน' },
+      );
+      if (detail === null || !detail.trim()) return;
+      note = detail.trim();
+    }
+    if (decision === 'reset'
+      && !await confirmAction(`คืนสถานะการชำระเงินของ “${team.name}” เป็นรอตรวจ?`,
+        { title: 'ย้อนสถานะ?', confirmText: 'ย้อนสถานะ' })) return;
+
+    setBusy(`slip:${team.id}`);
+    try {
+      const r = await reviewRegistrationPayment(team.id, decision, note);
+      notify(
+        r.paymentStatus === 'Verified' ? 'ยืนยันการชำระเงินแล้ว'
+          : r.paymentStatus === 'Rejected' ? 'บันทึกว่าสลิปไม่ผ่านแล้ว'
+            : 'คืนสถานะเป็นรอตรวจแล้ว',
+        team.name,
+        r.paymentStatus === 'Rejected' ? 'warning' : 'success',
+      );
+      setSlipOpen(null);
+      await Promise.all([loadSlips(), load()]);
+    } catch (error: any) {
+      notify('บันทึกผลตรวจไม่สำเร็จ', error?.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -416,6 +522,82 @@ const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, 
           )}
         </section>
 
+        {/* ── ตรวจสลิปค่าสมัคร ─────────────────────────────────────── */}
+        {slips !== null && slips.length > 0 && (
+          <section className="rounded-3xl bg-white border border-slate-200 shadow-sm p-4 sm:p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <WalletCards className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-black text-lg">ตรวจสลิปค่าสมัคร</h2>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {canReviewSlips
+                    ? 'กดที่ทีมเพื่อเปิดดูสลิปแล้วยืนยันได้จากหน้านี้เลย · ผลจะตรงกับหน้าผู้ดูแลทันที'
+                    : 'ดูสถานะได้อย่างเดียว — การยืนยันต้องเป็นผู้ดูแลรายการหรือผู้รับผิดชอบบัญชี'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
+              {(['Pending', 'Unpaid', 'Rejected', 'Verified'] as const).map(key => (
+                <button key={key} type="button"
+                  onClick={() => setSlipFilter(slipFilter === key ? 'All' : key)}
+                  className={`rounded-2xl border p-3 text-left transition ${SLIP_STYLE[key]} ${
+                    slipFilter === key ? 'ring-2 ring-indigo-400 ring-offset-1' : 'opacity-90'
+                  }`}>
+                  <span className="text-2xl font-black block">{slipCounts[key] ?? 0}</span>
+                  <span className="text-[11px] font-bold">{SLIP_LABEL[key]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-3 relative">
+              <Search className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+              <input value={slipQuery} onChange={e => setSlipQuery(e.target.value)}
+                className={`${inputClass} pl-9`} placeholder="ค้นหาชื่อทีมหรือโรงเรียน" />
+            </div>
+
+            {filteredSlips.length === 0 ? (
+              <p className="mt-3 rounded-2xl bg-slate-50 py-8 text-center text-sm text-slate-500">
+                ไม่มีทีมในสถานะนี้
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2 max-h-[26rem] overflow-y-auto pr-1">
+                {filteredSlips.map(team => (
+                  <li key={team.id}>
+                    <button type="button" onClick={() => setSlipOpen(team)}
+                      className="w-full text-left rounded-2xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 p-3 flex items-center gap-3 transition">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-800 truncate">{team.name}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${SLIP_STYLE[team.status]}`}>
+                            {team.status === 'Verified' && !team.hasSlip ? 'จ่ายแล้ว · นอกระบบ' : SLIP_LABEL[team.status]}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                          {[team.schoolName, team.group ? `สาย ${team.group}` : ''].filter(Boolean).join(' · ')
+                            || 'ไม่ระบุโรงเรียน/สาย'}
+                        </p>
+                        {team.note && (
+                          <p className={`text-[11px] mt-0.5 truncate ${team.status === 'Verified' ? 'text-emerald-700' : 'text-rose-600'}`}>
+                            {team.note}
+                          </p>
+                        )}
+                      </div>
+                      <span className={`shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-xl ${
+                        team.hasSlip ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {team.hasSlip ? 'ดูสลิป' : 'ไม่มีสลิป'}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
         {data?.canManage && (
           <section className="rounded-3xl bg-white border border-slate-200 shadow-sm p-4 sm:p-6">
             <div className="flex items-start gap-3"><div className="w-11 h-11 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0"><Users className="w-5 h-5" /></div><div><h2 className="font-black text-lg">ผู้รับผิดชอบบัญชี</h2><p className="text-xs text-slate-500">แอดมินหรือเจ้าภาพเลือกผู้ใช้คนใดก็ได้ โดยไม่ต้องเปลี่ยนบทบาทของบัญชีนั้น</p></div></div>
@@ -438,6 +620,106 @@ const TournamentFinancePage: React.FC<Props> = ({ tournamentId, tournamentName, 
           {entries.length > visibleCount && <button onClick={() => setVisibleCount(count => count + 30)} className="w-full min-h-12 border-t border-slate-200 text-sm font-black text-indigo-600">แสดงเพิ่มอีก {Math.min(30, entries.length - visibleCount)} รายการ</button>}
         </section>
       </main>
+
+      {/*
+        * กล่องดูสลิป
+        *
+        * เปิดเป็น modal ไม่ใช่เปิดแท็บใหม่แบบหน้า /admin โดยตั้งใจ
+        * คนตรวจต้องเห็นสลิปกับปุ่มยืนยันพร้อมกัน — เปิดแท็บใหม่แล้วต้องสลับ
+        * กลับมากดปุ่ม ทำให้ตรวจทีละสิบทีมกลายเป็นสลับแท็บยี่สิบครั้ง
+        * และบนมือถือการสลับแท็บมักทำให้หน้าเดิมถูกโหลดใหม่จนตำแหน่งที่เลื่อนไว้หาย
+        */}
+      {slipOpen && createPortal(
+        <div className="fixed inset-0 z-[1500] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setSlipOpen(null)}>
+          <div className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl shadow-2xl max-h-[92dvh] flex flex-col"
+            role="dialog" aria-modal="true" aria-label={`สลิปของ ${slipOpen.name}`}
+            onClick={e => e.stopPropagation()}>
+
+            <div className="flex items-start gap-3 p-4 border-b border-slate-200">
+              <div className="min-w-0 flex-1">
+                <h2 className="font-black text-lg text-slate-900 truncate">{slipOpen.name}</h2>
+                <p className="text-xs text-slate-500 truncate">
+                  {[slipOpen.schoolName, slipOpen.group ? `สาย ${slipOpen.group}` : ''].filter(Boolean).join(' · ')
+                    || 'ไม่ระบุโรงเรียน/สาย'}
+                </p>
+              </div>
+              <span className={`shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold ${SLIP_STYLE[slipOpen.status]}`}>
+                {SLIP_LABEL[slipOpen.status]}
+              </span>
+              <button onClick={() => setSlipOpen(null)} aria-label="ปิด"
+                className="shrink-0 w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {slipOpen.slipUrl ? (
+                <a href={slipOpen.slipUrl} target="_blank" rel="noreferrer" className="block">
+                  {/* กดที่รูปเพื่อเปิดขนาดเต็ม — สลิปบางใบตัวเลขเล็กจนอ่านในกรอบนี้ไม่ออก */}
+                  <img src={slipOpen.slipUrl} alt={`สลิปของ ${slipOpen.name}`}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 object-contain max-h-[52dvh]" />
+                  <p className="text-[11px] text-indigo-600 font-bold text-center mt-1.5">
+                    แตะที่รูปเพื่อเปิดขนาดเต็ม
+                  </p>
+                </a>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 py-10 text-center text-slate-500">
+                  <Paperclip className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                  <p className="text-sm font-bold">ทีมนี้ยังไม่ได้แนบสลิป</p>
+                  <p className="text-xs mt-1">ถ้ารับเงินไว้แล้วให้ใช้ “ยืนยันจ่ายนอกระบบ”</p>
+                </div>
+              )}
+
+              {slipOpen.note && (
+                <p className={`rounded-2xl px-4 py-3 text-xs font-bold leading-relaxed ${
+                  slipOpen.status === 'Verified'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}>
+                  หมายเหตุ: {slipOpen.note}
+                </p>
+              )}
+              {slipOpen.reviewedAt && (
+                <p className="text-[11px] text-slate-400">
+                  ตรวจเมื่อ {new Date(String(slipOpen.reviewedAt).replace(' ', 'T')).toLocaleString('th-TH')}
+                  {slipOpen.reviewedBy ? ` โดย ${slipOpen.reviewedBy}` : ''}
+                </p>
+              )}
+            </div>
+
+            {canReviewSlips && (
+              <div className="border-t border-slate-200 p-4 grid grid-cols-2 gap-2">
+                {slipOpen.hasSlip && slipOpen.status !== 'Verified' && (
+                  <button onClick={() => void decideSlip(slipOpen, 'verify')} disabled={busy !== ''}
+                    className="min-h-12 rounded-xl bg-emerald-600 text-white font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+                    <Save className="w-4 h-4" /> ยืนยันจ่ายแล้ว
+                  </button>
+                )}
+                {!slipOpen.hasSlip && slipOpen.status !== 'Verified' && (
+                  <button onClick={() => void decideSlip(slipOpen, 'verify_manual')} disabled={busy !== ''}
+                    className="min-h-12 rounded-xl bg-sky-600 text-white font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+                    <WalletCards className="w-4 h-4" /> ยืนยันจ่ายนอกระบบ
+                  </button>
+                )}
+                {slipOpen.hasSlip && slipOpen.status !== 'Rejected' && (
+                  <button onClick={() => void decideSlip(slipOpen, 'reject')} disabled={busy !== ''}
+                    className="min-h-12 rounded-xl border border-rose-300 text-rose-700 font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+                    <X className="w-4 h-4" /> สลิปไม่ผ่าน
+                  </button>
+                )}
+                {slipOpen.status !== 'Pending' && slipOpen.status !== 'Unpaid' && (
+                  <button onClick={() => void decideSlip(slipOpen, 'reset')} disabled={busy !== ''}
+                    className="min-h-12 rounded-xl bg-slate-100 text-slate-700 font-black text-sm col-span-2 disabled:opacity-50">
+                    ย้อนสถานะเป็นรอตรวจ
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {editor !== undefined && <EntryDialog tournamentId={tournamentId} entry={editor}
         sponsors={data?.sponsors || []}

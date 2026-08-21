@@ -47,11 +47,12 @@ import LoginPage from './components/LoginPage';
 import SystemDialogHost from './components/SystemDialogHost';
 import TeamOverviewDialog from './components/TeamOverviewDialog';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes, cancelMatchRecord, discardMatchDraft, resetMatchResult } from './services/sheetService';
+import { fetchDatabase, saveMatchToSheet, authenticateUser, saveMatchEventsToSheet, updateMyTeam, saveSettings, downloadSchoolAccessCodes, cancelMatchRecord, discardMatchDraft, resetMatchResult, scorerLogin } from './services/sheetService';
 import { initializeLiff, sharePrizeSummary, getLineIdToken } from './services/liffService';
 import { cacheSplash, isVideoSource, readCachedSplash, splashFromSettings } from './services/splash';
 import { checkSession, logout as authLogout } from './services/authService';
-import { setUnauthorizedHandler, clearToken, getToken } from './services/apiConfig';
+import { setUnauthorizedHandler, clearToken, getToken,
+         getScorerToken, getScorerTournamentId, clearScorerToken } from './services/apiConfig';
 import { RefreshCw, Clipboard, Trophy, Settings, UserPlus, LayoutList, BarChart3, Lock, Home, CheckCircle2, XCircle, ShieldAlert, MapPin, Loader2, Undo2, Edit2, Trash2, AlertTriangle, Bell, CalendarDays, WifiOff, ListChecks, ChevronRight, Share2, Megaphone, Video, Play, LogOut, User, LogIn, Heart, Navigation, Target, ChevronLeft, ArrowLeftRight, Edit3, ArrowLeft, Star, Coins, DollarSign, FileText, Download, Users, Camera, Gift, Monitor, School as SchoolIcon, ClipboardPenLine, Eye, ArrowUp, MoreVertical, ShieldCheck, Mic, Handshake, Award } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -888,7 +889,38 @@ export default function App() {
     startMatchSession(teamA, teamB, matchId, firstKicker);
   };
 
-  const handleStartMatchRequest = (teamA: Team, teamB: Team, matchId?: string) => { if (isAdmin || (currentUser && (currentUser.role === 'staff' || currentUser.role === 'referee'))) { maybeStartWithCoinToss(teamA, teamB, matchId); } else { setPendingMatchSetup({ teamA, teamB, matchId }); setIsPinOpen(true); } };
+  /**
+   * ── ใครเข้าหน้าจดผลได้ ────────────────────────────────────────────
+   *
+   * 1. บัญชีที่มีสิทธิ์อยู่แล้ว (แอดมิน/เจ้าหน้าที่/กรรมการ) — เข้าตรง
+   * 2. เครื่องที่กรอกรหัสเริ่มแข่งของรายการนี้ไว้แล้ว — เข้าตรงเช่นกัน
+   *    ไม่ถามซ้ำทุกแมตช์ เพราะงานหนึ่งมีหลายสิบนัดติดกัน
+   * 3. ที่เหลือ — ถามรหัส
+   *
+   * ⚠️ เทียบ tournamentId ด้วยเสมอ token ของงานหนึ่งใช้กับอีกงานไม่ได้
+   * ถ้าไม่เทียบ คนที่กรอกรหัสงานเมื่อวานจะเห็นหน้าจดผลของงานวันนี้เปิดขึ้นมา
+   * แล้วไปเจอ 403 ตอนกดบันทึก ซึ่งช้าไปแล้วเพราะแข่งไปแล้วหลายลูก
+   */
+  const canScoreHere = () => {
+    if (isAdmin) return true;
+    if (currentUser && (currentUser.role === 'staff' || currentUser.role === 'referee')) return true;
+    return !!getScorerToken()
+      && !!currentTournamentId
+      && getScorerTournamentId() === currentTournamentId;
+  };
+
+  const handleStartMatchRequest = (teamA: Team, teamB: Team, matchId?: string) => {
+    if (canScoreHere()) { maybeStartWithCoinToss(teamA, teamB, matchId); return; }
+    setPendingMatchSetup({ teamA, teamB, matchId });
+    setIsPinOpen(true);
+  };
+
+  const handleScorerVerify = async (code: string, label: string) => {
+    if (!currentTournamentId) throw new Error('ยังไม่ได้เลือกรายการแข่งขัน');
+    const r = await scorerLogin(currentTournamentId, code, label);
+    showNotification('เข้าใช้งานสำหรับจดผลแล้ว', r.tournamentName, 'success');
+  };
+
   const handlePinSuccess = () => { if (pendingMatchSetup) { const { teamA, teamB, matchId } = pendingMatchSetup; setPendingMatchSetup(null); setIsPinOpen(false); maybeStartWithCoinToss(teamA, teamB, matchId); } };
   /**
    * ตัดสินผลจากแผนผังช่วง (phasePlanOf) แทนการฮาร์ดโค้ด "5 คนแล้วจบ"
@@ -1580,7 +1612,14 @@ export default function App() {
         />
       )}
       <LoginDialog isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} onLogin={(u) => { handleAdminLogin(u); if (currentView !== 'tournament') goTo('admin'); }} />
-      <PinDialog isOpen={isPinOpen} onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }} onSuccess={handlePinSuccess} correctPin={String(appConfig.adminPin || "1234")} title="กรุณากรอกรหัสเริ่มแข่ง" />
+      <PinDialog
+        isOpen={isPinOpen}
+        onClose={() => { setIsPinOpen(false); setPendingMatchSetup(null); }}
+        onVerify={handleScorerVerify}
+        onSuccess={handlePinSuccess}
+        title="กรุณากรอกรหัสเริ่มแข่ง"
+        subtitle={activeTournament?.name || 'สำหรับกรรมการที่ไม่ได้เข้าสู่ระบบ'}
+      />
       {pendingCoinToss && (
         <CoinTossModal
           teamA={pendingCoinToss.teamA}

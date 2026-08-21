@@ -15,6 +15,20 @@ declare(strict_types=1);
  *   3. เดิมไม่ตรวจสิทธิ์เลย ⇒ ใครยิง URL ตรงก็แก้สกอร์ได้
  */
 
+/*
+ * ══ ใครบันทึกผลได้บ้าง ══
+ *
+ * ทุกเส้นที่ "เขียนผลการแข่งขัน" ในไฟล์นี้ใช้ Perm::requireScorer() ตัวเดียวกัน
+ * ซึ่งผ่านได้สองทาง: เป็นผู้ดูแลรายการ หรือถือรหัสเริ่มแข่งของรายการนั้น
+ *
+ * ⚠️ ห้ามใส่ Auth::requireLogin() กลับเข้ามาคู่กับมัน
+ * กรรมการที่กรอกรหัสถูกจะไม่มีบัญชี requireLogin จะตอบ 401 ตั้งแต่บรรทัดแรก
+ * แล้วอาการจะเป็น "กรอกรหัสผ่าน เข้าหน้าจดผลได้ แต่กดบันทึกแล้วไม่มีอะไรเกิดขึ้น"
+ * ซึ่งเป็นบั๊กเดิมที่ db/28 กับ Perm::requireScorer มีไว้แก้พอดี
+ *
+ * requireScorer เช็ค tournament_id ของนัดนั้นเสมอ รหัสของงานหนึ่ง
+ * จึงแตะผลของอีกงานไม่ได้ แม้จะรู้ matchId ก็ตาม
+ */
 function handle(string $action, array $cfg): void
 {
     match ($action) {
@@ -231,10 +245,9 @@ function live_group_by(array $rows, string $key): array
 
 function save_match_result(): void
 {
-    Auth::requireLogin();
 
     $tournamentId = Input::str('tournamentId') ?: 'default';
-    Perm::requireTournamentManager($tournamentId);
+    Perm::requireScorer($tournamentId);
 
     $matchId = Input::str('matchId');
     if ($matchId === '') {
@@ -410,7 +423,6 @@ function save_match_result(): void
  */
 function cancel_match_record(): void
 {
-    Auth::requireLogin();
 
     $matchId = Input::require_str('matchId');
     $kind = Input::enum('kind', ['kick', 'goal']);
@@ -422,7 +434,7 @@ function cancel_match_record(): void
     if ($match === null) {
         Response::fail('ไม่พบนัดนี้', 404);
     }
-    Perm::requireTournamentManager((string) $match['tournament_id']);
+    Perm::requireScorer((string) $match['tournament_id']);
 
     $round = max(0, (int) (Input::int('round') ?? 0));
     $side = strtoupper(Input::str('teamId'));
@@ -564,7 +576,6 @@ function cancel_match_record(): void
  */
 function reset_match_result(): void
 {
-    Auth::requireLogin();
 
     $matchId = Input::require_str('matchId');
     $match = Db::one(
@@ -575,7 +586,7 @@ function reset_match_result(): void
     if ($match === null) {
         Response::fail('ไม่พบนัดนี้', 404);
     }
-    Perm::requireTournamentManager((string) $match['tournament_id']);
+    Perm::requireScorer((string) $match['tournament_id']);
 
     $before = [
         'status' => $match['status'],
@@ -620,7 +631,6 @@ function reset_match_result(): void
  */
 function discard_match_draft(): void
 {
-    Auth::requireLogin();
     $matchId = Input::require_str('matchId');
     $match = Db::one(
         'SELECT tournament_id, status FROM matches WHERE match_id = :mid',
@@ -630,7 +640,7 @@ function discard_match_draft(): void
         // ยังไม่เคยกดผลเลยจึงยังไม่มีแถวบน server — ถือว่าทิ้งข้อมูลสำเร็จอยู่แล้ว
         Response::ok(['matchId' => $matchId, 'status' => 'NotSaved']);
     }
-    Perm::requireTournamentManager((string) $match['tournament_id']);
+    Perm::requireScorer((string) $match['tournament_id']);
     if (in_array($match['status'], ['Finished', 'Walkover'], true)) {
         Response::fail('ผลการแข่งขันนี้จบและบันทึกแล้ว ไม่สามารถทิ้งเป็นข้อมูลทดลองได้', 409);
     }
@@ -659,7 +669,6 @@ function discard_match_draft(): void
  */
 function save_match_events(): void
 {
-    Auth::requireLogin();
 
     $events = Input::arr('events');
     if ($events === []) {
@@ -681,7 +690,7 @@ function save_match_events(): void
     if ($m === null) {
         Response::fail('ไม่พบนัดนี้', 404);
     }
-    Perm::requireTournamentManager((string) $m['tournament_id']);
+    Perm::requireScorer((string) $m['tournament_id']);
 
     Db::transaction(static function () use ($matchId, $events): void {
         write_events($matchId, $events);

@@ -357,6 +357,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           notify("ข้อมูลไม่ครบ", "กรุณากรอกชื่อที่แสดง", "warning");
           return;
       }
+      /*
+       * ฐานข้อมูลบังคับว่าบัญชีที่มีสิทธิ์ต้องมี "ทั้ง" ชื่อผู้ใช้และรหัสผ่าน
+       * (chk_staff_has_password) — ถ้าไม่ดักตรงนี้ ผู้ดูแลจะกดบันทึกแล้วเจอ
+       * ข้อความ "ฐานข้อมูลผิดพลาด" ซึ่งไม่บอกเลยว่าต้องไปแก้อะไร
+       */
+      if (userForm.role !== 'user') {
+          if (!userForm.username) {
+              notify("ตั้งชื่อผู้ใช้ก่อน", "บัญชีที่มีสิทธิ์ต้องมีชื่อผู้ใช้สำหรับเข้าสู่ระบบ", "warning");
+              return;
+          }
+          if (editingUser && !editingUser.username && !userForm.password) {
+              notify("ตั้งรหัสผ่านก่อน", "บัญชีที่เข้าด้วย LINE ยังไม่มีรหัสผ่าน — ตั้งให้ก่อนจึงจะเลื่อนสิทธิ์ได้", "warning");
+              return;
+          }
+      }
       
       const targetUserId = editingUser ? editingUser.userId : `U_${Date.now()}`;
       setIsUserModalOpen(false);
@@ -1782,7 +1797,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* USER MANAGEMENT MODAL */}
-      {isUserModalOpen && (
+      {isUserModalOpen && (() => {
+        // มีชื่อผู้ใช้อยู่แล้ว = ห้ามแก้ / ยังไม่มี = ต้องเติมได้
+        const hasUsername = !!(editingUser && editingUser.username);
+        return (
           <div className="fixed inset-0 z-[1400] bg-black/50 modal-sheet flex items-end md:items-center justify-center p-0 md:p-4 backdrop-blur-sm">
               <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in duration-200">
                   <div className="flex justify-between items-center mb-4 border-b pb-2">
@@ -1791,14 +1809,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                   <div className="space-y-3">
                       <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-1">Username (ใช้สำหรับเข้าสู่ระบบ)</label>
-                          <input 
-                              type="text" 
-                              value={userForm.username} 
-                              onChange={e => setUserForm({...userForm, username: e.target.value})} 
-                              className="w-full p-2 border rounded-lg" 
-                              disabled={!!editingUser} // Cannot change username on edit
+                          <label className="block text-sm font-bold text-slate-700 mb-1">ชื่อผู้ใช้ (ใช้เข้าสู่ระบบ)</label>
+                          <input
+                              type="text"
+                              value={userForm.username}
+                              onChange={e => setUserForm({...userForm, username: e.target.value})}
+                              className="w-full p-2 border rounded-lg disabled:bg-slate-100 disabled:text-slate-500"
+                              placeholder={hasUsername ? '' : 'ตั้งชื่อผู้ใช้ให้บัญชีนี้'}
+                              /*
+                               * เปลี่ยนชื่อผู้ใช้เดิมไม่ได้ — เจ้าตัวใช้เข้าระบบอยู่
+                               * แต่บัญชีที่เข้าด้วย LINE ยังไม่มีชื่อผู้ใช้เลย ต้องเติมให้ได้
+                               * ไม่งั้นเลื่อนสิทธิ์ให้ไม่ได้ตลอดไป (ฐานข้อมูลบังคับว่า
+                               * บัญชีที่มีสิทธิ์ต้องมีทั้งชื่อผู้ใช้และรหัสผ่าน)
+                               */
+                              disabled={hasUsername}
                           />
+                          {editingUser && !hasUsername && (
+                              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5">
+                                  บัญชีนี้เข้าระบบด้วย LINE จึงยังไม่มีชื่อผู้ใช้
+                                  — ถ้าจะให้สิทธิ์กรรมการ/เจ้าหน้าที่/ผู้ดูแล ต้องตั้งชื่อผู้ใช้และรหัสผ่านให้ก่อน
+                              </p>
+                          )}
                       </div>
                       <div>
                           <label className="block text-sm font-bold text-slate-700 mb-1">ชื่อที่แสดง (Display Name)</label>
@@ -1851,7 +1882,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
               </div>
           </div>
-      )}
+        );
+      })()}
 
       {/* CONTEST MODAL */}
       {isContestModalOpen && (

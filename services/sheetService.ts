@@ -2,7 +2,8 @@
 // ... existing imports ...
 import { Team, Player, MatchState, RegistrationData, AppSettings, School, NewsItem, Kick, UserProfile, Tournament, MatchEvent, Donation, Contest, ContestEntry, ContestComment, Prediction, Sponsor, MusicTrack, TickerMessage } from '../types';
 
-import { DB_API, apiGet, apiPost, apiUpload, setToken } from './apiConfig';
+import { DB_API, apiGet, apiPost, apiUpload, setToken,
+         getScorerToken, setScorerToken, clearScorerToken } from './apiConfig';
 
 const CACHE_KEY_DB = 'penalty_pro_db_cache';
 const CACHE_KEY_TIMESTAMP = 'penalty_pro_db_timestamp';
@@ -620,3 +621,102 @@ export const moderateBroadcastComments = async (
   tournamentId: string, commentIds: string[], status: 'approved' | 'rejected' | 'pending',
 ): Promise<number> =>
   (await apiPost<any>('moderateBroadcastComment', { tournamentId, commentIds, status })).updated ?? 0;
+
+/* ══════════════════════════════════════════════════════════════════════
+ * รหัสเริ่มแข่ง — ให้กรรมการที่ไม่มีบัญชีบันทึกผลได้
+ * ══════════════════════════════════════════════════════════════════════ */
+
+export type ScorerCodeStatus = {
+  enabled: boolean;
+  setAt?: string | null;
+  setByName?: string;
+  activeDevices: number;
+};
+
+/** กรรมการกรอกรหัสหน้าสนาม — ได้ token ที่บันทึกผลได้เฉพาะรายการนี้ */
+export const scorerLogin = async (
+  tournamentId: string, code: string, label = '',
+): Promise<{ tournamentId: string; tournamentName: string; expiresAt: string }> => {
+  const r = await apiPost<any>('scorerLogin', { tournamentId, code, label });
+  setScorerToken(r.scorerToken, r.tournamentId);
+  return {
+    tournamentId: r.tournamentId,
+    tournamentName: r.tournamentName ?? '',
+    expiresAt: r.expiresAt ?? '',
+  };
+};
+
+/** เครื่องนี้ยังบันทึกผลได้อยู่ไหม — ถามก่อนเปิดหน้าจดผล ไม่ต้องรอให้กดบันทึกแล้วพัง */
+export const checkScorerSession = async (): Promise<string | null> => {
+  if (!getScorerToken()) return null;
+  try {
+    const r = await apiGet<any>('scorerSession', {});
+    if (!r.active) { clearScorerToken(); return null; }
+    return String(r.tournamentId ?? '');
+  } catch {
+    return null;    // ถามไม่ได้ก็ถือว่าไม่มี ให้กรอกรหัสใหม่ ปลอดภัยกว่าเดา
+  }
+};
+
+export const fetchScorerCodeStatus = async (tournamentId: string): Promise<ScorerCodeStatus> => {
+  const r = await apiGet<any>('getScorerCodeStatus', { tournamentId });
+  return {
+    enabled: !!r.enabled,
+    setAt: r.setAt ?? null,
+    setByName: r.setByName ?? '',
+    activeDevices: Number(r.activeDevices || 0),
+  };
+};
+
+/** ตั้งรหัสใหม่ หรือส่ง remove เพื่อปิดทางนี้ — ทั้งสองแบบเตะเครื่องที่ถือรหัสเก่าออก */
+export const saveScorerCode = async (
+  tournamentId: string, code: string, remove = false,
+): Promise<{ enabled: boolean; devicesSignedOut: number }> => {
+  const r = await apiPost<any>('setScorerCode', { tournamentId, code, remove });
+  return { enabled: !!r.enabled, devicesSignedOut: Number(r.devicesSignedOut || 0) };
+};
+
+/* ══════════════════════════════════════════════════════════════════════
+ * ตรวจสลิปค่าสมัครจากหน้าบัญชี — เส้นเดียวกับหน้า /admin
+ * ══════════════════════════════════════════════════════════════════════ */
+
+export type RegistrationSlip = {
+  id: string;
+  name: string;
+  schoolName: string;
+  group: string;
+  slipUrl: string;
+  hasSlip: boolean;
+  status: 'Unpaid' | 'Pending' | 'Verified' | 'Rejected';
+  note: string;
+  reviewedAt?: string | null;
+  reviewedBy?: string;
+};
+
+export const fetchRegistrationSlips = async (tournamentId: string): Promise<{
+  teams: RegistrationSlip[];
+  counts: Record<string, number>;
+  feePerTeam: number;
+  canReview: boolean;
+}> => {
+  const r = await apiGet<any>('listRegistrationSlips', { tournamentId });
+  return {
+    teams: r.teams ?? [],
+    counts: r.counts ?? {},
+    feePerTeam: Number(r.feePerTeam || 0),
+    canReview: !!r.canReview,
+  };
+};
+
+/**
+ * ตัดสินผลตรวจสลิป — action เดียวกับที่หน้า /admin เรียก
+ * ตรวจฝั่งไหนอีกฝั่งจึงเห็นเหมือนกันทันที เพราะเขียนลงคอลัมน์เดียวกันของทีมนั้น
+ */
+export const reviewRegistrationPayment = async (
+  teamId: string,
+  decision: 'verify' | 'verify_manual' | 'reject' | 'reset',
+  note = '',
+): Promise<{ paymentStatus: string; paymentNote: string }> => {
+  const r = await apiPost<any>('reviewRegistrationPayment', { teamId, decision, note });
+  return { paymentStatus: r.paymentStatus ?? '', paymentNote: r.paymentNote ?? '' };
+};

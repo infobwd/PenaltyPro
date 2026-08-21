@@ -9,6 +9,7 @@ function handle(string $action, array $cfg): void
         'saveFinanceEntry'        => save_finance_entry($cfg),
         'deleteFinanceEntry'      => delete_finance_entry(),
         'assignFinanceAccountant' => assign_finance_accountant(),
+        'listRegistrationSlips'   => registration_slips(),
         default => Response::fail("ไม่รองรับ action '$action'", 404),
     };
 }
@@ -383,4 +384,67 @@ function sync_host_finance_sponsor(string $tournamentId): void
          ':logo' => (string) ($host['logo_url'] ?? ''),
          ':amount' => number_format($total, 2, '.', ''), ':detail' => $detail]
     );
+}
+
+/**
+ * ทีมทั้งหมดพร้อมสถานะการชำระค่าสมัคร — สำหรับตรวจสลิปในหน้าบัญชี
+ *
+ * แยกเป็น action ของตัวเองแทนที่จะยัดรวมใน getFinanceData เพราะหลังกดตรวจ
+ * แต่ละครั้งต้องโหลดรายการนี้ใหม่ ถ้ารวมอยู่ก็ต้องดึงสมุดบัญชีทั้งเล่ม
+ * ผู้สนับสนุน และรายชื่อผู้ใช้มาด้วยทุกครั้ง ทั้งที่ไม่มีอะไรเปลี่ยน
+ *
+ * ⚠️ ไม่คืน slip_url ให้คนที่ตรวจไม่ได้ — สลิปมีชื่อบัญชีและเลขบัญชีของครู
+ */
+function registration_slips(): void
+{
+    $tid = Input::require_str('tournamentId');
+    require_finance_access($tid);
+
+    $canReview = Perm::canReviewPayments($tid);
+
+    $rows = Db::all(
+        "SELECT t.team_id, t.name, t.group_name, t.slip_url, t.payment_status,
+                t.payment_note, t.payment_reviewed_at, s.school_name,
+                u.display_name AS reviewed_by_name
+           FROM teams t
+           LEFT JOIN schools s ON s.school_id = t.school_id
+           LEFT JOIN users u ON u.user_id = t.payment_reviewed_by
+          WHERE t.tournament_id = :tid AND t.status <> 'Withdrawn'
+          ORDER BY FIELD(t.payment_status,'Pending','Rejected','Unpaid','Verified'),
+                   t.name",
+        [':tid' => $tid]
+    );
+
+    $counts = ['Verified' => 0, 'Pending' => 0, 'Unpaid' => 0, 'Rejected' => 0];
+    $teams = [];
+    foreach ($rows as $r) {
+        $status = (string) $r['payment_status'];
+        if (array_key_exists($status, $counts)) {
+            $counts[$status]++;
+        }
+        $teams[] = [
+            'id'           => $r['team_id'],
+            'name'         => $r['name'],
+            'schoolName'   => (string) ($r['school_name'] ?? ''),
+            'group'        => (string) ($r['group_name'] ?? ''),
+            'slipUrl'      => $canReview ? drive_img((string) ($r['slip_url'] ?? '')) : '',
+            'hasSlip'      => trim((string) ($r['slip_url'] ?? '')) !== '',
+            'status'       => $status,
+            'note'         => (string) ($r['payment_note'] ?? ''),
+            'reviewedAt'   => $r['payment_reviewed_at'],
+            'reviewedBy'   => (string) ($r['reviewed_by_name'] ?? ''),
+        ];
+    }
+
+    $fee = (float) (Db::value(
+        'SELECT registration_fee FROM tournaments WHERE tournament_id = :tid2',
+        [':tid2' => $tid]
+    ) ?? 0);
+
+    Response::ok([
+        'teams'      => $teams,
+        'counts'     => $counts,
+        'feePerTeam' => $fee,
+        'canReview'  => $canReview,
+    ]);
 }

@@ -18,6 +18,8 @@ function handle(string $action, array $cfg): void
         'setTournamentHost'     => set_tournament_host(),
         'assignTournamentManager' => assign_tournament_manager(),
         'listTournamentManagers'  => list_tournament_managers(),
+        'getScorerCodeStatus'     => scorer_code_status(),
+        'setScorerCode'           => set_scorer_code(),
         'flushCache'            => flush_cache(),
         default                 => Response::fail("ไม่รองรับ action '$action'", 404),
     };
@@ -479,4 +481,120 @@ function flush_cache(): void
     Cache::flush();
     Audit::log('system', 'cache', 'flush');
     Response::ok(['message' => 'ล้าง cache แล้ว — โหลดหน้าเว็บใหม่เพื่อดูข้อมูลล่าสุด']);
+}
+
+/**
+ * ── รหัสเริ่มแข่งของรายการนี้ ────────────────────────────────────────
+ *
+ * บอกได้แค่ว่า "ตั้งไว้หรือยัง ตั้งเมื่อไหร่ ใครตั้ง" — ตัวรหัสดูย้อนหลังไม่ได้
+ * เพราะเก็บเป็น hash เหมือนรหัสผ่าน ถ้าลืมต้องตั้งใหม่ ซึ่งถูกแล้ว:
+ * ระบบที่เปิดให้อ่านรหัสที่ยังใช้งานอยู่ = ใครเข้าหลังบ้านได้ก็ได้รหัสไปด้วย
+ */
+function scorer_code_status(): void
+{
+    $tid = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tid);
+
+    $row = Db::one(
+        'SELECT t.scorer_code_hash, t.scorer_code_set_at, u.display_name
+           FROM tournaments t
+           LEFT JOIN users u ON u.user_id = t.scorer_code_set_by
+          WHERE t.tournament_id = :tid',
+        [':tid' => $tid]
+    );
+    if ($row === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+
+    $active = (int) Db::value(
+        'SELECT COUNT(*) FROM scorer_sessions
+          WHERE tournament_id = :tid2 AND expires_at > NOW() AND revoked_at IS NULL',
+        [':tid2' => $tid]
+    );
+
+    Response::ok([
+        'enabled'       => ((string) ($row['scorer_code_hash'] ?? '')) !== '',
+        'setAt'         => $row['scorer_code_set_at'],
+        'setByName'     => (string) ($row['display_name'] ?? ''),
+        'activeDevices' => $active,
+    ]);
+}
+
+function set_scorer_code(): void
+{
+    $tid = Input::require_str('tournamentId');
+    Perm::requireTournamentManager($tid);
+
+    if (Db::value('SELECT 1 FROM tournaments WHERE tournament_id = :tid', [':tid' => $tid]) === null) {
+        Response::fail('ไม่พบรายการแข่งขันนี้', 404);
+    }
+
+    // ปิดทาง = ล้างรหัสทิ้ง กลับไปเป็น "ต้องเข้าระบบเท่านั้น"
+    if (Input::bool('remove')) {
+        Db::exec(
+            'UPDATE tournaments SET scorer_code_hash = NULL,
+                    scorer_code_set_at = NULL, scorer_code_set_by = NULL
+              WHERE tournament_id = :tid2',
+            [':tid2' => $tid]
+        );
+        $kicked = revoke_scorer_sessions($tid);
+        Audit::log('tournament', $tid, 'scorer_code_remove');
+        Cache::flush();
+        Response::ok(['enabled' => false, 'devicesSignedOut' => $kicked]);
+    }
+
+    $code = preg_replace('/s+/', '', Input::require_str('code'));
+
+    /*
+     * ตัวเลข 6-10 หลัก
+     *
+     * เป็นตัวเลขล้วนเพราะช่องกรอกหน้าสนามเปิดแป้นตัวเลขบนมือถือ
+     * และรหัสนี้ถูกบอกต่อกันด้วยปาก ตัวอักษรผสมจะกลายเป็น "L หรือ ไอ นะ"
+     *
+     * อย่างน้อย 6 หลักเพราะ 4 หลักคือ 10,000 แบบ ซึ่งไล่เดาหมดได้จริง
+     * ต่อให้มี rate limit ก็แค่ทำให้ช้าลง ไม่ได้ทำให้เป็นไปไม่ได้
+     * — และของที่ป้องกันอยู่คือผลการแข่งขันที่ออกอากาศสด
+     */
+    if (!preg_match('/^[0-9]{6,10}$/', $code)) {
+        Response::fail('รหัสเริ่มแข่งต้องเป็นตัวเลข 6-10 หลัก', 422);
+    }
+    // ตัวเลขซ้ำตัวเดียวทั้งหมด (111111) เดาได้ในไม่กี่ครั้ง
+    if (count(array_unique(str_split($code))) === 1) {
+        Response::fail('รหัสเริ่มแข่งต้องไม่ใช่ตัวเลขซ้ำตัวเดียวทั้งหมด', 422);
+    }
+
+    Db::exec(
+        'UPDATE tournaments SET scorer_code_hash = :hash,
+                scorer_code_set_at = NOW(), scorer_code_set_by = :by
+          WHERE tournament_id = :tid3',
+        [
+            ':hash' => password_hash($code, PASSWORD_DEFAULT),
+            ':by'   => Auth::userId(),
+            ':tid3' => $tid,
+        ]
+    );
+
+    // ตั้งรหัสใหม่ต้องเตะเครื่องที่ถือรหัสเก่าออกทันที ไม่งั้นการเปลี่ยนรหัส
+    // เพราะ "รหัสหลุด" จะไม่ได้แก้อะไรเลยจนกว่า token เก่าจะหมดอายุเอง
+    $kicked = revoke_scorer_sessions($tid);
+
+    Audit::log('tournament', $tid, 'scorer_code_set', null,
+        ['devicesSignedOut' => $kicked]);
+    Cache::flush();
+    Response::ok(['enabled' => true, 'devicesSignedOut' => $kicked]);
+}
+
+function revoke_scorer_sessions(string $tournamentId): int
+{
+    $n = (int) Db::value(
+        'SELECT COUNT(*) FROM scorer_sessions
+          WHERE tournament_id = :tid AND expires_at > NOW() AND revoked_at IS NULL',
+        [':tid' => $tournamentId]
+    );
+    Db::exec(
+        'UPDATE scorer_sessions SET revoked_at = NOW()
+          WHERE tournament_id = :tid2 AND revoked_at IS NULL',
+        [':tid2' => $tournamentId]
+    );
+    return $n;
 }

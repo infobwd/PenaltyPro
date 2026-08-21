@@ -25,8 +25,16 @@ final class Auth
 {
     private static ?array $user = null;        // ผู้ใช้ที่ล็อกอิน (LINE/แอดมิน)
     private static ?array $teamSession = null; // session ของโรงเรียน
+    private static ?array $scorer = null;      // กรรมการที่เข้าด้วยรหัสเริ่มแข่ง
     private static int $ttl = 43200;
     private static int $teamTtl = 604800;
+    /*
+     * รหัสเริ่มแข่งมีอายุสั้นกว่าทางเข้าอื่นมาก เพราะมันคือ "ทางเข้าของงานวันนี้"
+     * บอกต่อกันปากเปล่าหน้าสนาม ถือว่าหลุดตั้งแต่วันแรก
+     * 16 ชั่วโมงยาวพอสำหรับงานที่เริ่มเช้ายันค่ำโดยไม่ต้องกรอกซ้ำกลางแมตช์
+     * และสั้นพอที่วันรุ่งขึ้นเครื่องที่ยืมมาจะบันทึกผลไม่ได้แล้ว
+     */
+    private static int $scorerTtl = 57600;
     private static array $lineCfg = [];
 
     public static function configure(int $ttl, int $teamTtl, array $lineCfg): void
@@ -58,9 +66,36 @@ final class Auth
         return (string) ($_GET['token'] ?? '');
     }
 
+    /**
+     * token ของกรรมการมาคนละช่องกับ Authorization โดยตั้งใจ
+     *
+     * ครูที่เข้าระบบอยู่แล้วอาจกรอกรหัสเริ่มแข่งเพื่อช่วยจดผล ถ้าใช้ช่องเดียวกัน
+     * token ของบัญชีจะถูกทับ แล้วเขาจะหลุดจากบัญชีตัวเองทันทีที่ไปช่วยจดผล
+     * (อาการเดียวกับที่เคยเกิดกับ session โรงเรียน — ดูหมายเหตุใน boot())
+     * แยกช่องไว้ ทั้งสองใบจึงอยู่ด้วยกันได้ ใครมีสิทธิ์อะไรก็ยังเป็นอย่างนั้น
+     */
+    private static function scorerToken(): string
+    {
+        $h = $_SERVER['HTTP_X_SCORER_TOKEN'] ?? '';
+        if ($h === '' && function_exists('apache_request_headers')) {
+            foreach (apache_request_headers() as $k => $v) {
+                if (strcasecmp($k, 'X-Scorer-Token') === 0) {
+                    $h = $v;
+                    break;
+                }
+            }
+        }
+        // เผื่อ host ตัด header แปลก ๆ ทิ้ง — เหมือนที่ bearer() ทำกับ Authorization
+        if ($h === '') {
+            $h = (string) ($_GET['scorerToken'] ?? '');
+        }
+        return trim((string) $h);
+    }
+
     /** โหลด session จาก token — เรียกครั้งเดียวต่อคำขอ */
     public static function boot(): void
     {
+        self::bootScorer();
         $token = self::bearer();
         if ($token === '') {
             return;
@@ -146,19 +181,27 @@ final class Auth
             self::isReferee()          => 'referee',
             self::schoolId() !== null  => 'school',
             self::isLoggedIn()         => 'user',
+            // ต่ำสุดเพราะบัญชีจริงบอกตัวตนได้ดีกว่ารหัสที่ใครก็กรอกได้
+            self::$scorer !== null     => 'scorer',
             default                    => 'system',
         };
     }
 
     public static function actorId(): string
     {
-        return (string) (self::userId() ?? self::schoolId() ?? '');
+        return (string) (self::userId() ?? self::schoolId()
+            ?? self::scorerTournamentId() ?? '');
     }
 
     public static function actorName(): string
     {
+        // กรรมการที่เข้าด้วยรหัสไม่มีบัญชี — ใช้ชื่อที่กรอกไว้ตอนกรอกรหัส
+        // ถ้าไม่กรอกก็ต้องยอมรับว่า audit บอกได้แค่ "มีคนถือรหัสของงานนี้"
+        $scorer = self::$scorer !== null
+            ? (self::scorerLabel() !== '' ? 'กรรมการ: ' . self::scorerLabel() : 'กรรมการ (รหัสเริ่มแข่ง)')
+            : null;
         return (string) (self::$user['display_name']
-            ?? self::$teamSession['school_name'] ?? '');
+            ?? self::$teamSession['school_name'] ?? $scorer ?? '');
     }
 
     // ── ด่านตรวจสิทธิ์ ──────────────────────────────────────────────────
@@ -226,6 +269,63 @@ final class Auth
      * $userId คือบัญชีที่กำลังเข้าระบบอยู่ตอนกดเข้าหน้าโรงเรียน (ถ้ามี)
      * เก็บไว้เพื่อให้ token ใบนี้ถือทั้งสิทธิ์โรงเรียนและตัวผู้ใช้ ดู boot()
      */
+    /**
+     * session ของกรรมการ — รู้แค่ว่า "ถือรหัสของรายการไหน" ไม่ผูกกับบัญชีใคร
+     *
+     * ไม่ต่ออายุแบบ sliding ต่างจาก session ผู้ใช้ เพราะอันนี้ไม่ควรอยู่ข้ามงาน
+     * ถ้าต่ออายุทุกครั้งที่ใช้ เครื่องที่เปิดหน้าค้างไว้จะบันทึกผลได้ไม่มีวันหมด
+     */
+    private static function bootScorer(): void
+    {
+        $token = self::scorerToken();
+        if ($token === '') {
+            return;
+        }
+        $hash = hash('sha256', $token);
+        $row = Db::one(
+            'SELECT tournament_id, label FROM scorer_sessions
+              WHERE token_hash = :sh AND expires_at > NOW() AND revoked_at IS NULL',
+            [':sh' => $hash]
+        );
+        if ($row === null) {
+            return;
+        }
+        self::$scorer = $row;
+        Db::exec('UPDATE scorer_sessions SET last_seen_at = NOW() WHERE token_hash = :sh2',
+            [':sh2' => $hash]);
+    }
+
+    /** รายการที่กรรมการคนนี้บันทึกผลได้ (null = ไม่ได้ถือรหัสเริ่มแข่ง) */
+    public static function scorerTournamentId(): ?string
+    {
+        return self::$scorer['tournament_id'] ?? null;
+    }
+
+    public static function scorerLabel(): string
+    {
+        return (string) (self::$scorer['label'] ?? '');
+    }
+
+    public static function issueScorer(string $tournamentId, string $label = ''): array
+    {
+        $token = bin2hex(random_bytes(32));
+        $exp = date('Y-m-d H:i:s', time() + self::$scorerTtl);
+        Db::exec(
+            'INSERT INTO scorer_sessions
+                (token_hash, tournament_id, label, expires_at, ip_hash, user_agent)
+             VALUES (:h, :tid, :label, :exp, :ip, :ua)',
+            [
+                ':h'     => hash('sha256', $token),
+                ':tid'   => $tournamentId,
+                ':label' => mb_substr($label, 0, 80),
+                ':exp'   => $exp,
+                ':ip'    => self::ipHash(),
+                ':ua'    => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+            ]
+        );
+        return ['token' => $token, 'expiresAt' => $exp];
+    }
+
     public static function issueTeam(
         string $schoolId,
         string $tournamentId,

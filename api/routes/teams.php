@@ -966,7 +966,9 @@ function review_registration_payment(): void
     if ($team === null) {
         Response::fail('ไม่พบทีมนี้', 404);
     }
-    Perm::requireTournamentManager($team['tournament_id']);
+    // ตรวจได้ทั้งจากหน้า /admin และหน้า /finance — เส้นเดียวกัน ตารางเดียวกัน
+    // ตรวจฝั่งไหนอีกฝั่งจึงเห็นผลเหมือนกันทันที ไม่มีสถานะสองชุดให้ขัดกัน
+    Perm::requirePaymentReviewer($team['tournament_id']);
 
     $old = ['status' => $team['payment_status'], 'note' => $team['payment_note']];
     $note = trim(Input::str('note'));

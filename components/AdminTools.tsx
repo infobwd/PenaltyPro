@@ -9,6 +9,9 @@ import { apiGet, apiPost, ApiError } from '../services/apiConfig';
 import SearchPicker, { PickerItem } from './SearchPicker';
 import TournamentMusicManager from './TournamentMusicManager';
 import { confirmAction, promptAction } from '../services/uiService';
+import {
+  ScorerCodeStatus, fetchScorerCodeStatus, saveScorerCode,
+} from '../services/sheetService';
 
 /**
  * เครื่องมือผู้ดูแล — งานที่ทำผ่านหน้าจอไม่ได้มาก่อน ต้องยิง API เอง
@@ -84,6 +87,8 @@ const AdminTools: React.FC<Props> = ({
   const [schoolFilter, setSchoolFilter] = useState('');
   const [assignment, setAssignment] = useState<TournamentAssignment | null>(null);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
+  const [scorerStatus, setScorerStatus] = useState<ScorerCodeStatus | null>(null);
+  const [scorerCode, setScorerCode] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'All' | PaymentStatus>('All');
   const [paymentSearch, setPaymentSearch] = useState('');
   const [paymentPage, setPaymentPage] = useState(1);
@@ -326,6 +331,48 @@ const AdminTools: React.FC<Props> = ({
     });
   };
 
+  useEffect(() => {
+    let active = true;
+    setScorerStatus(null);
+    setScorerCode('');
+    if (!target) return;
+    fetchScorerCodeStatus(target)
+      .then(r => { if (active) setScorerStatus(r); })
+      .catch(() => { if (active) setScorerStatus(null); });
+    return () => { active = false; };
+  }, [target]);
+
+  const doSaveScorerCode = () => run('scorer', async () => {
+    const r = await saveScorerCode(target, scorerCode.trim());
+    setScorerCode('');
+    setScorerStatus(await fetchScorerCodeStatus(target));
+    notify('ตั้งรหัสเริ่มแข่งแล้ว',
+      r.devicesSignedOut > 0
+        ? `เครื่องที่ใช้รหัสเดิมอยู่ ${r.devicesSignedOut} เครื่องต้องกรอกรหัสใหม่`
+        : 'บอกรหัสนี้กับกรรมการที่จดผลหน้าสนามได้เลย',
+      'success');
+  }, false);
+
+  const doRemoveScorerCode = async () => {
+    const ok = await confirmAction(
+      [
+        'กรรมการที่ไม่มีบัญชีจะบันทึกผลไม่ได้อีก',
+        '',
+        'เครื่องที่กำลังใช้รหัสอยู่ตอนนี้จะถูกตัดทันที',
+        'ถ้ากำลังแข่งอยู่ ผลที่ยังไม่กดบันทึกจะส่งขึ้นระบบไม่ได้',
+      ].join('\n'),
+      { title: 'ปิดการบันทึกผลด้วยรหัส?', dangerous: true, confirmText: 'ปิดการใช้งาน' },
+    );
+    if (!ok) return;
+    await run('scorer', async () => {
+      const r = await saveScorerCode(target, '', true);
+      setScorerStatus(await fetchScorerCodeStatus(target));
+      notify('ปิดการบันทึกผลด้วยรหัสแล้ว',
+        r.devicesSignedOut > 0 ? `ตัดเครื่องที่ใช้อยู่ ${r.devicesSignedOut} เครื่อง` : '',
+        'success');
+    }, false);
+  };
+
   const loadSchoolList = () => run('list', async () => {
     const r = await apiGet('listSchools', { tournamentId: target, onlyWithTeams: '1' });
     setSchoolList(r.schools ?? []);
@@ -428,7 +475,22 @@ const AdminTools: React.FC<Props> = ({
         </select>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      {/*
+        * grid-cols-1 ไม่ใช่ของเกิน — มันคือตัวที่กันจอล้นบนมือถือ
+        *
+        * เดิมเขียนแค่ "grid ... md:grid-cols-2" คือไม่ได้บอกจำนวนคอลัมน์ของจอเล็ก
+        * CSS จึงสร้างคอลัมน์แบบ auto ซึ่ง "ขยายตามเนื้อหาได้ไม่จำกัด"
+        * พอในการ์ดมี <select> ที่ตัวเลือกเป็นชื่อรายการแข่งขันยาว ๆ
+        * คอลัมน์เลยกว้าง 548px ทั้งที่จอกว้าง 375px — เลื่อนซ้ายขวาได้ทั้งหน้า
+        *
+        * grid-cols-1 ของ Tailwind แปลว่า repeat(1, minmax(0, 1fr))
+        * ตรง minmax(0, ...) คือคำสั่งว่า "หดได้จนถึง 0" คอลัมน์จึงไม่โตเกินจอ
+        * แล้ว select ที่เป็น w-full ก็หดตามการ์ด (เบราว์เซอร์ตัดท้ายข้อความให้เอง)
+        *
+        * ⚠️ grid ที่ไม่ระบุจำนวนคอลัมน์ของจอเล็กจะพังแบบนี้เสมอเมื่อมีเนื้อหา
+        * ที่หดไม่ได้ (select, ข้อความไทยยาว ๆ ที่ไม่มีช่องว่าง, โค้ด, URL)
+        */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* ── คัดลอกทีม ─────────────────────────────────────────── */}
         <Card
           icon={<Copy className="w-5 h-5" />}
@@ -642,6 +704,80 @@ const AdminTools: React.FC<Props> = ({
               <p className="px-3 py-4 text-xs text-slate-500 text-center">ยังไม่มีผู้ดูแลที่ได้รับมอบหมาย</p>
             )}
           </div>
+        </Card>
+
+        {/* ── รหัสเริ่มแข่ง ──────────────────────────────────────── */}
+        <Card
+          icon={<KeyRound className="w-5 h-5" />}
+          title="รหัสเริ่มแข่ง (บันทึกผลโดยไม่ต้องมีบัญชี)"
+          desc={`ครูที่ถูกวานมาช่วยจดผลหน้าสนามกรอกรหัสนี้แล้วบันทึกผลได้เลย · ${targetTournament?.name || 'เลือกรายการแข่งขัน'}`}
+        >
+          {target === '' ? (
+            <p className="text-sm text-slate-400">เลือกรายการแข่งขันด้านบนก่อน</p>
+          ) : (
+            <>
+              <div className={`rounded-xl border p-3 mb-3 ${
+                scorerStatus?.enabled
+                  ? 'bg-emerald-50 border-emerald-200'
+                  : 'bg-slate-50 border-slate-200'
+              }`}>
+                <p className={`text-sm font-bold ${scorerStatus?.enabled ? 'text-emerald-800' : 'text-slate-600'}`}>
+                  {scorerStatus === null
+                    ? 'กำลังตรวจสอบ…'
+                    : scorerStatus.enabled ? 'เปิดใช้งานอยู่' : 'ยังไม่ได้ตั้งรหัส — ต้องเข้าสู่ระบบเท่านั้น'}
+                </p>
+                {scorerStatus?.enabled && (
+                  <p className="text-[11px] text-emerald-700 mt-1 leading-relaxed">
+                    {scorerStatus.setAt
+                      ? `ตั้งเมื่อ ${new Date(String(scorerStatus.setAt).replace(' ', 'T')).toLocaleString('th-TH')}` : ''}
+                    {scorerStatus.setByName ? ` โดย ${scorerStatus.setByName}` : ''}
+                    {` · กำลังใช้อยู่ ${scorerStatus.activeDevices} เครื่อง`}
+                  </p>
+                )}
+              </div>
+
+              <label className="block text-xs font-bold text-slate-600 mb-1">
+                ตั้งรหัสใหม่ (ตัวเลข 6-10 หลัก)
+              </label>
+              <input
+                value={scorerCode}
+                onChange={e => setScorerCode(e.target.value.replace(/[^0-9]/g, ''))}
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="เช่น 254712"
+                className={`${inp} font-mono tracking-widest text-center`}
+              />
+              <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                ดูรหัสเดิมย้อนหลังไม่ได้ เพราะเก็บแบบเดียวกับรหัสผ่าน — ลืมแล้วตั้งใหม่ได้เลย
+                · ตั้งรหัสใหม่ทุกครั้งจะตัดเครื่องที่ใช้รหัสเดิมออกทันที
+              </p>
+
+              <button
+                onClick={doSaveScorerCode}
+                disabled={scorerCode.trim().length < 6 || busy === 'scorer'}
+                className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700 mt-2 w-full flex items-center justify-center gap-2`}
+              >
+                {busy === 'scorer' ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                {scorerStatus?.enabled ? 'เปลี่ยนรหัสเริ่มแข่ง' : 'เปิดใช้งานด้วยรหัสนี้'}
+              </button>
+
+              {scorerStatus?.enabled && (
+                <button
+                  onClick={doRemoveScorerCode}
+                  disabled={busy === 'scorer'}
+                  className={`${btn} border border-rose-200 text-rose-700 hover:bg-rose-50 mt-2 w-full flex items-center justify-center gap-2`}
+                >
+                  <XCircle className="w-4 h-4" /> ปิดการบันทึกผลด้วยรหัส
+                </button>
+              )}
+
+              <p className="text-[11px] text-slate-500 mt-3 leading-relaxed border-t border-slate-100 pt-2">
+                รหัสนี้ให้สิทธิ์ <b>บันทึกผลของรายการนี้อย่างเดียว</b> —
+                แก้รายชื่อทีม ตรวจสลิปเงิน หรือตั้งค่ารายการไม่ได้
+                · รหัสของรายการอื่นแยกกันคนละรหัส
+              </p>
+            </>
+          )}
         </Card>
 
         {/* ── เพลงประกอบจอ ──────────────────────────────────────── */}
