@@ -577,3 +577,46 @@ export const uploadFile = async (file: File, kind: 'player' | 'logo' | 'doc' | '
   const r = await apiUpload('uploadFile', fd);
   return r.url;
 };
+
+/* ── ข้อความผู้ชมสำหรับขึ้นแถบวิ่งบนจอถ่ายทอดสด ────────────────────────
+ *
+ * ⚠️ ข้อความที่ส่งเข้ามาจะยังไม่ขึ้นจอจนกว่าเจ้าหน้าที่จะอนุมัติ
+ * ปลายทางคือจอที่ถ่ายทอดออกไปให้คนทั้งอำเภอเห็น — การพลาดครั้งเดียวลบไม่ได้
+ */
+export interface BroadcastComment {
+  id: string;
+  author: string;
+  /** รูปจากบัญชีผู้ใช้ — ว่างเมื่อผู้ส่งไม่ได้ล็อกอิน ซึ่งเป็นกรณีส่วนใหญ่ */
+  picture?: string;
+  message: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  matchId?: string | null;
+  at?: string;
+  moderatedAt?: string | null;
+  moderatedBy?: string | null;
+}
+
+/** ผู้ชมส่งข้อความ — เข้าคิวรออนุมัติเสมอ */
+export const submitBroadcastComment = async (data: {
+  tournamentId: string; message: string; authorName?: string; matchId?: string;
+}): Promise<{ commentId: string; status: string; note: string }> =>
+  apiPost('submitBroadcastComment', data);
+
+/** เฉพาะที่อนุมัติแล้ว — ใช้แสดงบนหน้าเว็บให้คนดูเห็นว่ามีใครส่งอะไรบ้าง */
+export const fetchBroadcastComments = async (
+  tournamentId: string, limit = 40,
+): Promise<BroadcastComment[]> =>
+  (await apiGet<any>('getBroadcastComments', { tournamentId, limit: String(limit) })).comments ?? [];
+
+/** คิวรอตรวจ — เจ้าหน้าที่ของรายการเท่านั้น */
+export const fetchBroadcastQueue = async (
+  tournamentId: string, status: 'pending' | 'approved' | 'rejected' = 'pending',
+): Promise<{ comments: BroadcastComment[]; counts: Record<string, number> }> => {
+  const r = await apiGet<any>('listBroadcastComments', { tournamentId, status });
+  return { comments: r.comments ?? [], counts: r.counts ?? {} };
+};
+
+export const moderateBroadcastComments = async (
+  tournamentId: string, commentIds: string[], status: 'approved' | 'rejected' | 'pending',
+): Promise<number> =>
+  (await apiPost<any>('moderateBroadcastComment', { tournamentId, commentIds, status })).updated ?? 0;

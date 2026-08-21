@@ -37,6 +37,7 @@ import PaymentInfoCard from './components/PaymentInfoCard';
 import LivePage from './components/LivePage';
 import CommentaryDesk from './components/CommentaryDesk';
 import SponsorPage from './components/SponsorPage';
+import BroadcastComments from './components/BroadcastComments';
 import TournamentFinancePage from './components/TournamentFinancePage';
 import CertificatePage from './components/CertificatePage';
 import VerifyCertificatePage from './components/VerifyCertificatePage';
@@ -1860,6 +1861,22 @@ export default function App() {
           notify={showNotification}
         />
       )}
+      {/* ข้อความผู้ชมขึ้นแถบวิ่ง — เปิดสาธารณะ ใครมีลิงก์ก็ส่งได้
+          ความปลอดภัยมาจาก "ต้องอนุมัติก่อนขึ้นจอ" ไม่ใช่จาก "ต้องล็อกอินก่อนส่ง"
+          เจ้าหน้าที่/แอดมินเห็นแท็บคัดกรองเพิ่มมาในหน้าเดียวกัน */}
+      {currentView === 'saycheer' && (currentTournamentId || programmeScope.tournament) && (
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          {/* สีเดียวกับปุ่มย้อนกลับหน้าอื่น — พื้นเว็บนี้เป็นสีขาว ตัวอักษรขาวจึงหายไปทั้งปุ่ม */}
+          <button
+            onClick={() => goTo('home')}
+            className="mb-4 text-slate-500 hover:text-indigo-600 flex items-center gap-2 text-sm font-bold transition bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200"
+          >&larr; กลับหน้าหลัก</button>
+          <BroadcastComments
+            tournamentId={currentTournamentId || programmeScope.tournament!.id}
+            canModerate={currentUser?.role === 'admin' || currentUser?.role === 'staff'}
+          />
+        </div>
+      )}
       {/* เกียรติบัตร — เปิดให้ทุกคนดูเมื่อเจ้าภาพเปิดสวิตช์
           ปุ่มตั้งค่า/ออกแบบซ่อนในหน้านั้นตาม canManage ที่ api ตอบกลับมา */}
       {currentView === 'certificates' && currentTournamentId && activeTournament && (
@@ -2297,6 +2314,10 @@ export default function App() {
                       <button onClick={() => goTo('commentary')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
                           <Mic className="w-5 h-5 shrink-0" />
                           <span className="text-left leading-snug flex-1 min-w-0">โต๊ะพากย์<span className="block text-[11px] font-medium text-indigo-100 mt-1">ผลสด สถิติ และประเด็นพร้อมพูด</span></span>
+                      </button>
+                      <button onClick={() => goTo('saycheer')} className="min-h-[4.5rem] rounded-xl bg-white/10 border border-white/30 text-white font-black flex items-center gap-3 px-4 py-3 hover:bg-white/20 transition text-left">
+                        <span className="text-2xl">💬</span>
+                        <span className="leading-tight">ส่งกำลังใจขึ้นจอ<br /><span className="text-[11px] font-bold opacity-70">ข้อความขึ้นแถบวิ่งตอนถ่ายทอด</span></span>
                       </button>
                       <button onClick={() => goTo('sponsors')} className="min-h-[4.5rem] rounded-xl bg-amber-400 text-amber-950 font-black flex items-center gap-3 px-4 py-3 shadow-lg hover:bg-amber-300 transition text-left">
                           <Handshake className="w-5 h-5 shrink-0" />

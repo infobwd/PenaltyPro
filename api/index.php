@@ -126,6 +126,14 @@ $routes = [
     'productionHeartbeat' => 'production.php',  // เครื่องถ่ายทอดรายงานตัวนาทีละครั้ง
     'productionNodes'     => 'production.php',  // รายชื่อเครื่องถ่ายทอด (แอดมินเท่านั้น)
 
+    // --- ข้อความผู้ชมขึ้นแถบวิ่ง (ต้องอนุมัติก่อนขึ้นจอเสมอ) ---------------
+    // เพิ่มใหม่ล้วน ไม่แตะ action เดิม — ลบสี่บรรทัดนี้กับ broadcast.php ทิ้ง
+    // แล้วระบบเดิมยังทำงานครบเหมือนไม่เคยมี
+    'submitBroadcastComment'   => 'broadcast.php',  // ผู้ชมส่ง (เข้าคิวรออนุมัติ)
+    'getBroadcastComments'     => 'broadcast.php',  // เฉพาะที่อนุมัติแล้ว — เครื่องถ่ายทอดใช้
+    'listBroadcastComments'    => 'broadcast.php',  // คิวรอตรวจ (เจ้าหน้าที่ของรายการ)
+    'moderateBroadcastComment' => 'broadcast.php',  // อนุมัติ/ปฏิเสธ/เอาลง
+
     // --- ใบเกียรติบัตร -----------------------------------------------------
     'getCertificateData'      => 'certificates.php',
     'saveCertificateSettings' => 'certificates.php',
